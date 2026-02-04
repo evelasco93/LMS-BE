@@ -1,6 +1,18 @@
-# Lead Intake Prototype
+# Lead Intake API - Prototype MVP
 
-AWS-based lead intake system using API Gateway, Lambda, and DynamoDB with IPQS and TrustedForm validation.
+A quick and simple AWS serverless API for lead intake with fraud detection and validation. This is a prototype MVP built for rapid development and testing purposes with straightforward implementation focused on core functionality.
+
+## ⚠️ Prototype Notice
+
+This is a proof-of-concept implementation focused on essential lead validation features:
+
+- **No advanced lead management**: Basic create and list operations only
+- **Minimal error recovery**: Limited retry logic for external API failures  
+- **Simple validation flow**: Sequential duplicate check, then parallel IPQS/TrustedForm validation
+- **No rate limiting**: Basic API Gateway throttling only
+- **Basic security**: API key authentication not implemented (use AWS IAM or API keys in production)
+- **Direct third-party integration**: No circuit breakers or fallback mechanisms
+- **All leads stored**: Even failed validations are saved to DynamoDB for analysis
 
 ## Project Structure
 
@@ -335,10 +347,59 @@ npm run synth              # Synthesize templates
 ## Stack Dependencies
 
 The stacks are deployed in the following order:
-1. Data Stack (DynamoDB)
-2. IAM Stack (depends on Data)
-3. Services Stack (depends on IAM)
-4. API Stack (depends on Services)
+1. **Data Stack** (DynamoDB) - Tables and GSI indexes
+2. **IAM Stack** (depends on Data) - Roles and policies
+3. **Services Stack** (depends on IAM) - Lambda functions
+4. **API Stack** (depends on Services) - API Gateway REST API
+
+## Technology Stack
+
+- **AWS CDK 2.100.0** - Infrastructure as Code framework
+- **TypeScript 5.2.2** - Type-safe language for CDK and Lambda
+- **Node.js 20 (ARM64)** - Lambda runtime environment
+- **ts-lambda-api 0.7.1** - Decorator-based routing (@apiController, @POST, @GET)
+- **inversify 6.0.2** - Dependency injection container
+- **reflect-metadata 0.2.2** - Metadata reflection for decorators
+- **AWS SDK v3** - DynamoDB client (lib-dynamodb)
+- **aws-sdk v2.1693.0** - Required for lambda-api compatibility
+- **axios 1.6.0** - HTTP client for IPQS and TrustedForm APIs
+- **uuid 9.0.0** - UUID v4 generation for lead IDs
+- **esbuild** - Fast bundler via NodejsFunction
+- **API Gateway** - RESTful API endpoint
+- **DynamoDB** - NoSQL database with pay-per-request billing
+- **Lambda** - Serverless compute (Node.js 20, ARM64)
+
+## Limitations & Future Enhancements
+
+As a prototype MVP, the following features are intentionally not implemented:
+
+❌ **No lead update/delete operations** - Create and read only  
+❌ **No pagination** - GET endpoint returns all leads (scan entire table)  
+❌ **No filtering or search** - No query parameters for filtering results  
+❌ **No authentication** - API is publicly accessible (add API keys or Cognito for production)  
+❌ **No rate limiting** - Only basic API Gateway throttling  
+❌ **No retry logic** - IPQS/TrustedForm failures are caught but not retried  
+❌ **No circuit breakers** - No fallback if external APIs are down  
+❌ **No async processing** - Validation happens synchronously (could use SQS for async)  
+❌ **No data export** - No CSV/Excel export functionality  
+❌ **No webhooks** - No notifications for new leads  
+❌ **No analytics** - Basic validation flags only (no aggregated metrics)  
+❌ **No multi-region deployment** - Single region only (us-east-1)  
+❌ **No automated testing** - No unit tests or integration tests  
+❌ **No monitoring/alerting** - CloudWatch logs only (no custom metrics or alarms)  
+❌ **No data retention policies** - Leads stored indefinitely
+
+## Notes
+
+- **Time Storage**: All timestamps stored in UTC format for consistency
+- **Duplicate Detection**: Only duplicates are NOT saved to DynamoDB (all other leads are saved regardless of validation results)
+- **Validation Priority**: Duplicate check runs first (fast), then IPQS and TrustedForm in parallel
+- **sellable Flag**: Only `true` if lead passes all validations (duplicate check, IPQS, TrustedForm)
+- **Error Messages**: Detailed rejection reasons returned to caller but lead is still saved with validation results
+- **Resource Naming**: Pattern `{tenant}-{system}-{env}-{type}-{name}` for all AWS resources
+- **Bundling**: esbuild bundles all dependencies (externalModules: []) for faster cold starts
+- **GSI Usage**: phone-index and email-index enable efficient duplicate lookups without table scans
+- **Code Structure**: Decorator-based controllers with dependency injection for clean separation of concerns
 
 ## License
 
