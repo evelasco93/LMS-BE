@@ -1,49 +1,45 @@
 {
-  "name": "prototype-lead-intake",
-  "version": "1.0.0",
-  "description": "AWS CDK Prototype for Lead Intake System",
-  "main": "index.js",
+  "name": "lms-mvp-ev",
+  "version": "0.0.1",
+  "description": "Lead Management System MVP",
   "scripts": {
-    "build": "./scripts/build.sh",
-    "build:handler": "tsc -p tsconfig.handler.json",
-    "build:cdk": "tsc -p tsconfig.json",
-    "watch": "tsc -w",
-    "test": "jest",
-    "cdk": "cdk",
-    "deploy": "./scripts/deploy.sh",
-    "synth": "cdk synth",
-    "bootstrap": "cdk bootstrap",
-    "diff": "cdk diff",
-    "test:api": "./scripts/test.sh https://l0gjg111fk.execute-api.us-east-1.amazonaws.com/dev"
+    "build": "tsc && npm run build:handlers",
+    "build:clients": "cd handlers/clients && tsc",
+    "build:affiliates": "cd handlers/affiliates && tsc",
+    "build:handlers": "npm run build:clients && npm run build:affiliates",
+    "test": "npm run test:clients && npm run test:affiliates",
+    "test:clients": "cd handlers/clients && npm test",
+    "test:affiliates": "cd handlers/affiliates && npm test",
+    "test:unit": "npm run test:clients:unit && npm run test:affiliates:unit",
+    "test:clients:unit": "cd handlers/clients && npm run test:unit",
+    "test:affiliates:unit": "cd handlers/affiliates && npm run test:unit"
   },
-  "keywords": [],
-  "author": "",
+  "author": "Edgar Velasco",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.450.0",
-    "@aws-sdk/lib-dynamodb": "^3.450.0",
-    "aws-cdk-lib": "^2.100.0",
-    "aws-sdk": "^2.1693.0",
-    "axios": "^1.6.0",
-    "constructs": "^10.0.0",
-    "esbuild": "^0.19.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/util-dynamodb": "^3.600.0",
+    "aws-cdk-lib": "^2.160.0",
+    "constructs": "^10.3.0",
     "inversify": "^6.0.2",
-    "js-yaml": "^4.1.1",
     "reflect-metadata": "^0.2.2",
-    "source-map-support": "^0.5.21",
-    "ts-lambda-api": "^0.7.1",
-    "uuid": "^9.0.0"
+    "ts-lambda-api": "^2.5.3",
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.130",
-    "@types/node": "^20.8.0",
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.8.0",
     "@types/uuid": "^10.0.0",
-    "aws-cdk": "^2.100.0",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.2.2"
+    "@vitest/coverage-v8": "^2.1.0",
+    "aws-cdk": "^2.160.0",
+    "esbuild": "^0.24.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   },
-  "peerDependencies": {
-    "@aws-sdk/client-dynamodb": "^3.450.0",
-    "@aws-sdk/lib-dynamodb": "^3.450.0"
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

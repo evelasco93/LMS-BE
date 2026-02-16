@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "module": "commonjs",
-    "lib": ["ES2020"],
+    "lib": ["ES2022"],
     "declaration": true,
     "strict": true,
     "noImplicitAny": true,
@@ -23,9 +23,25 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@cdk/*": ["cdk/*"],
+      "@handlers/*": ["handlers/*"],
+      "@shared/*": ["shared/*"]
+    },
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["**/*.ts"],
-  "exclude": ["node_modules", "cdk.out", "dist"]
+  "include": [
+    "cdk/**/*.ts",
+    "shared/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "cdk.out",
+    "dist",
+    "handlers",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
 }

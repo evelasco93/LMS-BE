@@ -1,0 +1,30 @@
+{
+  "name": "@lms/shared",
+  "version": "1.0.0",
+  "description": "Shared library for LMS Lead Intake",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest"
+  },
+  "keywords": [
+    "utils",
+    "internal",
+    "library"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.691.0",
+    "@aws-sdk/client-s3": "^3.691.0",
+    "@aws-sdk/lib-dynamodb": "^3.691.0",
+    "inversify": "^6.0.2",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -22,7 +22,7 @@ NC='\033[0m' # No Color
 # Default values
 STACK="${1:-all}"
 ACTION="${2:-deploy}"
-CDK_ENV="${CDK_ENV:-dev}"
+ENVIRONMENT="${ENVIRONMENT:-dev}"
 
 # Validate inputs
 validate_input() {
@@ -73,24 +73,27 @@ print_usage() {
 get_stack_names() {
   local stack_type="$1"
   local env="$2"
-  local tenant="${CDK_TENANT:-smashorbit}"
-  local system="${CDK_SYSTEM:-prototype-lms}"
+  local tenant="${TENANT}"
+  local system="${SYSTEM:-lms}"
+  
+  # Build app prefix (tenant-system-env)
+  local prefix="${tenant}-${system}-${env}"
   
   case "$stack_type" in
     all)
-      echo "${tenant}-${system}-data-${env}-stack ${tenant}-${system}-iam-${env}-stack ${tenant}-${system}-services-${env}-stack ${tenant}-${system}-api-${env}-stack"
+      echo "${prefix}-IamStack ${prefix}-DataStack ${prefix}-ServicesStack ${prefix}-ApiStack"
       ;;
     data)
-      echo "${tenant}-${system}-data-${env}-stack"
+      echo "${prefix}-DataStack"
       ;;
     iam)
-      echo "${tenant}-${system}-iam-${env}-stack"
+      echo "${prefix}-IamStack"
       ;;
     svc)
-      echo "${tenant}-${system}-services-${env}-stack"
+      echo "${prefix}-ServicesStack"
       ;;
     api)
-      echo "${tenant}-${system}-api-${env}-stack"
+      echo "${prefix}-ApiStack"
       ;;
   esac
 }
@@ -124,21 +127,34 @@ main() {
   validate_input
   
   echo -e "${GREEN}CDK Deploy Script${NC}"
-  echo "Environment: $CDK_ENV"
-  echo "Tenant: ${CDK_TENANT:-smashorbit}"
-  echo "System: ${CDK_SYSTEM:-prototype-lms}"
+  echo "Environment: $ENVIRONMENT"
+  echo "Tenant: ${TENANT}"
+  echo "System: ${SYSTEM:-lms}"
   echo "Stack: $STACK"
   echo "Action: $ACTION"
   echo ""
   
-  # Export environment variable for CDK
-  export CDK_ENV="$CDK_ENV"
+  # Check if required environment variables are set
+  if [[ -z "$ENVIRONMENT" ]]; then
+    echo -e "${RED}Error: ENVIRONMENT is not set${NC}"
+    echo "Run: source ./scripts/env-dev.sh"
+    exit 1
+  fi
+  
+  if [[ -z "$TENANT" ]]; then
+    echo -e "${RED}Error: TENANT is not set${NC}"
+    echo "Run: source ./scripts/env-dev.sh"
+    exit 1
+  fi
   
   # Get the stack names
-  STACK_NAMES=$(get_stack_names "$STACK" "$CDK_ENV")
+  STACK_NAMES=$(get_stack_names "$STACK" "$ENVIRONMENT")
+  
+  echo -e "${YELLOW}Stack names: $STACK_NAMES${NC}"
+  echo ""
   
   # Execute the CDK command
-  execute_cdk "$ACTION" "$STACK_NAMES" "$CDK_ENV"
+  execute_cdk "$ACTION" "$STACK_NAMES" "$ENVIRONMENT"
   
   echo ""
   echo -e "${GREEN}Done!${NC}"

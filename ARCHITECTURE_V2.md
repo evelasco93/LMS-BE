@@ -1060,7 +1060,7 @@ LOCATION 's3://{bucket}/leads/';
          │  └─> Continue if validated                           │
          │                                                       │
          │  STEP 5: Cap Validation & Increment                  │
-         │  ├─> Check affiliate.cap_type (daily/weekly/monthly) │
+         │  ├─> Check affiliate.cap_type (lifetime/daily/weekly/monthly) │
          │  ├─> Check if current period expired → Reset counter │
          │  ├─> If leads_sent_current_period >= cap_limit:      │
          │  │   ├─> Save to DynamoDB with rejected=true         │
@@ -1578,7 +1578,7 @@ async function validateCampaignKeyAndStatus(campaignKey, endpoint, rawPayload) {
     }
     
     // Cap NOT exceeded - Increment counters (atomic update)
-    const updateExpr = affiliate.cap_type === 'overall'
+    const updateExpr = affiliate.cap_type === 'lifetime'
       ? 'ADD affiliates[#idx].total_leads_sent :inc'
       : 'ADD affiliates[#idx].leads_sent_current_period :inc, affiliates[#idx].total_leads_sent :inc';
     
@@ -2495,14 +2495,14 @@ Content-Type: application/json
 
 // 429 Too Many Requests - Cap reached
 {
-  "error": "Weekly cap reached",  // Varies by cap_type: Daily/Weekly/Monthly/Overall
+  "error": "Weekly cap reached",  // Varies by cap_type: Daily/Weekly/Monthly/Lifetime
   "message": "You have reached your weekly lead cap for this campaign",
   "details": {
     "cap_type": "weekly",
     "cap_limit": 500,
     "leads_sent": 500,
     "remaining": 0,
-    "reset_time": "2026-02-10T00:00:00.000Z",  // null for 'overall' cap type
+    "reset_time": "2026-02-10T00:00:00.000Z",  // null for 'lifetime' cap type
     "period_start": "2026-02-03",
     "period_end": "2026-02-10"
   }
@@ -3083,7 +3083,7 @@ POST /v2/campaigns/{campaign_id}/affiliates
 {
   "affiliate_id": "AFF12345678",
   "status": "test",  // Optional, defaults to "test" if not provided. Values: test, live, inactive
-  "cap_type": "daily",  // Optional: daily, weekly, monthly, overall. Defaults to "daily"
+  "cap_type": "lifetime",  // Optional: daily, weekly, monthly, lifetime. Defaults to "lifetime"
   "cap_limit": 100,  // Maximum leads allowed for the cap period (required if cap_type provided)
   "custom_mapping_enabled": true,
   "field_mappings": {
@@ -3131,7 +3131,7 @@ PUT /v2/campaigns/{campaign_id}/affiliates/{affiliate_id}
 ```json
 {
   "status": "live",  // test, live, inactive
-  "cap_type": "weekly",  // daily, weekly, monthly, overall
+  "cap_type": "weekly",  // daily, weekly, monthly, lifetime
   "cap_limit": 500,
   "field_mappings": {
     "fname": "first_name",
@@ -3171,7 +3171,7 @@ GET /v2/campaigns/{campaign_id}/affiliates/{affiliate_id}/capacity
   "cap_period_start": "2026-02-03",  // Monday of current week
   "cap_period_end": "2026-02-10",    // Monday of next week
   "total_leads_sent": 1250,  // All-time total
-  "next_reset_time": "2026-02-10T00:00:00.000Z"  // null for 'overall' cap type
+  "next_reset_time": "2026-02-10T00:00:00.000Z"  // null for 'lifetime' cap type
 }
 ```
 
@@ -3942,7 +3942,7 @@ PUT /v2/tenant/notifications
    - Sent when affiliate reaches configured threshold (default 80%)
    - Sent when affiliate reaches 90% capacity
    - Sent when affiliate reaches 100% capacity (cap hit)
-   - Works with all cap types: daily, weekly, monthly, overall
+   - Works with all cap types: daily, weekly, monthly, lifetime
    - Includes: affiliate_id, campaign_id, cap_type, current count, cap limit, percentage, period dates
    - Sent to: `admin` email
 
