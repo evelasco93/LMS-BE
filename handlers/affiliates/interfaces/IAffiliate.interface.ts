@@ -1,4 +1,4 @@
-import { AffiliateStatus } from '../enums/affiliate-status.enum';
+import { AffiliateStatus } from "../enums/affiliate-status.enum";
 
 export interface IAffiliate {
   id: string;
@@ -7,7 +7,7 @@ export interface IAffiliate {
   phone?: string;
   company?: string;
   status: AffiliateStatus;
-  api_key: string;
+  affiliate_code?: string;
   created_at: string;
   updated_at: string;
 }

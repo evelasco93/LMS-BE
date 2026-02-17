@@ -1,8 +1,14 @@
-import { injectable } from 'inversify';
-import { constant } from '@shared/decorators/constant.decorator';
+import { injectable } from "inversify";
 
 @injectable()
 export class ClientConstants {
-  @constant
-  public readonly CLIENTS_TABLE_NAME = process.env.CLIENTS_TABLE_NAME!;
+  public readonly CLIENTS_TABLE_NAME: string;
+
+  constructor() {
+    this.CLIENTS_TABLE_NAME = process.env.CLIENTS_TABLE_NAME ?? "";
+
+    if (!this.CLIENTS_TABLE_NAME) {
+      throw new Error("CLIENTS_TABLE_NAME env var is required");
+    }
+  }
 }

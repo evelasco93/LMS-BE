@@ -1,23 +1,44 @@
-import { injectable, inject } from 'inversify';
-import { DynamoDBUtil } from '@shared/services/dynamodb.util';
-import { Logger } from '@shared/services/logger.util';
-import { IdGenerator } from '@shared/generators/id.generator';
-import { ClientConstants } from '../constants/client.constants';
-import { IClient } from '../interfaces/IClient.interface';
-import { ClientStatus } from '../enums/client-status.enum';
-import { CreateClientRequest, UpdateClientRequest, ListClientsQuery } from '../types/client-request.types';
-import { ServiceResult } from '../types/common.types';
+import { injectable, inject } from "inversify";
+import { DynamoDBUtil } from "@shared/services/dynamodb.util";
+import { Logger } from "@shared/services/logger.util";
+import { IdGenerator } from "@shared/generators/id.generator";
+import { ClientConstants } from "../constants/client.constants";
+import { IClient } from "../interfaces/IClient.interface";
+import { ClientStatus } from "../enums/client-status.enum";
+import {
+  CreateClientRequest,
+  UpdateClientRequest,
+  ListClientsQuery,
+} from "../types/client-request.types";
+import { ServiceResult } from "../types/common.types";
+import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 
 @injectable()
 export class ClientService {
   constructor(
-    @inject('DynamoDBUtil') private readonly dynamoDBUtil: DynamoDBUtil,
-    @inject('Logger') private readonly logger: Logger,
-    @inject('ClientConstants') private readonly constants: ClientConstants
+    @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
+    @inject("Logger") private readonly logger: Logger,
+    @inject("ClientConstants") private readonly constants: ClientConstants,
   ) {}
 
-  async createClient(request: CreateClientRequest): Promise<ServiceResult<IClient>> {
+  async createClient(
+    request: CreateClientRequest,
+  ): Promise<ServiceResult<IClient>> {
     try {
+      const { ok, extras, sanitized } = validateAllowedFields(
+        request as Record<string, unknown>,
+        ["name", "email", "phone", "client_code"],
+      );
+      if (!ok) {
+        return {
+          result: false,
+          error: `Invalid fields: ${extras.join(", ")}`,
+        };
+      }
+
+      const sanitizedRequest: CreateClientRequest =
+        sanitized as CreateClientRequest;
+
       const existing = await this.getClientByEmail(request.email);
       if (existing.result && existing.data) {
         return {
@@ -29,9 +50,9 @@ export class ClientService {
       const now = new Date().toISOString();
       const client: IClient = {
         id: IdGenerator.generateClientId(),
-        ...request,
+        ...sanitizedRequest,
         status: ClientStatus.ACTIVE,
-        api_key: this.generateApiKey(),
+        client_code: request.client_code,
         created_at: now,
         updated_at: now,
       };
@@ -41,16 +62,16 @@ export class ClientService {
         Item: client,
       });
 
-      this.logger.info('Client created successfully', { clientId: client.id });
+      this.logger.info("Client created successfully", { clientId: client.id });
       return {
         result: true,
         data: client,
       };
     } catch (error: any) {
-      this.logger.error('Failed to create client', error);
+      this.logger.error("Failed to create client", error);
       return {
         result: false,
-        error: error.message || 'Failed to create client',
+        error: error.message || "Failed to create client",
       };
     }
   }
@@ -74,10 +95,10 @@ export class ClientService {
         data: client,
       };
     } catch (error: any) {
-      this.logger.error('Failed to get client', error);
+      this.logger.error("Failed to get client", error);
       return {
         result: false,
-        error: error.message || 'Failed to get client',
+        error: error.message || "Failed to get client",
       };
     }
   }
@@ -86,10 +107,10 @@ export class ClientService {
     try {
       const queryResult = await this.dynamoDBUtil.query<IClient>({
         TableName: this.constants.CLIENTS_TABLE_NAME,
-        IndexName: 'email-index',
-        KeyConditionExpression: 'email = :email',
+        IndexName: "email-index",
+        KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: {
-          ':email': email,
+          ":email": email,
         },
         Limit: 1,
       });
@@ -100,36 +121,38 @@ export class ClientService {
         data: client || undefined,
       };
     } catch (error: any) {
-      this.logger.error('Failed to get client by email', error);
+      this.logger.error("Failed to get client by email", error);
       return {
         result: false,
-        error: error.message || 'Failed to get client by email',
+        error: error.message || "Failed to get client by email",
       };
     }
   }
 
-  async listClients(query: ListClientsQuery = {}): Promise<ServiceResult<{
-    items: IClient[];
-    count: number;
-    lastEvaluatedKey?: string;
-  }>> {
+  async listClients(query: ListClientsQuery = {}): Promise<
+    ServiceResult<{
+      items: IClient[];
+      count: number;
+      lastEvaluatedKey?: string;
+    }>
+  > {
     try {
       const { status, limit = 20, lastEvaluatedKey } = query;
 
       if (status) {
         const queryResult = await this.dynamoDBUtil.query<IClient>({
           TableName: this.constants.CLIENTS_TABLE_NAME,
-          IndexName: 'status-index',
-          KeyConditionExpression: '#status = :status',
+          IndexName: "status-index",
+          KeyConditionExpression: "#status = :status",
           ExpressionAttributeNames: {
-            '#status': 'status',
+            "#status": "status",
           },
           ExpressionAttributeValues: {
-            ':status': status,
+            ":status": status,
           },
           Limit: limit,
           ExclusiveStartKey: lastEvaluatedKey
-            ? JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString())
+            ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
             : undefined,
         });
 
@@ -139,7 +162,9 @@ export class ClientService {
             items: queryResult.items,
             count: queryResult.items.length,
             lastEvaluatedKey: queryResult.lastEvaluatedKey
-              ? Buffer.from(JSON.stringify(queryResult.lastEvaluatedKey)).toString('base64')
+              ? Buffer.from(
+                  JSON.stringify(queryResult.lastEvaluatedKey),
+                ).toString("base64")
               : undefined,
           },
         };
@@ -149,7 +174,7 @@ export class ClientService {
         TableName: this.constants.CLIENTS_TABLE_NAME,
         Limit: limit,
         ExclusiveStartKey: lastEvaluatedKey
-          ? JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString())
+          ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
           : undefined,
       });
 
@@ -159,20 +184,25 @@ export class ClientService {
           items: scanResult.items,
           count: scanResult.items.length,
           lastEvaluatedKey: scanResult.lastEvaluatedKey
-            ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString('base64')
+            ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
+                "base64",
+              )
             : undefined,
         },
       };
     } catch (error: any) {
-      this.logger.error('Failed to list clients', error);
+      this.logger.error("Failed to list clients", error);
       return {
         result: false,
-        error: error.message || 'Failed to list clients',
+        error: error.message || "Failed to list clients",
       };
     }
   }
 
-  async updateClient(id: string, request: UpdateClientRequest): Promise<ServiceResult<IClient>> {
+  async updateClient(
+    id: string,
+    request: UpdateClientRequest,
+  ): Promise<ServiceResult<IClient>> {
     try {
       const existing = await this.getClient(id);
       if (!existing.result || !existing.data) {
@@ -203,19 +233,19 @@ export class ClientService {
         TableName: this.constants.CLIENTS_TABLE_NAME,
         Key: { id },
         ...expression,
-        ReturnValues: 'ALL_NEW',
+        ReturnValues: "ALL_NEW",
       });
 
-      this.logger.info('Client updated successfully', { clientId: id });
+      this.logger.info("Client updated successfully", { clientId: id });
       return {
         result: true,
         data: updateResult as IClient,
       };
     } catch (error: any) {
-      this.logger.error('Failed to update client', error);
+      this.logger.error("Failed to update client", error);
       return {
         result: false,
-        error: error.message || 'Failed to update client',
+        error: error.message || "Failed to update client",
       };
     }
   }
@@ -235,22 +265,16 @@ export class ClientService {
         Key: { id },
       });
 
-      this.logger.info('Client deleted successfully', { clientId: id });
+      this.logger.info("Client deleted successfully", { clientId: id });
       return {
         result: true,
       };
     } catch (error: any) {
-      this.logger.error('Failed to delete client', error);
+      this.logger.error("Failed to delete client", error);
       return {
         result: false,
-        error: error.message || 'Failed to delete client',
+        error: error.message || "Failed to delete client",
       };
     }
-  }
-
-  private generateApiKey(): string {
-    const prefix = 'sk_live_';
-    const key = IdGenerator.generate(undefined, 32);
-    return `${prefix}${key}`;
   }
 }

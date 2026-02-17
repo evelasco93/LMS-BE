@@ -1,13 +1,15 @@
-import { ClientStatus } from '../enums/client-status.enum';
+import { ClientStatus } from "../enums/client-status.enum";
 
 export type CreateClientRequest = {
   name: string;
   email: string;
   phone?: string;
-  company?: string;
+  client_code?: string;
 };
 
-export type UpdateClientRequest = Partial<Omit<CreateClientRequest, 'email'>> & {
+export type UpdateClientRequest = Partial<
+  Omit<CreateClientRequest, "email">
+> & {
   email?: string;
   status?: ClientStatus;
 };

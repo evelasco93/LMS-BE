@@ -1,23 +1,45 @@
-import { injectable, inject } from 'inversify';
-import { DynamoDBUtil } from '@shared/services/dynamodb.util';
-import { Logger } from '@shared/services/logger.util';
-import { IdGenerator } from '@shared/generators/id.generator';
-import { AffiliateConstants } from '../constants/affiliate.constants';
-import { IAffiliate } from '../interfaces/IAffiliate.interface';
-import { AffiliateStatus } from '../enums/affiliate-status.enum';
-import { CreateAffiliateRequest, UpdateAffiliateRequest, ListAffiliatesQuery } from '../types/affiliate-request.types';
-import { ServiceResult } from '../types/common.types';
+import { injectable, inject } from "inversify";
+import { DynamoDBUtil } from "@shared/services/dynamodb.util";
+import { Logger } from "@shared/services/logger.util";
+import { IdGenerator } from "@shared/generators/id.generator";
+import { AffiliateConstants } from "../constants/affiliate.constants";
+import { IAffiliate } from "../interfaces/IAffiliate.interface";
+import { AffiliateStatus } from "../enums/affiliate-status.enum";
+import {
+  CreateAffiliateRequest,
+  UpdateAffiliateRequest,
+  ListAffiliatesQuery,
+} from "../types/affiliate-request.types";
+import { ServiceResult } from "../types/common.types";
+import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 
 @injectable()
 export class AffiliateService {
   constructor(
-    @inject('DynamoDBUtil') private readonly dynamoDBUtil: DynamoDBUtil,
-    @inject('Logger') private readonly logger: Logger,
-    @inject('AffiliateConstants') private readonly constants: AffiliateConstants
+    @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
+    @inject("Logger") private readonly logger: Logger,
+    @inject("AffiliateConstants")
+    private readonly constants: AffiliateConstants,
   ) {}
 
-  async createAffiliate(request: CreateAffiliateRequest): Promise<ServiceResult<IAffiliate>> {
+  async createAffiliate(
+    request: CreateAffiliateRequest,
+  ): Promise<ServiceResult<IAffiliate>> {
     try {
+      const { ok, extras, sanitized } = validateAllowedFields(
+        request as Record<string, unknown>,
+        ["name", "email", "phone", "company", "affiliate_code"],
+      );
+      if (!ok) {
+        return {
+          result: false,
+          error: `Invalid fields: ${extras.join(", ")}`,
+        };
+      }
+
+      const sanitizedRequest: CreateAffiliateRequest =
+        sanitized as CreateAffiliateRequest;
+
       const existing = await this.getAffiliateByEmail(request.email);
       if (existing.result && existing.data) {
         return {
@@ -29,9 +51,9 @@ export class AffiliateService {
       const now = new Date().toISOString();
       const affiliate: IAffiliate = {
         id: IdGenerator.generateAffiliateId(),
-        ...request,
+        ...sanitizedRequest,
         status: AffiliateStatus.TEST,
-        api_key: this.generateApiKey(),
+        affiliate_code: request.affiliate_code,
         created_at: now,
         updated_at: now,
       };
@@ -41,16 +63,18 @@ export class AffiliateService {
         Item: affiliate,
       });
 
-      this.logger.info('Affiliate created successfully', { affiliateId: affiliate.id });
+      this.logger.info("Affiliate created successfully", {
+        affiliateId: affiliate.id,
+      });
       return {
         result: true,
         data: affiliate,
       };
     } catch (error: any) {
-      this.logger.error('Failed to create affiliate', error);
+      this.logger.error("Failed to create affiliate", error);
       return {
         result: false,
-        error: error.message || 'Failed to create affiliate',
+        error: error.message || "Failed to create affiliate",
       };
     }
   }
@@ -74,10 +98,10 @@ export class AffiliateService {
         data: affiliate,
       };
     } catch (error: any) {
-      this.logger.error('Failed to get affiliate', error);
+      this.logger.error("Failed to get affiliate", error);
       return {
         result: false,
-        error: error.message || 'Failed to get affiliate',
+        error: error.message || "Failed to get affiliate",
       };
     }
   }
@@ -86,10 +110,10 @@ export class AffiliateService {
     try {
       const queryResult = await this.dynamoDBUtil.query<IAffiliate>({
         TableName: this.constants.AFFILIATES_TABLE_NAME,
-        IndexName: 'email-index',
-        KeyConditionExpression: 'email = :email',
+        IndexName: "email-index",
+        KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: {
-          ':email': email,
+          ":email": email,
         },
         Limit: 1,
       });
@@ -100,36 +124,38 @@ export class AffiliateService {
         data: affiliate || undefined,
       };
     } catch (error: any) {
-      this.logger.error('Failed to get affiliate by email', error);
+      this.logger.error("Failed to get affiliate by email", error);
       return {
         result: false,
-        error: error.message || 'Failed to get affiliate by email',
+        error: error.message || "Failed to get affiliate by email",
       };
     }
   }
 
-  async listAffiliates(query: ListAffiliatesQuery = {}): Promise<ServiceResult<{
-    items: IAffiliate[];
-    count: number;
-    lastEvaluatedKey?: string;
-  }>> {
+  async listAffiliates(query: ListAffiliatesQuery = {}): Promise<
+    ServiceResult<{
+      items: IAffiliate[];
+      count: number;
+      lastEvaluatedKey?: string;
+    }>
+  > {
     try {
       const { status, limit = 20, lastEvaluatedKey } = query;
 
       if (status) {
         const queryResult = await this.dynamoDBUtil.query<IAffiliate>({
           TableName: this.constants.AFFILIATES_TABLE_NAME,
-          IndexName: 'status-index',
-          KeyConditionExpression: '#status = :status',
+          IndexName: "status-index",
+          KeyConditionExpression: "#status = :status",
           ExpressionAttributeNames: {
-            '#status': 'status',
+            "#status": "status",
           },
           ExpressionAttributeValues: {
-            ':status': status,
+            ":status": status,
           },
           Limit: limit,
           ExclusiveStartKey: lastEvaluatedKey
-            ? JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString())
+            ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
             : undefined,
         });
 
@@ -139,7 +165,9 @@ export class AffiliateService {
             items: queryResult.items,
             count: queryResult.items.length,
             lastEvaluatedKey: queryResult.lastEvaluatedKey
-              ? Buffer.from(JSON.stringify(queryResult.lastEvaluatedKey)).toString('base64')
+              ? Buffer.from(
+                  JSON.stringify(queryResult.lastEvaluatedKey),
+                ).toString("base64")
               : undefined,
           },
         };
@@ -149,7 +177,7 @@ export class AffiliateService {
         TableName: this.constants.AFFILIATES_TABLE_NAME,
         Limit: limit,
         ExclusiveStartKey: lastEvaluatedKey
-          ? JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString())
+          ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
           : undefined,
       });
 
@@ -159,20 +187,25 @@ export class AffiliateService {
           items: scanResult.items,
           count: scanResult.items.length,
           lastEvaluatedKey: scanResult.lastEvaluatedKey
-            ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString('base64')
+            ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
+                "base64",
+              )
             : undefined,
         },
       };
     } catch (error: any) {
-      this.logger.error('Failed to list affiliates', error);
+      this.logger.error("Failed to list affiliates", error);
       return {
         result: false,
-        error: error.message || 'Failed to list affiliates',
+        error: error.message || "Failed to list affiliates",
       };
     }
   }
 
-  async updateAffiliate(id: string, request: UpdateAffiliateRequest): Promise<ServiceResult<IAffiliate>> {
+  async updateAffiliate(
+    id: string,
+    request: UpdateAffiliateRequest,
+  ): Promise<ServiceResult<IAffiliate>> {
     try {
       const existing = await this.getAffiliate(id);
       if (!existing.result || !existing.data) {
@@ -203,19 +236,19 @@ export class AffiliateService {
         TableName: this.constants.AFFILIATES_TABLE_NAME,
         Key: { id },
         ...expression,
-        ReturnValues: 'ALL_NEW',
+        ReturnValues: "ALL_NEW",
       });
 
-      this.logger.info('Affiliate updated successfully', { affiliateId: id });
+      this.logger.info("Affiliate updated successfully", { affiliateId: id });
       return {
         result: true,
         data: updateResult as IAffiliate,
       };
     } catch (error: any) {
-      this.logger.error('Failed to update affiliate', error);
+      this.logger.error("Failed to update affiliate", error);
       return {
         result: false,
-        error: error.message || 'Failed to update affiliate',
+        error: error.message || "Failed to update affiliate",
       };
     }
   }
@@ -235,22 +268,16 @@ export class AffiliateService {
         Key: { id },
       });
 
-      this.logger.info('Affiliate deleted successfully', { affiliateId: id });
+      this.logger.info("Affiliate deleted successfully", { affiliateId: id });
       return {
         result: true,
       };
     } catch (error: any) {
-      this.logger.error('Failed to delete affiliate', error);
+      this.logger.error("Failed to delete affiliate", error);
       return {
         result: false,
-        error: error.message || 'Failed to delete affiliate',
+        error: error.message || "Failed to delete affiliate",
       };
     }
-  }
-
-  private generateApiKey(): string {
-    const prefix = 'sk_test_';
-    const key = IdGenerator.generate(undefined, 32);
-    return `${prefix}${key}`;
   }
 }
