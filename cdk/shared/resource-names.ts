@@ -8,7 +8,7 @@ export class ResourceNameBuilder {
   constructor(
     private readonly system: string,
     private readonly environment: string,
-    private readonly tenant?: string
+    private readonly tenant?: string,
   ) {}
 
   /**
@@ -102,6 +102,16 @@ export class ResourceNameBuilder {
       ? `${this.tenant}-${this.system}-${resourceName}-policy-${this.environment}`
       : `${this.system}-${resourceName}-policy-${this.environment}`;
   }
+
+  /**
+   * Build Secrets Manager secret name
+   * Pattern: {tenant}-{system}-{resource}-secret-{environment}
+   */
+  public secret(resourceName: string): string {
+    return this.tenant
+      ? `${this.tenant}-${this.system}-${resourceName}-secret-${this.environment}`
+      : `${this.system}-${resourceName}-secret-${this.environment}`;
+  }
 }
 
 /**
@@ -109,7 +119,7 @@ export class ResourceNameBuilder {
  */
 export function createResourceNameBuilder(
   project: string,
-  environment: string
+  environment: string,
 ): ResourceNameBuilder {
   return new ResourceNameBuilder(project, environment);
 }

@@ -1,11 +1,11 @@
-import { IBaseStackProps } from '../../../types/base.types';
+import { IBaseStackProps } from "../../../types/base.types";
 
 /**
  * DynamoDB Key Configuration
  */
 export interface IKeyConfig {
   name: string;
-  type: 'S' | 'N' | 'B';
+  type: "S" | "N" | "B";
 }
 
 /**
@@ -15,7 +15,7 @@ export interface IGsiConfig {
   indexName: string;
   partitionKey: IKeyConfig;
   sortKey?: IKeyConfig;
-  projectionType: 'ALL' | 'KEYS_ONLY' | 'INCLUDE';
+  projectionType: "ALL" | "KEYS_ONLY" | "INCLUDE";
   nonKeyAttributes?: string[];
 }
 
@@ -31,6 +31,11 @@ export interface ITableConfig {
   deletionProtection?: boolean;
 }
 
+export interface ISecretConfig {
+  secretName: string;
+  description: string;
+}
+
 /**
  * Data Stack Configuration
  */
@@ -38,6 +43,13 @@ export interface IDataStackConfig {
   tables: {
     clients: ITableConfig;
     affiliates: ITableConfig;
+    campaigns: ITableConfig;
+    leads: ITableConfig;
+  };
+  secrets: {
+    ipqsCredentials: ISecretConfig;
+    trustedFormsCredentials: ISecretConfig;
+    internalApiAuthToken: ISecretConfig;
   };
 }
 

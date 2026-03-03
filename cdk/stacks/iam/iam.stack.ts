@@ -1,7 +1,13 @@
-import { Construct } from 'constructs';
-import { Stack } from 'aws-cdk-lib';
-import { Role, ServicePrincipal, ManagedPolicy, PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
-import { IIamStackProps, IRoleConfig } from './types/iam.types';
+import { Construct } from "constructs";
+import { Stack } from "aws-cdk-lib";
+import {
+  Role,
+  ServicePrincipal,
+  ManagedPolicy,
+  PolicyStatement,
+  Effect,
+} from "aws-cdk-lib/aws-iam";
+import { IIamStackProps, IRoleConfig } from "./types/iam.types";
 
 /**
  * IAM Stack
@@ -10,6 +16,13 @@ import { IIamStackProps, IRoleConfig } from './types/iam.types';
 export class IamStack extends Stack {
   public readonly clientsLambdaRole: Role;
   public readonly affiliatesLambdaRole: Role;
+  public readonly campaignsLambdaRole: Role;
+  public readonly leadsLambdaRole: Role;
+  public readonly tenantConfigLambdaRole: Role;
+  public readonly qaOrchestratorLambdaRole: Role;
+  public readonly qaDuplicateCheckLambdaRole: Role;
+  public readonly authLambdaRole: Role;
+  public readonly usersLambdaRole: Role;
 
   constructor(scope: Construct, id: string, props: IIamStackProps) {
     super(scope, id, props);
@@ -19,13 +32,54 @@ export class IamStack extends Stack {
     // Create Clients Lambda Role
     this.clientsLambdaRole = this.createRole(
       `${config.appPrefix}-ClientsLambdaRole`,
-      iamConfig.lambdaRoles.clients
+      iamConfig.lambdaRoles.clients,
     );
 
     // Create Affiliates Lambda Role
     this.affiliatesLambdaRole = this.createRole(
       `${config.appPrefix}-AffiliatesLambdaRole`,
-      iamConfig.lambdaRoles.affiliates
+      iamConfig.lambdaRoles.affiliates,
+    );
+
+    // Create Campaigns Lambda Role
+    this.campaignsLambdaRole = this.createRole(
+      `${config.appPrefix}-CampaignsLambdaRole`,
+      iamConfig.lambdaRoles.campaigns,
+    );
+
+    // Create Leads Lambda Role
+    this.leadsLambdaRole = this.createRole(
+      `${config.appPrefix}-LeadsLambdaRole`,
+      iamConfig.lambdaRoles.leads,
+    );
+
+    this.tenantConfigLambdaRole = this.createRole(
+      `${config.appPrefix}-TenantConfigLambdaRole`,
+      iamConfig.lambdaRoles.tenantConfig,
+    );
+
+    // Create QA Orchestrator Lambda Role
+    this.qaOrchestratorLambdaRole = this.createRole(
+      `${config.appPrefix}-QaOrchestratorLambdaRole`,
+      iamConfig.lambdaRoles.qaOrchestrator,
+    );
+
+    // Create QA Duplicate Check Lambda Role
+    this.qaDuplicateCheckLambdaRole = this.createRole(
+      `${config.appPrefix}-QaDuplicateCheckLambdaRole`,
+      iamConfig.lambdaRoles.qaDuplicateCheck,
+    );
+
+    // Create Auth Lambda Role
+    this.authLambdaRole = this.createRole(
+      `${config.appPrefix}-AuthLambdaRole`,
+      iamConfig.lambdaRoles.auth,
+    );
+
+    // Create Users Lambda Role
+    this.usersLambdaRole = this.createRole(
+      `${config.appPrefix}-UsersLambdaRole`,
+      iamConfig.lambdaRoles.users,
     );
 
     // Apply tags
@@ -45,19 +99,23 @@ export class IamStack extends Stack {
 
     // Attach managed policies
     if (roleConfig.managedPolicies) {
-      roleConfig.managedPolicies.forEach(policyArn => {
-        role.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName(policyArn));
+      roleConfig.managedPolicies.forEach((policyArn) => {
+        role.addManagedPolicy(
+          ManagedPolicy.fromAwsManagedPolicyName(policyArn),
+        );
       });
     }
 
     // Add inline policies
     if (roleConfig.inlinePolicies) {
-      roleConfig.inlinePolicies.forEach(policy => {
-        role.addToPolicy(new PolicyStatement({
-          effect: Effect.ALLOW,
-          actions: policy.actions,
-          resources: policy.resources,
-        }));
+      roleConfig.inlinePolicies.forEach((policy) => {
+        role.addToPolicy(
+          new PolicyStatement({
+            effect: Effect.ALLOW,
+            actions: policy.actions,
+            resources: policy.resources,
+          }),
+        );
       });
     }
 

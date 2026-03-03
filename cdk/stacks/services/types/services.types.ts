@@ -1,4 +1,4 @@
-import { IBaseStackProps } from '../../../types/base.types';
+import { IBaseStackProps } from "../../../types/base.types";
 
 /**
  * Lambda Function Configuration
@@ -6,22 +6,22 @@ import { IBaseStackProps } from '../../../types/base.types';
 export interface ILambdaConfig {
   /** Function name */
   functionName: string;
-  
+
   /** Entry point file path */
   entry: string;
-  
+
   /** Handler function name */
   handler: string;
-  
+
   /** Memory size in MB */
   memorySize?: number;
-  
+
   /** Timeout in seconds */
   timeout?: number;
-  
+
   /** Environment variables */
   environment?: Record<string, string>;
-  
+
   /** IAM role name to use */
   roleName: string;
 }
@@ -41,6 +41,11 @@ export interface IServiceConfig {
 export interface IServicesStackConfig {
   clients: IServiceConfig;
   affiliates: IServiceConfig;
+  campaigns: IServiceConfig;
+  leads: IServiceConfig;
+  tenantConfig: IServiceConfig;
+  qaOrchestrator: IServiceConfig;
+  qaDuplicateCheck: IServiceConfig;
 }
 
 /**

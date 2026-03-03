@@ -1,52 +1,135 @@
-import { Stack, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
-import { Table, AttributeType, BillingMode, ProjectionType } from 'aws-cdk-lib/aws-dynamodb';
-import { Construct } from 'constructs';
-import { IDataStackProps } from './types/data.types';
-import { DynamoDBTableStack } from './dynamodb-table.stack';
+import { Stack, CfnOutput } from "aws-cdk-lib";
+import { Table } from "aws-cdk-lib/aws-dynamodb";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
+import { Construct } from "constructs";
+import { IDataStackProps } from "./types/data.types";
+import { ClientsDataStack } from "./clients-data.stack";
+import { AffiliatesDataStack } from "./affiliates-data.stack";
+import { CampaignsDataStack } from "./campaigns-data.stack";
+import { LeadsDataStack } from "./leads-data.stack";
 
 /**
  * Main Data Stack
- * Contains all DynamoDB tables as nested stacks
  */
 export class DataStack extends Stack {
   public readonly clientsTable: Table;
   public readonly affiliatesTable: Table;
+  public readonly campaignsTable: Table;
+  public readonly leadsTable: Table;
+  public readonly ipqsCredentialsSecret: Secret;
+  public readonly trustedFormsCredentialsSecret: Secret;
+  public readonly internalApiAuthTokenSecret: Secret;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
 
     const { config, dataConfig } = props;
 
-    // Create Clients table
-    const clientsTableStack = new DynamoDBTableStack(this, `${config.appPrefix}-ClientsTable`, {
-      config: dataConfig.tables.clients,
-    });
-
-    // Create Affiliates table
-    const affiliatesTableStack = new DynamoDBTableStack(
+    const clientsDataStack = new ClientsDataStack(
       this,
-      `${config.appPrefix}-AffiliatesTable`,
+      `${config.appPrefix}-ClientsData`,
       {
-        config: dataConfig.tables.affiliates,
-      }
+        tableConfig: dataConfig.tables.clients,
+        logicalIdPrefix: config.appPrefix,
+      },
     );
 
-    // Expose tables
-    this.clientsTable = clientsTableStack.table;
-    this.affiliatesTable = affiliatesTableStack.table;
+    const affiliatesDataStack = new AffiliatesDataStack(
+      this,
+      `${config.appPrefix}-AffiliatesData`,
+      {
+        tableConfig: dataConfig.tables.affiliates,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
 
-    // Stack outputs
-    new CfnOutput(this, `${config.appPrefix}-ClientsTableName`, {
-      value: this.clientsTable.tableName,
-      exportName: `${config.appPrefix}-clients-table-name`,
+    const campaignsDataStack = new CampaignsDataStack(
+      this,
+      `${config.appPrefix}-CampaignsData`,
+      {
+        tableConfig: dataConfig.tables.campaigns,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+
+    const leadsDataStack = new LeadsDataStack(
+      this,
+      `${config.appPrefix}-LeadsData`,
+      {
+        tableConfig: dataConfig.tables.leads,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+
+    this.clientsTable = clientsDataStack.table;
+    this.affiliatesTable = affiliatesDataStack.table;
+    this.campaignsTable = campaignsDataStack.table;
+    this.leadsTable = leadsDataStack.table;
+
+    this.ipqsCredentialsSecret = new Secret(
+      this,
+      `${config.appPrefix}-IpqsCredentialsSecret`,
+      {
+        secretName: dataConfig.secrets.ipqsCredentials.secretName,
+        description: dataConfig.secrets.ipqsCredentials.description,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({ provider: "ipqs" }),
+          generateStringKey: "apiKey",
+          excludePunctuation: true,
+          passwordLength: 48,
+        },
+      },
+    );
+
+    this.trustedFormsCredentialsSecret = new Secret(
+      this,
+      `${config.appPrefix}-TrustedFormsCredentialsSecret`,
+      {
+        secretName: dataConfig.secrets.trustedFormsCredentials.secretName,
+        description: dataConfig.secrets.trustedFormsCredentials.description,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({ provider: "trusted_forms" }),
+          generateStringKey: "password",
+          excludePunctuation: true,
+          passwordLength: 48,
+        },
+      },
+    );
+
+    this.internalApiAuthTokenSecret = new Secret(
+      this,
+      `${config.appPrefix}-InternalApiAuthTokenSecret`,
+      {
+        secretName: dataConfig.secrets.internalApiAuthToken.secretName,
+        description: dataConfig.secrets.internalApiAuthToken.description,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({ tokenType: "bearer" }),
+          generateStringKey: "token",
+          passwordLength: 64,
+          excludePunctuation: true,
+        },
+      },
+    );
+
+    new CfnOutput(this, `${config.appPrefix}-IpqsCredentialsSecretName`, {
+      value: this.ipqsCredentialsSecret.secretName,
+      description: "IPQS credentials secret name",
     });
 
-    new CfnOutput(this, `${config.appPrefix}-AffiliatesTableName`, {
-      value: this.affiliatesTable.tableName,
-      exportName: `${config.appPrefix}-affiliates-table-name`,
+    new CfnOutput(
+      this,
+      `${config.appPrefix}-TrustedFormsCredentialsSecretName`,
+      {
+        value: this.trustedFormsCredentialsSecret.secretName,
+        description: "Trusted Forms credentials secret name",
+      },
+    );
+
+    new CfnOutput(this, `${config.appPrefix}-InternalApiAuthTokenSecretName`, {
+      value: this.internalApiAuthTokenSecret.secretName,
+      description: "Internal API auth token secret name",
     });
 
-    // Tags
     if (config.tags) {
       Object.entries(config.tags).forEach(([key, value]) => {
         this.tags.setTag(key, value);

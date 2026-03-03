@@ -1,0 +1,392 @@
+import { injectable, inject } from "inversify";
+import { DynamoDBUtil } from "@shared/services/dynamodb.util";
+import { Logger } from "@shared/services/logger.util";
+import { LambdaInvokeUtil } from "@shared/services/lambda-invoke.util";
+import { validateAllowedFields } from "@shared/utils/payload-validation.util";
+import { IdGenerator } from "@shared/generators/id.generator";
+import { LeadsConstants } from "../constants/leads.constants";
+import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
+import {
+  CreateLeadRequest,
+  ListLeadsQuery,
+  UpdateLeadRequest,
+} from "../types/lead-request.types";
+import { ServiceResult } from "../types/common.types";
+import { ILead } from "../interfaces/ILead.interface";
+import { CampaignStatus } from "../enums/campaign-status.enum";
+
+interface CampaignAffiliate {
+  affiliate_id: string;
+  campaign_key: string;
+  status?: CampaignParticipantStatus;
+}
+
+interface CampaignRecord {
+  id: string;
+  status: CampaignStatus;
+  affiliates: CampaignAffiliate[];
+  plugins?: {
+    duplicate_check?: {
+      enabled?: boolean;
+      criteria?: string[];
+    };
+  };
+}
+
+const DUPLICATE_REJECTION_REASON =
+  "Lead rejected by campaign duplicate_check plugin";
+
+interface QaOrchestratorResult {
+  duplicate?: boolean;
+  duplicate_matches?: {
+    lead_ids?: string[];
+  };
+}
+
+@injectable()
+export class LeadsService {
+  constructor(
+    @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
+    @inject("Logger") private readonly logger: Logger,
+    @inject("LambdaInvokeUtil")
+    private readonly lambdaInvokeUtil: LambdaInvokeUtil,
+    @inject("LeadsConstants") private readonly constants: LeadsConstants,
+  ) {}
+
+  async createLead(
+    request: CreateLeadRequest,
+    isTest: boolean,
+  ): Promise<ServiceResult<ILead>> {
+    try {
+      const { ok, extras, sanitized } = validateAllowedFields(
+        request as Record<string, unknown>,
+        ["campaign_id", "campaign_key", "payload"],
+      );
+
+      if (!ok) {
+        return { result: false, error: `Invalid fields: ${extras.join(", ")}` };
+      }
+
+      const campaignId = sanitized.campaign_id as string;
+      const campaignKey = sanitized.campaign_key as string;
+
+      if (!campaignId || !campaignKey) {
+        return {
+          result: false,
+          error: "campaign_id and campaign_key are required",
+        };
+      }
+
+      const campaign = await this.getCampaign(campaignId);
+      if (!campaign) {
+        return { result: false, error: "Campaign not found" };
+      }
+
+      const affiliate = campaign.affiliates.find(
+        (a) => a.campaign_key === campaignKey,
+      );
+      if (!affiliate) {
+        return { result: false, error: "Invalid campaign_key for campaign" };
+      }
+
+      const affiliateStatus =
+        affiliate.status ?? CampaignParticipantStatus.LIVE;
+
+      const statusCheck =
+        affiliateStatus === CampaignParticipantStatus.DISABLED
+          ? null
+          : this.validateStatus(campaign.status, isTest);
+
+      if (statusCheck) {
+        return { result: false, error: statusCheck };
+      }
+
+      if (
+        affiliateStatus !== CampaignParticipantStatus.DISABLED &&
+        isTest &&
+        affiliateStatus !== CampaignParticipantStatus.TEST
+      ) {
+        return {
+          result: false,
+          error: "Affiliate is not set to TEST for this campaign",
+        };
+      }
+
+      if (
+        affiliateStatus !== CampaignParticipantStatus.DISABLED &&
+        !isTest &&
+        affiliateStatus !== CampaignParticipantStatus.LIVE
+      ) {
+        return {
+          result: false,
+          error: "Affiliate must be LIVE for live leads",
+        };
+      }
+
+      const now = new Date().toISOString();
+      const qaResult = await this.runQaPlugins(campaign, {
+        campaign_id: campaignId,
+        campaign_key: campaignKey,
+        payload: sanitized.payload as Record<string, unknown> | undefined,
+      });
+
+      const duplicateMatchIds = Array.isArray(
+        qaResult.duplicate_matches?.lead_ids,
+      )
+        ? qaResult.duplicate_matches?.lead_ids.filter(
+            (leadId): leadId is string => typeof leadId === "string",
+          )
+        : [];
+
+      const duplicateCheckEnabled =
+        campaign.plugins?.duplicate_check?.enabled ?? true;
+      const duplicateDetected = qaResult.duplicate === true;
+      const rejectedByAffiliate =
+        affiliateStatus === CampaignParticipantStatus.DISABLED;
+      const rejectedByDuplicate = duplicateCheckEnabled && duplicateDetected;
+      const rejected = rejectedByAffiliate || rejectedByDuplicate;
+
+      const rejectionReason = rejectedByAffiliate
+        ? "Lead received while affiliate is DISABLED for this campaign"
+        : rejectedByDuplicate
+          ? DUPLICATE_REJECTION_REASON
+          : undefined;
+
+      const lead: ILead = {
+        id: IdGenerator.generateLeadId(),
+        campaign_id: campaignId,
+        campaign_key: campaignKey,
+        test: isTest,
+        payload: sanitized.payload as Record<string, unknown> | undefined,
+        duplicate: duplicateDetected,
+        duplicate_matches: {
+          lead_ids: duplicateMatchIds,
+        },
+        created_at: now,
+        affiliate_status_at_intake: affiliateStatus,
+        rejected,
+        rejection_reason: rejectionReason,
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        Item: lead,
+      });
+
+      this.logger.info("Lead stored", {
+        leadId: lead.id,
+        campaignId,
+        test: isTest,
+      });
+
+      return { result: true, data: lead };
+    } catch (error: any) {
+      this.logger.error("Failed to create lead", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create lead",
+      };
+    }
+  }
+
+  async listLeads(query: ListLeadsQuery = {}): Promise<
+    ServiceResult<{
+      items: ILead[];
+      count: number;
+      lastEvaluatedKey?: string;
+    }>
+  > {
+    try {
+      const { campaign_id, test, limit = 20, lastEvaluatedKey } = query;
+
+      const exclusiveStartKey = lastEvaluatedKey
+        ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
+        : undefined;
+
+      const filters: string[] = [];
+      const names: Record<string, string> = {};
+      const values: Record<string, any> = {};
+
+      if (campaign_id) {
+        filters.push("#campaign_id = :campaign_id");
+        names["#campaign_id"] = "campaign_id";
+        values[":campaign_id"] = campaign_id;
+      }
+
+      if (typeof test === "boolean") {
+        filters.push("#test = :test");
+        names["#test"] = "test";
+        values[":test"] = test;
+      }
+
+      const filterExpression = filters.length
+        ? filters.join(" AND ")
+        : undefined;
+
+      const scanResult = await this.dynamoDBUtil.scan<ILead>({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        Limit: limit,
+        ExclusiveStartKey: exclusiveStartKey,
+        ...(filterExpression
+          ? {
+              FilterExpression: filterExpression,
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: values,
+            }
+          : {}),
+      });
+
+      return {
+        result: true,
+        data: {
+          items: scanResult.items,
+          count: scanResult.items.length,
+          lastEvaluatedKey: scanResult.lastEvaluatedKey
+            ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
+                "base64",
+              )
+            : undefined,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to list leads", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list leads",
+      };
+    }
+  }
+
+  async getLead(id: string): Promise<ServiceResult<ILead>> {
+    try {
+      const lead = await this.dynamoDBUtil.get<ILead>({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        Key: { id },
+      });
+
+      if (!lead) {
+        return { result: false, error: `Lead ${id} not found` };
+      }
+
+      return { result: true, data: lead };
+    } catch (error: any) {
+      this.logger.error("Failed to get lead", error);
+      return { result: false, error: error.message || "Failed to get lead" };
+    }
+  }
+
+  async updateLead(
+    id: string,
+    request: UpdateLeadRequest,
+  ): Promise<ServiceResult<ILead>> {
+    try {
+      const { ok, extras, sanitized } = validateAllowedFields(
+        request as Record<string, unknown>,
+        ["payload"],
+      );
+
+      if (!ok) {
+        return { result: false, error: `Invalid fields: ${extras.join(", ")}` };
+      }
+
+      const existing = await this.dynamoDBUtil.get<ILead>({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        Key: { id },
+      });
+
+      if (!existing) {
+        return { result: false, error: `Lead ${id} not found` };
+      }
+
+      const updated: ILead = {
+        ...existing,
+        ...(sanitized.payload ? { payload: sanitized.payload } : {}),
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        Item: updated,
+      });
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update lead", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update lead",
+      };
+    }
+  }
+
+  private validateStatus(
+    status: CampaignStatus,
+    isTest: boolean,
+  ): string | null {
+    if (isTest) {
+      if (status === CampaignStatus.ACTIVE) {
+        return "Campaign is live; send to /lead";
+      }
+      if (status === CampaignStatus.INACTIVE) {
+        return "Campaign is inactive";
+      }
+      if (status === CampaignStatus.DRAFT) {
+        return "Campaign is in draft; move to TEST before sending test leads";
+      }
+      return null;
+    }
+
+    if (status === CampaignStatus.TEST) {
+      return "Campaign is in test mode; send to /lead/test";
+    }
+    if (status === CampaignStatus.INACTIVE) {
+      return "Campaign is inactive";
+    }
+    if (status === CampaignStatus.DRAFT) {
+      return "Campaign is in draft; move to TEST before live leads";
+    }
+    return null;
+  }
+
+  private async getCampaign(id: string): Promise<CampaignRecord | null> {
+    const campaign = await this.dynamoDBUtil.get<CampaignRecord>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+      Key: { id },
+    });
+
+    return campaign ?? null;
+  }
+
+  private async runQaPlugins(
+    campaign: CampaignRecord,
+    request: CreateLeadRequest,
+  ): Promise<QaOrchestratorResult> {
+    if (!this.constants.QA_ORCHESTRATOR_LAMBDA_NAME) {
+      return {
+        duplicate: false,
+        duplicate_matches: {
+          lead_ids: [],
+        },
+      };
+    }
+
+    try {
+      return await this.lambdaInvokeUtil.invokeJson<QaOrchestratorResult>({
+        functionName: this.constants.QA_ORCHESTRATOR_LAMBDA_NAME,
+        payload: {
+          campaign_id: request.campaign_id,
+          payload: request.payload ?? {},
+          plugins: campaign.plugins,
+        },
+      });
+    } catch (error) {
+      this.logger.error("Failed to execute QA orchestrator", error);
+
+      return {
+        duplicate: false,
+        duplicate_matches: {
+          lead_ids: [],
+        },
+      };
+    }
+  }
+}

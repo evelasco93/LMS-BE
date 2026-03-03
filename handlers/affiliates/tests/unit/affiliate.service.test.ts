@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AffiliateService } from "../../services/affiliate.service";
 import { CreateAffiliateRequest } from "../../types/affiliate-request.types";
 import { AffiliateStatus } from "../../enums/affiliate-status.enum";
@@ -42,7 +42,7 @@ describe("AffiliateService", () => {
       expect(result.data?.name).toBe(request.name);
       expect(result.data?.email).toBe(request.email);
       expect(result.data?.company).toBe(request.company);
-      expect(result.data?.status).toBe(AffiliateStatus.TEST);
+      expect(result.data?.status).toBe(AffiliateStatus.ACTIVE);
       expect(result.data?.id).toMatch(/^AF[A-Z0-9]{8}$/);
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
@@ -64,6 +64,20 @@ describe("AffiliateService", () => {
 
       expect(result.result).toBe(false);
       expect(result.error).toContain("already exists");
+      expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
+    });
+
+    it("rejects extra fields", async () => {
+      const result = await affiliateService.createAffiliate({
+        name: "Bad Affiliate",
+        email: "bad@example.com",
+        company: "Bad Co",
+        phone: "555",
+        extra: "nope",
+      } as any);
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("Invalid fields");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
   });
@@ -118,6 +132,156 @@ describe("AffiliateService", () => {
 
       expect(result.result).toBe(false);
       expect(result.data).toBeUndefined();
+    });
+
+    it("returns false result when query throws", async () => {
+      mockDynamoDBUtil.query.mockRejectedValueOnce(new Error("boom"));
+
+      const result =
+        await affiliateService.getAffiliateByEmail("error@example.com");
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("boom");
+    });
+  });
+
+  describe("listAffiliates", () => {
+    it("lists by status with pagination token", async () => {
+      mockDynamoDBUtil.query.mockResolvedValueOnce({
+        items: [mockAffiliate],
+        lastEvaluatedKey: { id: "AF1" },
+        count: 1,
+      });
+
+      const result = await affiliateService.listAffiliates({
+        status: AffiliateStatus.ACTIVE,
+        limit: 10,
+        lastEvaluatedKey: Buffer.from(JSON.stringify({ id: "AF0" })).toString(
+          "base64",
+        ),
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.items).toHaveLength(1);
+      expect(result.data?.lastEvaluatedKey).toBeTruthy();
+      expect(mockDynamoDBUtil.query).toHaveBeenCalled();
+    });
+
+    it("scans when no status is provided", async () => {
+      mockDynamoDBUtil.scan.mockResolvedValueOnce({
+        items: [mockAffiliate],
+        lastEvaluatedKey: undefined,
+        count: 1,
+      });
+
+      const result = await affiliateService.listAffiliates({ limit: 5 });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.items).toHaveLength(1);
+      expect(mockDynamoDBUtil.scan).toHaveBeenCalled();
+    });
+
+    it("handles list errors", async () => {
+      mockDynamoDBUtil.scan.mockRejectedValueOnce(new Error("scan fail"));
+
+      const result = await affiliateService.listAffiliates();
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("scan fail");
+    });
+  });
+
+  describe("updateAffiliate", () => {
+    it("updates affiliate when valid", async () => {
+      const spyGet = vi
+        .spyOn(affiliateService as any, "getAffiliate")
+        .mockResolvedValue({ result: true, data: mockAffiliate });
+      vi.spyOn(
+        affiliateService as any,
+        "getAffiliateByEmail",
+      ).mockResolvedValue({
+        result: false,
+      });
+      mockDynamoDBUtil.buildUpdateExpression.mockReturnValue({
+        UpdateExpression: "set #name = :name",
+        ExpressionAttributeNames: { "#name": "name" },
+        ExpressionAttributeValues: { ":name": "Updated" },
+      });
+      mockDynamoDBUtil.update.mockResolvedValueOnce({
+        ...mockAffiliate,
+        name: "Updated",
+      });
+
+      const result = await affiliateService.updateAffiliate("AF1", {
+        name: "Updated",
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.name).toBe("Updated");
+      expect(spyGet).toHaveBeenCalled();
+      expect(mockDynamoDBUtil.update).toHaveBeenCalled();
+    });
+
+    it("rejects when email already used", async () => {
+      vi.spyOn(affiliateService as any, "getAffiliate").mockResolvedValue({
+        result: true,
+        data: mockAffiliate,
+      });
+      vi.spyOn(
+        affiliateService as any,
+        "getAffiliateByEmail",
+      ).mockResolvedValue({
+        result: true,
+        data: mockAffiliate,
+      });
+
+      const result = await affiliateService.updateAffiliate("AF1", {
+        email: "new@example.com",
+      });
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("already exists");
+    });
+
+    it("rejects when affiliate missing", async () => {
+      vi.spyOn(affiliateService as any, "getAffiliate").mockResolvedValue({
+        result: false,
+      });
+
+      const result = await affiliateService.updateAffiliate("AF404", {
+        name: "Nope",
+      });
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("not found");
+      expect(mockDynamoDBUtil.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("deleteAffiliate", () => {
+    it("deletes when found", async () => {
+      vi.spyOn(affiliateService as any, "getAffiliate").mockResolvedValue({
+        result: true,
+        data: mockAffiliate,
+      });
+      mockDynamoDBUtil.delete.mockResolvedValueOnce(undefined);
+
+      const result = await affiliateService.deleteAffiliate("AF1");
+
+      expect(result.result).toBe(true);
+      expect(mockDynamoDBUtil.delete).toHaveBeenCalled();
+    });
+
+    it("returns error when missing", async () => {
+      vi.spyOn(affiliateService as any, "getAffiliate").mockResolvedValue({
+        result: false,
+      });
+
+      const result = await affiliateService.deleteAffiliate("AF404");
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("not found");
+      expect(mockDynamoDBUtil.delete).not.toHaveBeenCalled();
     });
   });
 });

@@ -14,7 +14,7 @@ export class ArnBuilder {
 
   constructor(config: IArnBuilderConfig) {
     this.region = config.region;
-    this.account = config.account || '${AWS::AccountId}';
+    this.account = config.account || "${AWS::AccountId}";
   }
 
   /**
@@ -48,14 +48,19 @@ export class ArnBuilder {
   /**
    * Build S3 object ARN
    */
-  s3Object(bucketName: string, objectKey: string = '*'): string {
+  s3Object(bucketName: string, objectKey: string = "*"): string {
     return `arn:aws:s3:::${bucketName}/${objectKey}`;
   }
 
   /**
    * Build API Gateway ARN
    */
-  apiGateway(apiId: string, stage: string = '*', method: string = '*', path: string = '*'): string {
+  apiGateway(
+    apiId: string,
+    stage: string = "*",
+    method: string = "*",
+    path: string = "*",
+  ): string {
     return `arn:aws:execute-api:${this.region}:${this.account}:${apiId}/${stage}/${method}/${path}`;
   }
 
@@ -78,5 +83,12 @@ export class ArnBuilder {
    */
   sqsQueue(queueName: string): string {
     return `arn:aws:sqs:${this.region}:${this.account}:${queueName}`;
+  }
+
+  /**
+   * Build Secrets Manager secret ARN pattern
+   */
+  secret(secretName: string): string {
+    return `arn:aws:secretsmanager:${this.region}:${this.account}:secret:${secretName}*`;
   }
 }

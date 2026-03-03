@@ -1,0 +1,38 @@
+import { CampaignStatus } from "../enums/campaign-status.enum";
+import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
+import {
+  DuplicateCheckCriteriaField,
+  IDuplicateCheckPluginConfig,
+} from "../interfaces/ICampaign.interface";
+
+export type CreateCampaignRequest = {
+  name: string;
+};
+
+export type LinkClientRequest = {
+  client_id: string;
+};
+
+export type LinkAffiliateRequest = {
+  affiliate_id: string;
+};
+
+export type UpdateParticipantStatusRequest = {
+  status: CampaignParticipantStatus;
+};
+
+export type UpdateCampaignStatusRequest = {
+  status: CampaignStatus;
+};
+
+export type UpdateCampaignPluginsRequest = {
+  duplicate_check?: Partial<IDuplicateCheckPluginConfig> & {
+    criteria?: DuplicateCheckCriteriaField[];
+  };
+};
+
+export type ListCampaignsQuery = {
+  status?: CampaignStatus;
+  limit?: number;
+  lastEvaluatedKey?: string;
+};

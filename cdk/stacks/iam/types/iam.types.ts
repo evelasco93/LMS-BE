@@ -1,4 +1,4 @@
-import { IBaseStackProps } from '../../../types/base.types';
+import { IBaseStackProps } from "../../../types/base.types";
 
 /**
  * IAM Role Configuration
@@ -6,16 +6,16 @@ import { IBaseStackProps } from '../../../types/base.types';
 export interface IRoleConfig {
   /** Role name */
   name: string;
-  
+
   /** Role description */
   description: string;
-  
+
   /** Service principal (e.g., 'lambda.amazonaws.com') */
   servicePrincipal: string;
-  
+
   /** Managed policy ARNs to attach */
   managedPolicies?: string[];
-  
+
   /** Inline policy statements */
   inlinePolicies?: {
     name: string;
@@ -32,6 +32,13 @@ export interface IIamStackConfig {
   lambdaRoles: {
     clients: IRoleConfig;
     affiliates: IRoleConfig;
+    campaigns: IRoleConfig;
+    leads: IRoleConfig;
+    tenantConfig: IRoleConfig;
+    qaOrchestrator: IRoleConfig;
+    qaDuplicateCheck: IRoleConfig;
+    auth: IRoleConfig;
+    users: IRoleConfig;
   };
 }
 

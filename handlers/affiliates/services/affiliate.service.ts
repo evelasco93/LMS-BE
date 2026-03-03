@@ -52,7 +52,7 @@ export class AffiliateService {
       const affiliate: IAffiliate = {
         id: IdGenerator.generateAffiliateId(),
         ...sanitizedRequest,
-        status: AffiliateStatus.TEST,
+        status: AffiliateStatus.ACTIVE,
         affiliate_code: request.affiliate_code,
         created_at: now,
         updated_at: now,

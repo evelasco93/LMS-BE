@@ -7,18 +7,15 @@
     "build:clients": "cd handlers/clients && tsc",
     "build:affiliates": "cd handlers/affiliates && tsc",
     "build:handlers": "npm run build:clients && npm run build:affiliates",
-    "test": "npm run test:clients && npm run test:affiliates",
-    "test:clients": "cd handlers/clients && npm test",
-    "test:affiliates": "cd handlers/affiliates && npm test",
-    "test:unit": "npm run test:clients:unit && npm run test:affiliates:unit",
-    "test:clients:unit": "cd handlers/clients && npm run test:unit",
-    "test:affiliates:unit": "cd handlers/affiliates && npm run test:unit"
+    "test": "./scripts/run-handler-tests.sh"
   },
   "author": "Edgar Velasco",
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-lambda": "^3.994.0",
     "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/client-secrets-manager": "^3.994.0",
     "@aws-sdk/lib-dynamodb": "^3.600.0",
     "@aws-sdk/util-dynamodb": "^3.600.0",
     "aws-cdk-lib": "^2.160.0",

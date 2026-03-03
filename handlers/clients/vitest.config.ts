@@ -1,32 +1,39 @@
-import { defineConfig } from 'vitest/config';
-import path from 'path';
+import { defineConfig } from "vitest/config";
+import path from "path";
 
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',
-    setupFiles: ['./tests/setup.ts'],
+    environment: "node",
+    setupFiles: ["./tests/setup.ts"],
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      provider: "v8",
+      reporter: ["text", "json", "html"],
       exclude: [
-        'node_modules/',
-        'tests/',
-        'dist/',
-        '*.config.ts',
+        "node_modules/",
+        "tests/",
+        "dist/",
+        "*.config.ts",
+        "app.ts",
+        "main.ts",
+        "constants/**",
+        "controllers/**",
+        "enums/**",
+        "interfaces/**",
+        "types/**",
       ],
     },
   },
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, '../../shared'),
-      '@interfaces': path.resolve(__dirname, './interfaces'),
-      '@types': path.resolve(__dirname, './types'),
-      '@enums': path.resolve(__dirname, './enums'),
-      '@services': path.resolve(__dirname, './services'),
-      '@controllers': path.resolve(__dirname, './controllers'),
-      '@modules': path.resolve(__dirname, './modules'),
-      '@constants': path.resolve(__dirname, './constants'),
+      "@shared": path.resolve(__dirname, "../../shared"),
+      "@interfaces": path.resolve(__dirname, "./interfaces"),
+      "@types": path.resolve(__dirname, "./types"),
+      "@enums": path.resolve(__dirname, "./enums"),
+      "@services": path.resolve(__dirname, "./services"),
+      "@controllers": path.resolve(__dirname, "./controllers"),
+      "@modules": path.resolve(__dirname, "./modules"),
+      "@constants": path.resolve(__dirname, "./constants"),
     },
   },
 });
