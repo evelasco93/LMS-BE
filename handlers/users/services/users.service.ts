@@ -5,6 +5,7 @@ import {
   AdminSetUserPasswordCommand,
   AdminDeleteUserCommand,
   AdminGetUserCommand,
+  AdminUpdateUserAttributesCommand,
   ListUsersCommand,
   AdminAddUserToGroupCommand,
   AdminRemoveUserFromGroupCommand,
@@ -42,7 +43,7 @@ export class UsersService {
   async createUser(
     request: CreateUserRequest,
   ): Promise<ServiceResult<CognitoUser>> {
-    const { email, password, role = "staff" } = request;
+    const { email, password, role = "staff", firstName, lastName } = request;
 
     if (!email || !password) {
       return { result: false, error: "email and password are required" };
@@ -65,6 +66,8 @@ export class UsersService {
           UserAttributes: [
             { Name: "email", Value: email },
             { Name: "email_verified", Value: "true" },
+            ...(firstName ? [{ Name: "given_name", Value: firstName }] : []),
+            ...(lastName ? [{ Name: "family_name", Value: lastName }] : []),
           ],
         }),
       );
@@ -94,6 +97,8 @@ export class UsersService {
         data: {
           username: email,
           email,
+          firstName,
+          lastName,
           status: "CONFIRMED",
           enabled: true,
           role,
@@ -147,6 +152,10 @@ export class UsersService {
           return {
             username: u.Username ?? "",
             email,
+            firstName: u.Attributes?.find((a) => a.Name === "given_name")
+              ?.Value,
+            lastName: u.Attributes?.find((a) => a.Name === "family_name")
+              ?.Value,
             status: u.UserStatus ?? "UNKNOWN",
             enabled: u.Enabled ?? true,
             role,
@@ -188,15 +197,18 @@ export class UsersService {
       if (names.includes("admin")) role = "admin";
       else if (names.includes("staff")) role = "staff";
 
-      const email =
-        userResp.UserAttributes?.find((a) => a.Name === "email")?.Value ??
-        username;
+      const attrs = userResp.UserAttributes ?? [];
+      const email = attrs.find((a) => a.Name === "email")?.Value ?? username;
+      const firstName = attrs.find((a) => a.Name === "given_name")?.Value;
+      const lastName = attrs.find((a) => a.Name === "family_name")?.Value;
 
       return {
         result: true,
         data: {
           username: userResp.Username ?? username,
           email,
+          firstName,
+          lastName,
           status: userResp.UserStatus ?? "UNKNOWN",
           enabled: userResp.Enabled ?? true,
           role,
@@ -220,9 +232,9 @@ export class UsersService {
     username: string,
     request: UpdateUserRequest,
   ): Promise<ServiceResult<CognitoUser>> {
-    const { role } = request;
+    const { role, firstName, lastName } = request;
 
-    if (!KNOWN_ROLES.includes(role)) {
+    if (role !== undefined && !KNOWN_ROLES.includes(role)) {
       return {
         result: false,
         error: `role must be one of: ${KNOWN_ROLES.join(", ")}`,
@@ -230,37 +242,56 @@ export class UsersService {
     }
 
     try {
-      // Get current groups
-      const groupsResp = await this.cognitoClient.send(
-        new AdminListGroupsForUserCommand({
-          UserPoolId: this.constants.COGNITO_USER_POOL_ID,
-          Username: username,
-        }),
-      );
+      // Update name attributes if provided
+      const nameAttrs: { Name: string; Value: string }[] = [
+        ...(firstName !== undefined
+          ? [{ Name: "given_name", Value: firstName }]
+          : []),
+        ...(lastName !== undefined
+          ? [{ Name: "family_name", Value: lastName }]
+          : []),
+      ];
+      if (nameAttrs.length > 0) {
+        await this.cognitoClient.send(
+          new AdminUpdateUserAttributesCommand({
+            UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+            Username: username,
+            UserAttributes: nameAttrs,
+          }),
+        );
+      }
 
-      // Remove from all known role groups
-      await Promise.all(
-        (groupsResp.Groups ?? [])
-          .filter((g) => KNOWN_ROLES.includes(g.GroupName as UserRole))
-          .map((g) =>
-            this.cognitoClient.send(
-              new AdminRemoveUserFromGroupCommand({
-                UserPoolId: this.constants.COGNITO_USER_POOL_ID,
-                Username: username,
-                GroupName: g.GroupName!,
-              }),
+      // Update role group if provided
+      if (role !== undefined) {
+        const groupsResp = await this.cognitoClient.send(
+          new AdminListGroupsForUserCommand({
+            UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+            Username: username,
+          }),
+        );
+
+        await Promise.all(
+          (groupsResp.Groups ?? [])
+            .filter((g) => KNOWN_ROLES.includes(g.GroupName as UserRole))
+            .map((g) =>
+              this.cognitoClient.send(
+                new AdminRemoveUserFromGroupCommand({
+                  UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+                  Username: username,
+                  GroupName: g.GroupName!,
+                }),
+              ),
             ),
-          ),
-      );
+        );
 
-      // Add to new role group
-      await this.cognitoClient.send(
-        new AdminAddUserToGroupCommand({
-          UserPoolId: this.constants.COGNITO_USER_POOL_ID,
-          Username: username,
-          GroupName: role,
-        }),
-      );
+        await this.cognitoClient.send(
+          new AdminAddUserToGroupCommand({
+            UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+            Username: username,
+            GroupName: role,
+          }),
+        );
+      }
 
       return this.getUser(username);
     } catch (error) {

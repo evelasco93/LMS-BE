@@ -1,0 +1,421 @@
+# Frontend Guide: LMS Campaigns, Participants, and Leads
+
+This doc summarizes how the LMS API behaves so the frontend can model the UI. API reference source: [api/openapi.json](api/openapi.json).
+
+## High-level flow
+
+- Create client(s) and affiliate(s).
+- Create a campaign (starts DRAFT).
+- Link at least one client and one affiliate to the campaign. Linking an affiliate returns a `campaign_key` used for all lead submissions from that affiliate. **Linking always sets participant status to TEST.**
+- Move campaign to TEST once both client and affiliate are linked. Participant status starts as TEST; change to LIVE via participant update endpoints.
+- Optionally flip participant statuses (TEST ↔ LIVE or DISABLED) via participant update endpoints.
+- Move campaign to ACTIVE only when campaign is currently TEST and it has at least one LIVE client and one LIVE affiliate (DISABLED participants are ignored for the LIVE requirement).
+- Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`.
+- Internal API is protected by Bearer token auth — call `POST /v2/auth/login` to get a token, then send `Authorization: Bearer <id_token>` on all internal API requests. **Use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
+- External lead intake is a separate API Gateway with POST-only routes. No API key required — the `campaign_id` and `campaign_key` in the request body serve as authentication.
+
+## Entities and statuses
+
+- Client status: ACTIVE, INACTIVE.
+- Affiliate status: ACTIVE, INACTIVE.
+- Campaign participant status: TEST, LIVE, DISABLED (per linked client/affiliate inside the campaign).
+- Campaign status: DRAFT → TEST → ACTIVE.
+
+## Endpoint walkthrough (key payloads)
+
+Examples assume base `https://.../v2`.
+
+- Internal API base (dev): `https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2`
+- External leads API base (dev): `https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2`
+
+**Create client** `POST /clients`
+
+```json
+{
+  "name": "Acme Corp",
+  "email": "ops@acme.com",
+  "phone": "+15551234567",
+  "client_code": "ACME-001"
+}
+```
+
+Response returns the client with `id` and timestamps.
+
+**Create affiliate** `POST /affiliates`
+
+```json
+{
+  "name": "Growth Partners",
+  "email": "contact@growth.io",
+  "phone": "+15559876543",
+  "affiliate_code": "GROW-99"
+}
+```
+
+**Create campaign** `POST /campaigns`
+
+```json
+{ "name": "Spring Promo" }
+```
+
+Starts as `status=DRAFT`.
+
+**Link client to campaign** `POST /campaigns/{id}/clients` (always TEST)
+
+```json
+{
+  "client_id": "CLABC12345"
+}
+```
+
+Adds `added_at` on the participant record.
+
+**Link affiliate to campaign** `POST /campaigns/{id}/affiliates` (always TEST; returns `campaign_key`)
+
+```json
+{
+  "affiliate_id": "AFABC12345"
+}
+```
+
+Returns `campaign_key` plus updated campaign; affiliate participant also records `added_at`.
+
+**Update linked participant status**
+
+- Client: `PUT /campaigns/{id}/clients/{clientId}`
+- Affiliate: `PUT /campaigns/{id}/affiliates/{affiliateId}`
+
+```json
+{ "status": "LIVE" }
+```
+
+Valid values: TEST, LIVE, DISABLED. Use these endpoints to move participants from TEST to LIVE (or disable); links always start in TEST.
+
+**Remove linked participant**
+
+- Client: `DELETE /campaigns/{id}/clients/{clientId}`
+- Affiliate: `DELETE /campaigns/{id}/affiliates/{affiliateId}`
+  Removes participant from campaign (useful for cleanup or replacing participants).
+
+**Move campaign status** `PUT /campaigns/{id}/status`
+
+```json
+{ "status": "TEST" } // or "ACTIVE"
+```
+
+Rules:
+
+- To TEST: requires at least one linked client and one linked affiliate.
+- To ACTIVE: campaign must already be TEST, at least one LIVE client and one LIVE affiliate, and no participants remaining in TEST (DISABLED allowed but do not count as LIVE).
+
+**Update campaign plugins** `PUT /campaigns/{id}/plugins`
+
+```json
+{
+  "duplicate_check": {
+    "enabled": true,
+    "criteria": ["email"]
+  }
+}
+```
+
+Rules:
+
+- `duplicate_check.enabled` toggles duplicate detection during lead intake.
+- `duplicate_check.criteria` supports `phone` and/or `email`.
+- `duplicate_check.enabled=true` requires at least one active criterion (`phone` or `email`).
+- When `duplicate_check.enabled=true`, duplicate matches are stored with `duplicate=true` and are marked `rejected=true` with a duplicate-check rejection reason.
+- When `duplicate_check.enabled=false`, duplicate-check does not reject leads.
+
+**Submit test lead (external API)** `POST /leads/test`
+
+```json
+{
+  "campaign_id": "CMABCDEFG",
+  "campaign_key": "123456789012",
+  "payload": { "email": "lead@test.com", "name": "Test Lead" }
+}
+```
+
+Requirements: campaign status TEST; affiliate participant status TEST; `campaign_key` matches the affiliate’s key.
+**Submit live lead (external API)** `POST /leads`
+
+```json
+{
+  "campaign_id": "CMABCDEFG",
+  "campaign_key": "123456789012",
+  "payload": { "email": "lead@example.com", "name": "Live Lead" }
+}
+```
+
+Requirements: campaign status ACTIVE; affiliate participant status LIVE; `campaign_key` matches. If the affiliate is DISABLED, the lead is stored with `rejected=true`, `rejection_reason`, and `affiliate_status_at_intake`.
+
+No API key required — authentication is entirely via `campaign_id` + `campaign_key`.
+**Internal lead reads/updates (internal API only)**
+
+- `GET /leads`
+- `GET /leads/{id}`
+- `PUT /leads/{id}`
+
+`POST /leads` and `POST /leads/test` are intentionally **not** exposed on the internal API.
+
+**Lead shape** (response `data`)
+
+```json
+{
+  "id": "LDABC12345",
+  "campaign_id": "CMABCDEFG",
+  "campaign_key": "123456789012",
+  "test": true,
+  "payload": { "email": "..." },
+  "duplicate": false,
+  "duplicate_matches": { "lead_ids": [] },
+  "affiliate_status_at_intake": "TEST",
+  "rejected": false,
+  "rejection_reason": null,
+  "created_at": "2024-01-01T00:00:00Z"
+}
+```
+
+Rejection behavior:
+
+- `rejected=true` when affiliate is DISABLED for the campaign.
+- `rejected=true` when duplicate-check is enabled and a duplicate is detected.
+- `rejected=false` when neither condition applies.
+
+## UI hints
+
+- Show campaign status plus per-participant statuses; allow toggling participant status via the participant PUT endpoints.
+- Surface `campaign_key` to affiliates once linked; they need it for both test and live lead intake.
+- When sending leads, display backend message and `rejected` flag to make DISABLED affiliate behavior clear.
+- Display duplicate metadata: `duplicate=true` means lead matched existing campaign leads; use `duplicate_matches.lead_ids` to show linked duplicates.
+- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).
+
+## Internal login
+
+The internal API uses custom Bearer token auth backed by Cognito. No OAuth redirects or hosted UI needed — your login screen calls the backend directly.
+
+### Login
+
+`POST /v2/auth/login` — no Authorization header needed on this call.
+
+```json
+{
+  "email": "user@example.com",
+  "password": "UserPassword1!"
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "access_token": "eyJ...",
+    "id_token": "eyJ...",
+    "refresh_token": "eyJ...",
+    "expires_in": 3600,
+    "token_type": "Bearer"
+  }
+}
+```
+
+- Store `id_token` and `refresh_token` (e.g. in memory / httpOnly cookie).
+- Send `Authorization: Bearer <id_token>` on every internal API call. **Important: use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
+- `id_token` expires in 1 hour by default.
+
+### Token refresh
+
+`POST /v2/auth/refresh` — call before the access_token expires or when you receive a 401.
+
+```json
+{ "refresh_token": "<refresh_token from login>" }
+```
+
+Response is the same shape as login (`data.access_token`, `data.id_token`, `data.expires_in`). No new `refresh_token` is issued on refresh; use the original.
+
+### Error handling
+
+- `401` with `success: false` means invalid credentials or expired/invalid token.
+- On 401 from any protected endpoint: try `/v2/auth/refresh`; if that also returns 401, redirect to login.
+
+### Notes
+
+- Cognito User Pool ID and Client ID are server-side details managed by the backend. The frontend does **not** need them.
+- Do **not** implement the Cognito hosted UI, OAuth redirect, or PKCE flow — the custom login endpoint replaces all of that.
+
+## Frontend dev env values (current)
+
+Minimal values needed for frontend integration:
+
+```dotenv
+VITE_INTERNAL_API_BASE_URL=https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2
+VITE_EXTERNAL_LEADS_API_BASE_URL=https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2
+```
+
+The internal API URL already includes `/v2`. The external API URL also includes `/v2`. No API keys or Cognito OAuth URLs are needed on the frontend.
+
+> **Login credentials** are managed server-side (Cognito User Pool). Use `POST /v2/users` (admin only) or `scripts/create-cognito-user.sh` to provision users. The frontend only needs email + password for the login form — it calls `POST /v2/auth/login` and stores the returned `id_token`.
+
+## Helper scripts
+
+- Full flow smoke test (interactive): [scripts/test-api.sh](scripts/test-api.sh)
+  - Menu-driven: choose auth / clients / affiliates / campaigns / all
+  - Non-interactive: `./scripts/test-api.sh --suite=auth`
+  - Auth suite: logs in, validates token grants access to `GET /leads`, validates requests without a token get 401
+- Interactive lead-only helper: [scripts/send-lead.sh](scripts/send-lead.sh)
+  - Usage: `./scripts/send-lead.sh https://your-api/dev/v2`
+  - Prompts for campaign_id, campaign_key, lead type (test/live), and payload JSON; prints HTTP status and response body.
+- Frontend auth/API handoff values: [scripts/get-auth-values.sh](scripts/get-auth-values.sh)
+  - Usage:
+    - `source ./scripts/env-dev.sh`
+    - `./scripts/get-auth-values.sh`
+  - Prints copy/paste values for frontend `.env` (internal and external API base URLs).
+- Cognito user provisioning: [scripts/create-cognito-user.sh](scripts/create-cognito-user.sh)
+  - Usage:
+    - `source ./scripts/env-dev.sh`
+    - `./scripts/create-cognito-user.sh --email dev1@company.com --password 'StrongPass123!'`
+  - Creates (or updates) the user in the internal API user pool and sets permanent password.
+
+## User management (admin only)
+
+All `/v2/users` endpoints require an admin Bearer token (`id_token` from an account in the Cognito `admin` group). Staff users receive a `403 Forbidden`.
+
+### Roles
+
+- `admin` — full access including all user management endpoints.
+- `staff` — can access all other internal API endpoints; cannot manage users.
+
+Role is included in the `cognito:groups` claim of the `id_token`. New users default to `staff` if no role is specified.
+
+### Create user
+
+`POST /v2/users` — creates a Cognito user with a permanent password and assigns the role group. The `role` field is **required for UI** so you can offer a dropdown of `staff`/`admin` when building your form; if omitted the backend defaults to `staff`.
+
+```json
+{
+  "email": "jane@example.com",
+  "password": "TempPass1!",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "role": "staff" // "admin" or "staff"
+}
+```
+
+Returns `201` with the new user object. `role` defaults to `staff` if omitted.
+
+### List users
+
+`GET /v2/users` — returns all Cognito users with their assigned role.
+
+### Get user
+
+`GET /v2/users/{id}` — where `{id}` is the URL-encoded email/username. E.g. `jane%40example.com`.
+
+### Update user (role and/or name)
+
+`PUT /v2/users/{id}` — all fields are optional; include only what you want to change.
+
+**Role only** (`admin` or `staff`):
+
+```json
+{ "role": "admin" }
+```
+
+**Name only:**
+
+```json
+{ "firstName": "Edgar", "lastName": "Velasco" }
+```
+
+**Both at once:**
+
+```json
+{ "role": "staff", "firstName": "Jane", "lastName": "Doe" }
+```
+
+At least one field must be present. Fields not included are left unchanged.
+
+> **Role change note:** After changing a user's role, they must re-login to receive a fresh `id_token` with the updated `cognito:groups` claim. Name changes take effect immediately — no re-login needed.
+
+### Reset password
+
+`PUT /v2/users/{id}/password` — sets a new permanent password without requiring the current one.
+
+```json
+{ "password": "NewPass1!" }
+```
+
+### Delete user
+
+`DELETE /v2/users/{id}` — permanently removes the user from the Cognito User Pool.
+
+### User object shape
+
+```json
+{
+  "username": "jane@example.com",
+  "email": "jane@example.com",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "status": "CONFIRMED",
+  "enabled": true,
+  "role": "staff",
+  "createdAt": "2024-01-01T00:00:00Z",
+  "updatedAt": "2024-01-01T00:00:00Z"
+}
+```
+
+> **Navbar tip:** Use `firstName` + `lastName` for the welcome message and derive initials from their first characters (`firstName[0] + lastName[0]`). Both fields are optional — fall back to the `email` prefix if either is absent.
+
+## Tenant settings (Secrets Manager-backed)
+
+Settings endpoints for managing provider credentials are available under `tenant-config`.
+
+- `GET /tenant-config/credentials` → list configured provider credentials
+- `GET /tenant-config/credentials/{provider}` → get one provider config
+- `PUT /tenant-config/credentials` → create/update provider config
+- `DELETE /tenant-config/credentials/{provider}` → remove provider config
+
+Supported credential types:
+
+- `api_key`: `credentials.apiKey`
+- `basic_auth`: `credentials.username` + `credentials.password`
+- `bearer_token`: `credentials.token`
+
+Recommended providers to store:
+
+- `ipqs` (`api_key`) for duplicate check integrations
+- `trusted_forms` (`basic_auth`) for Trusted Forms auth
+
+Example: IPQS
+
+```json
+{
+  "provider": "ipqs",
+  "type": "api_key",
+  "credentials": {
+    "apiKey": "YOUR_IPQS_API_KEY"
+  }
+}
+```
+
+Example: Trusted Forms
+
+```json
+{
+  "provider": "trusted_forms",
+  "type": "basic_auth",
+  "credentials": {
+    "username": "YOUR_USERNAME",
+    "password": "YOUR_PASSWORD"
+  }
+}
+```
+
+Security note:
+
+- Internal API uses Cognito-backed JWT Bearer auth. Obtain a token via `POST /v2/auth/login` and include it as `Authorization: Bearer <token>` on all internal API requests.
+- External leads API is isolated to POST-only intake routes. No API key required.

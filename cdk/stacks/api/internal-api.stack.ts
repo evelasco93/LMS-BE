@@ -27,6 +27,7 @@ import { Runtime, IFunction } from "aws-cdk-lib/aws-lambda";
 import { Role } from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import { IInternalApiConfig } from "./types/api.types";
+import { nameBuilder } from "../../config/base.config";
 import * as path from "path";
 
 export interface IInternalApiStackProps extends NestedStackProps {
@@ -200,7 +201,7 @@ export class InternalApiStack extends NestedStack {
       authLambdaRoleName,
     );
     this.authLambda = new NodejsFunction(this, "AuthFunction", {
-      functionName: `${apiConfig.name}-auth`,
+      functionName: nameBuilder.lambda("auth"),
       entry: path.join(__dirname, "../../../handlers/auth/main.ts"),
       handler: "handler",
       runtime: Runtime.NODEJS_20_X,
@@ -235,7 +236,7 @@ export class InternalApiStack extends NestedStack {
       usersLambdaRoleName,
     );
     this.usersLambda = new NodejsFunction(this, "UsersFunction", {
-      functionName: `${apiConfig.name}-users`,
+      functionName: nameBuilder.lambda("users"),
       entry: path.join(__dirname, "../../../handlers/users/main.ts"),
       handler: "handler",
       runtime: Runtime.NODEJS_20_X,
@@ -274,6 +275,7 @@ export class InternalApiStack extends NestedStack {
       "cognito-idp:AdminRemoveUserFromGroup",
       "cognito-idp:AdminListGroupsForUser",
       "cognito-idp:ListGroups",
+      "cognito-idp:AdminUpdateUserAttributes",
     );
 
     const addProtectedMethod = (

@@ -120,6 +120,8 @@
                   "value": {
                     "email": "jane@example.com",
                     "password": "TempPass1!",
+                    "firstName": "Jane",
+                    "lastName": "Doe",
                     "role": "staff"
                   }
                 }
@@ -193,7 +195,17 @@
               "schema": { "$ref": "#/components/schemas/UpdateUserRequest" },
               "examples": {
                 "promoteToAdmin": { "value": { "role": "admin" } },
-                "setStaff": { "value": { "role": "staff" } }
+                "setStaff": { "value": { "role": "staff" } },
+                "updateName": {
+                  "value": { "firstName": "Edgar", "lastName": "Velasco" }
+                },
+                "updateRoleAndName": {
+                  "value": {
+                    "role": "admin",
+                    "firstName": "Edgar",
+                    "lastName": "Velasco"
+                  }
+                }
               }
             }
           }
@@ -1210,9 +1222,12 @@
         "properties": {
           "access_token": {
             "type": "string",
-            "description": "JWT — use as Bearer token for all internal API calls"
+            "description": "JWT access token. Note: use id_token (not access_token) as the Bearer token on internal API calls — the API Gateway Cognito authorizer validates ID tokens."
           },
-          "id_token": { "type": "string" },
+          "id_token": {
+            "type": "string",
+            "description": "JWT ID token — use as Bearer token: Authorization: Bearer <id_token>"
+          },
           "refresh_token": {
             "type": "string",
             "description": "Long-lived token; use to obtain new access/id tokens without re-entering password"
@@ -1604,6 +1619,8 @@
         "properties": {
           "username": { "type": "string", "example": "jane@example.com" },
           "email": { "type": "string", "format": "email" },
+          "firstName": { "type": "string", "example": "Jane" },
+          "lastName": { "type": "string", "example": "Doe" },
           "status": { "type": "string", "example": "CONFIRMED" },
           "enabled": { "type": "boolean" },
           "role": { "$ref": "#/components/schemas/UserRole" },
@@ -1617,15 +1634,25 @@
         "properties": {
           "email": { "type": "string", "format": "email" },
           "password": { "type": "string", "example": "TempPass1!" },
-          "role": { "$ref": "#/components/schemas/UserRole" }
+          "firstName": { "type": "string", "example": "Jane" },
+          "lastName": { "type": "string", "example": "Doe" },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Optional; allowed values are 'admin' or 'staff'. Defaults to 'staff' if omitted."
+          }
         }
       },
       "UpdateUserRequest": {
         "type": "object",
-        "required": ["role"],
         "properties": {
-          "role": { "$ref": "#/components/schemas/UserRole" }
-        }
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "Optional — omit to leave role unchanged."
+          },
+          "firstName": { "type": "string", "example": "Jane" },
+          "lastName": { "type": "string", "example": "Doe" }
+        },
+        "description": "At least one field required. Provide role to change the user's group, firstName/lastName to update display name. Fields not included are left unchanged."
       },
       "ResetPasswordRequest": {
         "type": "object",

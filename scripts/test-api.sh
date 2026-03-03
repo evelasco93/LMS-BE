@@ -351,7 +351,45 @@ run_auth_tests() {
         fi
     fi
 
-    # ── 4. Create a temporary test user ─────────────────────────────────────
+    # ── 4. Update edgar's profile name (idempotent) ──────────────────────────
+    print_section "UPDATE PROFILE: PUT /v2/users/edgar → firstName: Edgar, lastName: Velasco"
+    local profile_resp profile_status profile_body
+    profile_resp=$(curl -s -w "\n%{http_code}" -X PUT \
+        "$INTERNAL_API_BASE_URL/users/$encoded_username" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $fetched_token" \
+        -d '{"firstName":"Edgar","lastName":"Velasco"}')
+    profile_status=$(echo "$profile_resp" | tail -n1)
+    profile_body=$(echo "$profile_resp" | head -n-1)
+    echo -e "  HTTP ${CYAN}${profile_status}${NC}"
+    if [ "$profile_status" -ge 200 ] && [ "$profile_status" -lt 300 ] 2>/dev/null; then
+        local p_first p_last
+        p_first=$(extract_json_value "$profile_body" "data.firstName")
+        p_last=$(extract_json_value "$profile_body" "data.lastName")
+        print_result 0 "Profile updated (firstName=$p_first, lastName=$p_last)"
+    else
+        print_result 1 "Profile update failed (HTTP $profile_status)"
+        if [ "$VERBOSE" = "true" ]; then print_json "$profile_body"; fi
+    fi
+
+    # ── 5. Inspect edgar's full Cognito user object ─────────────────────────
+    print_section "GET USER: GET /v2/users/edgar → full Cognito payload"
+    local get_user_resp get_user_status get_user_body
+    get_user_resp=$(curl -s -w "\n%{http_code}" -X GET \
+        "$INTERNAL_API_BASE_URL/users/$encoded_username" \
+        -H "Authorization: Bearer $fetched_token")
+    get_user_status=$(echo "$get_user_resp" | tail -n1)
+    get_user_body=$(echo "$get_user_resp" | head -n-1)
+    echo -e "  HTTP ${CYAN}${get_user_status}${NC}"
+    if [ "$get_user_status" -ge 200 ] && [ "$get_user_status" -lt 300 ] 2>/dev/null; then
+        print_result 0 "User fetched (HTTP $get_user_status) — full payload:"
+        print_json "$get_user_body"
+    else
+        print_result 1 "GET user failed (HTTP $get_user_status)"
+        print_json "$get_user_body"
+    fi
+
+    # ── 6. Create a temporary test user ─────────────────────────────────────
     local test_user_email="auth-test-user-${TIMESTAMP}@lms-test.local"
     local test_user_pass="TmpUser1!${TIMESTAMP: -4}"
     print_section "CREATE TEMP USER: POST /v2/users ($test_user_email)"
@@ -360,7 +398,7 @@ run_auth_tests() {
         "$INTERNAL_API_BASE_URL/users" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $fetched_token" \
-        -d "{\"email\":\"$test_user_email\",\"password\":\"$test_user_pass\",\"role\":\"staff\"}")
+        -d "{\"email\":\"$test_user_email\",\"password\":\"$test_user_pass\",\"role\":\"staff\",\"firstName\":\"Test\",\"lastName\":\"User\"}")
     create_user_status=$(echo "$create_user_resp" | tail -n1)
     create_user_body=$(echo "$create_user_resp" | head -n-1)
     echo -e "  HTTP ${CYAN}${create_user_status}${NC}"
@@ -372,7 +410,7 @@ run_auth_tests() {
         print_json "$create_user_body"
     fi
 
-    # ── 5. Login as the new test user ────────────────────────────────────────
+    # ── 7. Login as the new test user ────────────────────────────────────────
     print_section "LOGIN AS TEMP USER: $test_user_email"
     local temp_login_resp temp_login_status temp_login_body temp_token
     temp_login_resp=$(curl -s -w "\n%{http_code}" -X POST \
@@ -391,7 +429,7 @@ run_auth_tests() {
         if [ "$VERBOSE" = "true" ]; then print_json "$temp_login_body"; fi
     fi
 
-    # ── 6. Temp user can call GET /v2/leads ──────────────────────────────────
+    # ── 8. Temp user can call GET /v2/leads ──────────────────────────────────
     print_section "TEMP USER ACCESS: GET /v2/leads with staff token → expect 2xx"
     if [ -n "$temp_token" ]; then
         local temp_leads_resp temp_leads_status
@@ -410,7 +448,7 @@ run_auth_tests() {
         print_result 1 "Skipped — no token for temp user"
     fi
 
-    # ── 7. Update temp user role to admin ────────────────────────────────────
+    # ── 9. Update temp user role to admin ────────────────────────────────────
     local encoded_test_user
     encoded_test_user=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$test_user_email', safe=''))")
     print_section "UPDATE TEMP USER ROLE: PUT /v2/users/$test_user_email → role: admin"
@@ -432,7 +470,7 @@ run_auth_tests() {
         print_result 1 "Temp user role update failed (HTTP $update_user_status)"
     fi
 
-    # ── 8. Delete temp user ──────────────────────────────────────────────────
+    # ── 10. Delete temp user ──────────────────────────────────────────────────
     print_section "DELETE TEMP USER: DELETE /v2/users/$test_user_email"
     local delete_user_resp delete_user_status
     delete_user_resp=$(curl -s -w "\n%{http_code}" -X DELETE \
@@ -447,7 +485,7 @@ run_auth_tests() {
         print_result 1 "Temp user deletion failed (HTTP $delete_user_status)"
     fi
 
-    # ── 9. Valid token → access granted ─────────────────────────────────────
+    # ── 11. Valid token → access granted ─────────────────────────────────────
     print_section "AUTHENTICATED: GET /v2/leads with valid token → expect 2xx"
     local auth_resp auth_status
     auth_resp=$(curl -s -w "\n%{http_code}" -X GET \
@@ -463,7 +501,7 @@ run_auth_tests() {
         print_result 1 "GET /leads with valid token → HTTP $auth_status (expected 2xx)"
     fi
 
-    # ── 10. No token → 401 ──────────────────────────────────────────────────
+    # ── 12. No token → 401 ──────────────────────────────────────────────────
     print_section "UNAUTHENTICATED: GET /v2/leads with no token → expect 401"
     local noauth_resp noauth_status noauth_body
     noauth_resp=$(curl -s -w "\n%{http_code}" -X GET \
@@ -480,7 +518,7 @@ run_auth_tests() {
         print_result 1 "GET /leads without token → HTTP $noauth_status (expected 401)"
     fi
 
-    # ── 11. Invalid/garbage token → 401 ─────────────────────────────────────
+    # ── 13. Invalid/garbage token → 401 ─────────────────────────────────────
     print_section "INVALID TOKEN: GET /v2/leads with bad token → expect 401"
     local badtok_resp badtok_status
     badtok_resp=$(curl -s -w "\n%{http_code}" -X GET \
