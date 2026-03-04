@@ -18,4 +18,5 @@ export type ListClientsQuery = {
   status?: ClientStatus;
   limit?: number;
   lastEvaluatedKey?: string;
+  includeDeleted?: boolean;
 };

@@ -13,6 +13,7 @@ import {
 import { TenantConfigService } from "../services/tenant-config.service";
 import { UpsertCredentialRequest } from "../types/tenant-config-request.types";
 import { RestApiResponse } from "../types/common.types";
+import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 
 @injectable()
 @apiController("/tenant-config")
@@ -22,6 +23,12 @@ export class TenantConfigController extends Controller {
     private readonly service: TenantConfigService,
   ) {
     super();
+  }
+
+  private getActor() {
+    return extractRequestActorFromHeaders(
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
   }
 
   @GET("/credentials")
@@ -71,7 +78,7 @@ export class TenantConfigController extends Controller {
   async upsertCredential(
     @body payload: UpsertCredentialRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.service.upsertCredential(payload);
+    const result = await this.service.upsertCredential(payload, this.getActor());
 
     if (!result.result) {
       return {

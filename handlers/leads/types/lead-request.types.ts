@@ -13,4 +13,5 @@ export type ListLeadsQuery = {
   test?: boolean;
   limit?: number;
   lastEvaluatedKey?: string;
+  includeDeleted?: boolean;
 };

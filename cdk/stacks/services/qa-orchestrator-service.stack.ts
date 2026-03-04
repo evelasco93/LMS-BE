@@ -9,6 +9,7 @@ import * as path from "path";
 export interface IQaOrchestratorServiceStackProps extends NestedStackProps {
   lambdaConfig: ILambdaConfig;
   roleName: string;
+  logicalIdPrefix: string;
 }
 
 export class QaOrchestratorServiceStack extends NestedStack {
@@ -21,14 +22,14 @@ export class QaOrchestratorServiceStack extends NestedStack {
   ) {
     super(scope, id, props);
 
-    const { lambdaConfig, roleName } = props;
-    const role = Role.fromRoleName(this, "QaOrchestratorLambdaRole", roleName);
+    const { lambdaConfig, roleName, logicalIdPrefix } = props;
+    const role = Role.fromRoleName(this, `${logicalIdPrefix}-QaOrchestratorLambdaRole`, roleName);
 
-    this.lambda = new NodejsFunction(this, "QaOrchestratorFunction", {
+    this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-QaOrchestratorFunction`, {
       functionName: lambdaConfig.functionName,
       entry: lambdaConfig.entry,
       handler: lambdaConfig.handler,
-      runtime: Runtime.NODEJS_20_X,
+      runtime: Runtime.NODEJS_22_X,
       role,
       memorySize: lambdaConfig.memorySize || 512,
       timeout: Duration.seconds(lambdaConfig.timeout || 30),

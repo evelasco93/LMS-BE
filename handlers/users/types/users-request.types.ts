@@ -1,3 +1,5 @@
+import type { RequestActor } from "@shared/utils/request-audit.util";
+
 export type UserRole = "admin" | "staff";
 
 export interface CreateUserRequest {
@@ -28,4 +30,6 @@ export interface CognitoUser {
   role: UserRole | null;
   createdAt?: Date;
   updatedAt?: Date;
+  createdBy?: RequestActor;
+  updatedBy?: RequestActor;
 }

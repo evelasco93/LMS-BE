@@ -9,6 +9,7 @@ import * as path from "path";
 export interface ILeadsServiceStackProps extends NestedStackProps {
   lambdaConfig: ILambdaConfig;
   roleName: string;
+  logicalIdPrefix: string;
 }
 
 export class LeadsServiceStack extends NestedStack {
@@ -17,14 +18,14 @@ export class LeadsServiceStack extends NestedStack {
   constructor(scope: Construct, id: string, props: ILeadsServiceStackProps) {
     super(scope, id, props);
 
-    const { lambdaConfig, roleName } = props;
-    const role = Role.fromRoleName(this, "LeadsLambdaRole", roleName);
+    const { lambdaConfig, roleName, logicalIdPrefix } = props;
+    const role = Role.fromRoleName(this, `${logicalIdPrefix}-LeadsLambdaRole`, roleName);
 
-    this.lambda = new NodejsFunction(this, "LeadsFunction", {
+    this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-LeadsFunction`, {
       functionName: lambdaConfig.functionName,
       entry: lambdaConfig.entry,
       handler: lambdaConfig.handler,
-      runtime: Runtime.NODEJS_20_X,
+      runtime: Runtime.NODEJS_22_X,
       role,
       memorySize: lambdaConfig.memorySize || 512,
       timeout: Duration.seconds(lambdaConfig.timeout || 30),

@@ -9,6 +9,7 @@ import * as path from "path";
 export interface IAffiliatesServiceStackProps extends NestedStackProps {
   lambdaConfig: ILambdaConfig;
   roleName: string;
+  logicalIdPrefix: string;
 }
 
 /**
@@ -25,17 +26,17 @@ export class AffiliatesServiceStack extends NestedStack {
   ) {
     super(scope, id, props);
 
-    const { lambdaConfig, roleName } = props;
+    const { lambdaConfig, roleName, logicalIdPrefix } = props;
 
     // Import existing IAM role
-    const role = Role.fromRoleName(this, "AffiliatesLambdaRole", roleName);
+    const role = Role.fromRoleName(this, `${logicalIdPrefix}-AffiliatesLambdaRole`, roleName);
 
     // Create Lambda function with bundling
-    this.lambda = new NodejsFunction(this, "AffiliatesFunction", {
+    this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-AffiliatesFunction`, {
       functionName: lambdaConfig.functionName,
       entry: lambdaConfig.entry,
       handler: lambdaConfig.handler,
-      runtime: Runtime.NODEJS_20_X,
+      runtime: Runtime.NODEJS_22_X,
       role,
       memorySize: lambdaConfig.memorySize || 512,
       timeout: Duration.seconds(lambdaConfig.timeout || 30),

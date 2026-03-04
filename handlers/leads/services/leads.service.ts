@@ -14,6 +14,7 @@ import {
 import { ServiceResult } from "../types/common.types";
 import { ILead } from "../interfaces/ILead.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
+import { RequestActor } from "@shared/utils/request-audit.util";
 
 interface CampaignAffiliate {
   affiliate_id: string;
@@ -56,6 +57,7 @@ export class LeadsService {
   async createLead(
     request: CreateLeadRequest,
     isTest: boolean,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ILead>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -166,6 +168,11 @@ export class LeadsService {
         affiliate_status_at_intake: affiliateStatus,
         rejected,
         rejection_reason: rejectionReason,
+        created_by: actor,
+        updated_at: now,
+        updated_by: actor,
+        is_deleted: false,
+        active: true,
       };
 
       await this.dynamoDBUtil.put({
@@ -197,7 +204,13 @@ export class LeadsService {
     }>
   > {
     try {
-      const { campaign_id, test, limit = 20, lastEvaluatedKey } = query;
+      const {
+        campaign_id,
+        test,
+        limit = 20,
+        lastEvaluatedKey,
+        includeDeleted = false,
+      } = query;
 
       const exclusiveStartKey = lastEvaluatedKey
         ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
@@ -206,6 +219,13 @@ export class LeadsService {
       const filters: string[] = [];
       const names: Record<string, string> = {};
       const values: Record<string, any> = {};
+
+      if (!includeDeleted) {
+        filters.push(
+          "(attribute_not_exists(is_deleted) OR is_deleted = :is_deleted_false)",
+        );
+        values[":is_deleted_false"] = false;
+      }
 
       if (campaign_id) {
         filters.push("#campaign_id = :campaign_id");
@@ -230,7 +250,9 @@ export class LeadsService {
         ...(filterExpression
           ? {
               FilterExpression: filterExpression,
-              ExpressionAttributeNames: names,
+              ...(Object.keys(names).length > 0
+                ? { ExpressionAttributeNames: names }
+                : {}),
               ExpressionAttributeValues: values,
             }
           : {}),
@@ -278,6 +300,7 @@ export class LeadsService {
   async updateLead(
     id: string,
     request: UpdateLeadRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ILead>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -298,9 +321,14 @@ export class LeadsService {
         return { result: false, error: `Lead ${id} not found` };
       }
 
+      const now = new Date().toISOString();
       const updated: ILead = {
         ...existing,
-        ...(sanitized.payload ? { payload: sanitized.payload } : {}),
+        ...(sanitized.payload
+          ? { payload: sanitized.payload as Record<string, unknown> }
+          : {}),
+        updated_at: now,
+        updated_by: actor,
       };
 
       await this.dynamoDBUtil.put({
@@ -314,6 +342,57 @@ export class LeadsService {
       return {
         result: false,
         error: error.message || "Failed to update lead",
+      };
+    }
+  }
+
+  async deleteLead(
+    id: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const existing = await this.dynamoDBUtil.get<ILead>({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        Key: { id },
+      });
+
+      if (!existing) {
+        return { result: false, error: `Lead ${id} not found` };
+      }
+
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.LEADS_TABLE_NAME,
+          Key: { id },
+        });
+        this.logger.info("Lead permanently deleted", { leadId: id, actor });
+      } else {
+        const now = new Date().toISOString();
+        const expression = this.dynamoDBUtil.buildUpdateExpression({
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor,
+          updated_at: now,
+          updated_by: actor,
+        });
+
+        await this.dynamoDBUtil.update({
+          TableName: this.constants.LEADS_TABLE_NAME,
+          Key: { id },
+          ...expression,
+        });
+
+        this.logger.info("Lead soft-deleted", { leadId: id, actor });
+      }
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete lead", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete lead",
       };
     }
   }

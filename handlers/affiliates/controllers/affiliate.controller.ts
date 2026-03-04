@@ -19,6 +19,7 @@ import {
 } from "../types/affiliate-request.types";
 import { AffiliateStatus } from "../enums/affiliate-status.enum";
 import { RestApiResponse } from "../types/common.types";
+import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 
 @injectable()
 @apiController("/affiliates")
@@ -30,12 +31,21 @@ export class AffiliateController extends Controller {
     super();
   }
 
+  private getActor() {
+    return extractRequestActorFromHeaders(
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
+  }
+
   @POST("/")
   @produces("application/json")
   async createAffiliate(
     @body payload: CreateAffiliateRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.affiliateService.createAffiliate(payload);
+    const result = await this.affiliateService.createAffiliate(
+      payload,
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -78,11 +88,14 @@ export class AffiliateController extends Controller {
     @queryParam("status") status?: AffiliateStatus,
     @queryParam("limit") limit?: string,
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
+    @queryParam("includeDeleted") includeDeleted?: string,
   ): Promise<RestApiResponse> {
     const result = await this.affiliateService.listAffiliates({
       status,
       limit: limit ? parseInt(limit, 10) : undefined,
       lastEvaluatedKey,
+      includeDeleted:
+        includeDeleted === "true" || includeDeleted === "1" || false,
     });
 
     if (!result.result) {
@@ -107,7 +120,11 @@ export class AffiliateController extends Controller {
     @pathParam("id") id: string,
     @body payload: UpdateAffiliateRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.affiliateService.updateAffiliate(id, payload);
+    const result = await this.affiliateService.updateAffiliate(
+      id,
+      payload,
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -126,8 +143,17 @@ export class AffiliateController extends Controller {
 
   @DELETE("/:id")
   @produces("application/json")
-  async deleteAffiliate(@pathParam("id") id: string): Promise<RestApiResponse> {
-    const result = await this.affiliateService.deleteAffiliate(id);
+  async deleteAffiliate(
+    @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.affiliateService.deleteAffiliate(
+      id,
+      {
+        permanent: permanent === "true" || permanent === "1",
+      },
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -139,7 +165,10 @@ export class AffiliateController extends Controller {
 
     return {
       success: true,
-      message: "Affiliate deleted successfully",
+      message:
+        permanent === "true" || permanent === "1"
+          ? "Affiliate permanently deleted successfully"
+          : "Affiliate deleted successfully",
     };
   }
 }

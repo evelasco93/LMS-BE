@@ -12,6 +12,7 @@ import { IExternalLeadsApiConfig } from "./types/api.types";
 export interface IExternalLeadsApiStackProps extends NestedStackProps {
   leadsLambda: IFunction;
   apiConfig: IExternalLeadsApiConfig;
+  logicalIdPrefix: string;
 }
 
 /**
@@ -29,9 +30,9 @@ export class ExternalLeadsApiStack extends NestedStack {
   ) {
     super(scope, id, props);
 
-    const { leadsLambda, apiConfig } = props;
+    const { leadsLambda, apiConfig, logicalIdPrefix } = props;
 
-    this.api = new RestApi(this, "ExternalLeadsApi", {
+    this.api = new RestApi(this, `${logicalIdPrefix}-ExternalLeadsApi`, {
       restApiName: apiConfig.name,
       description: apiConfig.description,
       deployOptions: {

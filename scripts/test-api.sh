@@ -6,6 +6,13 @@
 
 set -euo pipefail
 
+# ─── Log file (tee all output — colors to terminal, plain text to file) ──────
+_LOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../logs"
+mkdir -p "$_LOG_DIR"
+_LOG_FILE="$_LOG_DIR/api-test-$(date +%Y%m%d-%H%M%S).txt"
+exec > >(tee >(sed 's/\x1b\[[0-9;]*[mK]//g; s/\r//g' > "$_LOG_FILE")) 2>&1
+echo "Logging to: $_LOG_FILE"
+
 # ─── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -38,8 +45,8 @@ load_dotenv_file() {
 load_dotenv_file ".frontend-auth.env"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-DEFAULT_INTERNAL_API_BASE_URL="https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/"
-DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_INTERNAL_API_BASE_URL="https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/"
 
 INTERNAL_API_BASE_URL="${INTERNAL_API_BASE_URL:-${NEXT_INTERNAL_API_BASE_URL:-$DEFAULT_INTERNAL_API_BASE_URL}}"
 EXTERNAL_LEADS_API_BASE_URL="${EXTERNAL_LEADS_API_BASE_URL:-${NEXT_EXTERNAL_LEADS_API_BASE_URL:-$DEFAULT_EXTERNAL_LEADS_API_BASE_URL}}"
@@ -71,6 +78,15 @@ AFFILIATE_ID_2=""
 CAMPAIGN_ID_2=""
 CAMPAIGN_KEY_2=""
 
+# Soft/hard-delete test entity IDs (created and cleaned up within each suite)
+CLIENT_ID_SOFT=""
+CLIENT_ID_HARD=""
+AFFILIATE_ID_SOFT=""
+AFFILIATE_ID_HARD=""
+CAMPAIGN_ID_SOFT=""
+CAMPAIGN_ID_HARD=""
+LEAD_ID_SOFT=""
+
 # Test data
 CLIENT_EMAIL="jason@summitedgelegal.com"
 AFFILIATE_EMAIL="acme@email.com"
@@ -99,6 +115,11 @@ build_internal_headers
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 LAST_HTTP_STATUS=""
+LAST_METHOD=""
+LAST_URL=""
+LAST_REQUEST_BODY=""
+LAST_RESPONSE_BODY=""
+SUITE_LOG_FILE=""
 
 print_section() {
     echo -e "\n${BLUE}──────────────────────────────────────────────────${NC}"
@@ -109,6 +130,28 @@ print_section() {
 print_result() {
     if [ "$1" -eq 0 ]; then echo -e "  ${GREEN}✓ $2${NC}"
     else echo -e "  ${RED}✗ $2${NC}"; TEST_FAILURES=$((TEST_FAILURES + 1)); fi
+}
+
+# Returns 0 (true) when the last test_endpoint call represents a "rejected"
+# response — either HTTP 4xx/5xx, OR HTTP 200 with {"success": false} in body.
+was_rejected() {
+    local status="${LAST_HTTP_STATUS:-0}"
+    [ "$status" -ge 400 ] 2>/dev/null && return 0
+    local ok
+    ok=$(echo "${LAST_RESPONSE_BODY:-}" | python3 -c \
+        "import json,sys; d=json.loads(sys.stdin.read() or '{}'); print('yes' if d.get('success') is False else 'no')" 2>/dev/null)
+    [ "$ok" = "yes" ]
+}
+
+# Returns 0 (true) when the last test_endpoint call represents a "not found"
+# response — either HTTP 404, OR HTTP 200 with {"success": false} in body.
+was_not_found() {
+    local status="${LAST_HTTP_STATUS:-0}"
+    [ "$status" -eq 404 ] 2>/dev/null && return 0
+    local ok
+    ok=$(echo "${LAST_RESPONSE_BODY:-}" | python3 -c \
+        "import json,sys; d=json.loads(sys.stdin.read() or '{}'); print('yes' if d.get('success') is False else 'no')" 2>/dev/null)
+    [ "$ok" = "yes" ]
 }
 
 extract_json_value() {
@@ -164,11 +207,29 @@ test_endpoint() {
     response=$(echo "$output" | head -n-1)
     LAST_HTTP_STATUS="$http_status"
 
-    echo -e "  HTTP ${CYAN}$http_status${NC}\n" >&2
-    if [ "$VERBOSE" = "true" ] || { [ "$http_status" -ge 400 ] 2>/dev/null && [ "${SHOW_ERROR_BODY:-true}" = "true" ]; }; then
-        print_json "$response" >&2
+    # Track last call for manual log_rr usage
+    LAST_METHOD="$method"
+    LAST_URL="$base_url$endpoint"
+    LAST_REQUEST_BODY="${data:-}"
+    LAST_RESPONSE_BODY="$response"
+
+    # Always show the request body if one was sent
+    if [ -n "${data:-}" ]; then
+        echo -e "  ${CYAN}→ SENT:${NC}" >&2
+        print_json "${data}" >&2
         echo "" >&2
     fi
+
+    echo -e "  HTTP ${CYAN}$http_status${NC}" >&2
+    echo -e "  ${CYAN}← RECEIVED:${NC}" >&2
+    print_json "$response" >&2
+    echo "" >&2
+
+    # Auto-append to the active suite log
+    if [ -n "${SUITE_LOG_FILE:-}" ]; then
+        log_rr "$description" "$method" "$base_url$endpoint" "${data:-}" "$response" "$http_status"
+    fi
+
     echo "$response"
 }
 
@@ -178,34 +239,118 @@ purge_table() {
     if ! command -v aws >/dev/null 2>&1; then echo -e "  ${RED}aws CLI not found; cannot purge ${table_name}${NC}"; return; fi
     echo -e "  ${CYAN}Purging: ${table_name}${NC}"
     local last_evaluated_key=""
+    local deleted_count=0
     while :; do
-        local page
+        local page page_exit
         if [ -n "$last_evaluated_key" ]; then
             page=$(aws dynamodb scan --table-name "$table_name" --region "$AWS_REGION" \
-                --projection-expression "id" --exclusive-start-key "$last_evaluated_key")
+                --projection-expression "id" --exclusive-start-key "$last_evaluated_key" 2>&1)
         else
             page=$(aws dynamodb scan --table-name "$table_name" --region "$AWS_REGION" \
-                --projection-expression "id")
+                --projection-expression "id" 2>&1)
         fi
+        page_exit=$?
+
+        if [ $page_exit -ne 0 ]; then
+            echo -e "  ${RED}✗ aws dynamodb scan failed for ${table_name}:${NC}"
+            echo "    $page"
+            return 1
+        fi
+
+        if [ -z "$page" ]; then
+            echo -e "  ${YELLOW}No items found in ${table_name}${NC}"
+            break
+        fi
+
         local ids
         ids=$(echo "$page" | python3 - <<'PY'
 import json, sys
-data=json.load(sys.stdin)
-items=data.get("Items",[])
-ids=[item["id"]["S"] for item in items if "id" in item and "S" in item["id"]]
+raw = sys.stdin.read().strip()
+if not raw:
+    print("__LEK__{}")
+    sys.exit(0)
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError as e:
+    print(f"__ERR__JSON parse error: {e}", file=sys.stderr)
+    print("__LEK__{}")
+    sys.exit(0)
+items = data.get("Items", [])
+ids = [item["id"]["S"] for item in items if "id" in item and "S" in item["id"]]
 print("\n".join(ids))
-print("__LEK__"+json.dumps(data.get("LastEvaluatedKey",{})))
+print("__LEK__" + json.dumps(data.get("LastEvaluatedKey", {})))
 PY
 )
+
         local lek_line
-        lek_line=$(echo "$ids" | grep "__LEK__")
+        lek_line=$(echo "$ids" | grep "^__LEK__" || true)
         last_evaluated_key=$(echo "$lek_line" | sed 's/__LEK__//')
-        for id in $(echo "$ids" | grep -v "__LEK__"); do
-            aws dynamodb delete-item --table-name "$table_name" --region "$AWS_REGION" \
-                --key "{\"id\":{\"S\":\"$id\"}}" >/dev/null
-        done
+
+        local item_ids
+        item_ids=$(echo "$ids" | grep -v "^__LEK__" | grep -v "^__ERR__" | grep -v "^$" || true)
+
+        local batch_count=0
+        while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            if aws dynamodb delete-item --table-name "$table_name" --region "$AWS_REGION" \
+                --key "{\"id\":{\"S\":\"$id\"}}" >/dev/null 2>&1; then
+                batch_count=$((batch_count + 1))
+                deleted_count=$((deleted_count + 1))
+            else
+                echo -e "  ${YELLOW}Warning: failed to delete item id=$id${NC}"
+            fi
+        done <<< "$item_ids"
+
+        [ $batch_count -gt 0 ] && echo -e "  ${CYAN}  deleted $batch_count item(s) (total: $deleted_count)${NC}"
+
         if [ "$last_evaluated_key" = "{}" ] || [ -z "$last_evaluated_key" ]; then break; fi
     done
+    echo -e "  ${GREEN}✓ Purge complete for ${table_name} — ${deleted_count} item(s) removed${NC}"
+}
+
+# ─── Suite request/response log helpers ──────────────────────────────────────
+# Each suite calls reset_suite_log() at the start and print_suite_summary()
+# at the end.  test_endpoint() auto-appends every call; auth's raw curl blocks
+# use log_rr() manually.
+reset_suite_log() {
+    SUITE_LOG_FILE=$(mktemp /tmp/lms-suite-log-XXXXXX)
+}
+
+log_rr() {
+    # log_rr "label" "METHOD" "full-url" "req-body" "resp-body" "http-status"
+    local description="${1:-}" method="${2:-}" url="${3:-}"
+    local req_body="${4:-}" resp_body="${5:-}" http_status="${6:-}"
+    [ -z "${SUITE_LOG_FILE:-}" ] && return 0
+    {
+        echo ""
+        echo "  ┌─ [$description] ─────────────────────────────────────────"
+        echo "  │ → $method $url"
+        if [ -n "$req_body" ]; then
+            echo "  │ → SENT:"
+            echo "$req_body" | python3 -m json.tool 2>/dev/null | sed 's/^/  │   /'
+        else
+            echo "  │ → SENT: (no body)"
+        fi
+        echo "  │ ← HTTP $http_status"
+        echo "  │ ← RECEIVED:"
+        echo "$resp_body" | python3 -m json.tool 2>/dev/null | sed 's/^/  │   /'
+        echo "  └──────────────────────────────────────────────────────────"
+    } >> "$SUITE_LOG_FILE"
+}
+
+print_suite_summary() {
+    local suite_name="${1:-SUITE}"
+    echo -e "\n${MAGENTA}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║  ${suite_name} — REQUEST/RESPONSE LOG${NC}"
+    echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════╝${NC}"
+    if [ -f "${SUITE_LOG_FILE:-/dev/null}" ] && [ -s "$SUITE_LOG_FILE" ]; then
+        cat "$SUITE_LOG_FILE"
+        rm -f "$SUITE_LOG_FILE"
+        SUITE_LOG_FILE=""
+    else
+        echo -e "  ${YELLOW}(no entries logged)${NC}"
+    fi
+    echo ""
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -214,6 +359,7 @@ PY
 # confirms that requests without a token are rejected.
 # ═══════════════════════════════════════════════════════════════════════════════
 run_auth_tests() {
+    reset_suite_log
     echo -e "\n${MAGENTA}╔════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║  AUTH SUITE                                    ║${NC}"
     echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
@@ -277,6 +423,8 @@ run_auth_tests() {
     INTERNAL_API_BEARER_TOKEN="$fetched_id_token"
     fetched_token="$fetched_id_token"
     build_internal_headers
+    log_rr "Admin login" "POST" "$INTERNAL_API_BASE_URL/auth/login" \
+        "{\"email\":\"$COGNITO_TEST_USERNAME\"}" "$login_body" "$login_status"
 
     # ── 2. Promote edgar to admin (idempotent — safe to run every time) ──────
     print_section "SELF-PROMOTE: PUT /v2/users/edgar → role: admin"
@@ -470,20 +618,82 @@ run_auth_tests() {
         print_result 1 "Temp user role update failed (HTTP $update_user_status)"
     fi
 
-    # ── 10. Delete temp user ──────────────────────────────────────────────────
-    print_section "DELETE TEMP USER: DELETE /v2/users/$test_user_email"
-    local delete_user_resp delete_user_status
-    delete_user_resp=$(curl -s -w "\n%{http_code}" -X DELETE \
+    # ── 10a. Soft-delete (disable) temp user ─────────────────────────────────
+    print_section "SOFT-DELETE TEMP USER: DELETE /v2/users/$test_user_email (disables in Cognito)"
+    local soft_del_resp soft_del_status soft_del_body
+    soft_del_resp=$(curl -s -w "\n%{http_code}" -X DELETE \
         "$INTERNAL_API_BASE_URL/users/$encoded_test_user" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $fetched_token")
-    delete_user_status=$(echo "$delete_user_resp" | tail -n1)
-    echo -e "  HTTP ${CYAN}${delete_user_status}${NC}"
-    if [ "$delete_user_status" -ge 200 ] && [ "$delete_user_status" -lt 300 ] 2>/dev/null; then
-        print_result 0 "Temp user deleted (HTTP $delete_user_status)"
+    soft_del_status=$(echo "$soft_del_resp" | tail -n1)
+    soft_del_body=$(echo "$soft_del_resp" | head -n-1)
+    echo -e "  HTTP ${CYAN}${soft_del_status}${NC}"
+    print_json "$soft_del_body"
+    if [ "$soft_del_status" -ge 200 ] && [ "$soft_del_status" -lt 300 ] 2>/dev/null; then
+        print_result 0 "Temp user soft-deleted / disabled (HTTP $soft_del_status)"
     else
-        print_result 1 "Temp user deletion failed (HTTP $delete_user_status)"
+        print_result 1 "Temp user soft-delete failed (HTTP $soft_del_status)"
     fi
+    log_rr "Soft-delete temp user (disable)" "DELETE" \
+        "$INTERNAL_API_BASE_URL/users/$encoded_test_user" "" "$soft_del_body" "$soft_del_status"
+
+    # ── 10b. Verify disabled user cannot login ────────────────────────────────
+    print_section "VERIFY DISABLED: Login as disabled user → expect 4xx"
+    local dis_login_resp dis_login_status dis_login_body
+    dis_login_resp=$(curl -s -w "\n%{http_code}" -X POST \
+        "$INTERNAL_API_BASE_URL/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"email\":\"$test_user_email\",\"password\":\"$test_user_pass\"}")
+    dis_login_status=$(echo "$dis_login_resp" | tail -n1)
+    dis_login_body=$(echo "$dis_login_resp" | head -n-1)
+    echo -e "  HTTP ${CYAN}${dis_login_status}${NC}"
+    print_json "$dis_login_body"
+    if [ "$dis_login_status" -ge 400 ] 2>/dev/null; then
+        print_result 0 "Disabled user blocked from login (HTTP $dis_login_status — expected)"
+    else
+        print_result 1 "Disabled user was able to login (HTTP $dis_login_status — unexpected)"
+    fi
+    log_rr "Login as disabled user (expect 4xx)" "POST" \
+        "$INTERNAL_API_BASE_URL/auth/login" \
+        "{\"email\":\"$test_user_email\",\"password\":\"***\"}" "$dis_login_body" "$dis_login_status"
+
+    # ── 10c. Re-enable the user ───────────────────────────────────────────────
+    print_section "RE-ENABLE USER: PUT /v2/users/$test_user_email/enable"
+    local enable_resp enable_status enable_body
+    enable_resp=$(curl -s -w "\n%{http_code}" -X PUT \
+        "$INTERNAL_API_BASE_URL/users/$encoded_test_user/enable" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $fetched_token")
+    enable_status=$(echo "$enable_resp" | tail -n1)
+    enable_body=$(echo "$enable_resp" | head -n-1)
+    echo -e "  HTTP ${CYAN}${enable_status}${NC}"
+    print_json "$enable_body"
+    if [ "$enable_status" -ge 200 ] && [ "$enable_status" -lt 300 ] 2>/dev/null; then
+        print_result 0 "User re-enabled (HTTP $enable_status)"
+    else
+        print_result 1 "User re-enable failed (HTTP $enable_status)"
+    fi
+    log_rr "Re-enable user" "PUT" \
+        "$INTERNAL_API_BASE_URL/users/$encoded_test_user/enable" "" "$enable_body" "$enable_status"
+
+    # ── 10d. Hard-delete (permanent) temp user ────────────────────────────────
+    print_section "HARD-DELETE TEMP USER: DELETE /v2/users/$test_user_email?permanent=true"
+    local hard_del_resp hard_del_status hard_del_body
+    hard_del_resp=$(curl -s -w "\n%{http_code}" -X DELETE \
+        "$INTERNAL_API_BASE_URL/users/$encoded_test_user?permanent=true" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $fetched_token")
+    hard_del_status=$(echo "$hard_del_resp" | tail -n1)
+    hard_del_body=$(echo "$hard_del_resp" | head -n-1)
+    echo -e "  HTTP ${CYAN}${hard_del_status}${NC}"
+    print_json "$hard_del_body"
+    if [ "$hard_del_status" -ge 200 ] && [ "$hard_del_status" -lt 300 ] 2>/dev/null; then
+        print_result 0 "Temp user permanently deleted from Cognito (HTTP $hard_del_status)"
+    else
+        print_result 1 "Temp user hard-delete failed (HTTP $hard_del_status)"
+    fi
+    log_rr "Hard-delete temp user (permanent)" "DELETE" \
+        "$INTERNAL_API_BASE_URL/users/$encoded_test_user?permanent=true" "" "$hard_del_body" "$hard_del_status"
 
     # ── 11. Valid token → access granted ─────────────────────────────────────
     print_section "AUTHENTICATED: GET /v2/leads with valid token → expect 2xx"
@@ -535,12 +745,14 @@ run_auth_tests() {
     fi
 
     echo -e "\n  ${MAGENTA}Auth suite done.${NC}"
+    print_suite_summary "AUTH SUITE"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUITE: CLIENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 run_clients_tests() {
+    reset_suite_log
     echo -e "\n${MAGENTA}╔════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║  CLIENTS SUITE                                 ║${NC}"
     echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
@@ -559,10 +771,9 @@ run_clients_tests() {
     print_result 0 "Client 1 created: $CLIENT_ID"
 
     print_section "CREATE CLIENT (invalid — extra field)"
-    local bad_resp
-    bad_resp=$(test_endpoint "POST" "/clients" "Client with disallowed field 'company'" \
-        "{\"email\":\"invalid-client-$TIMESTAMP@example.com\",\"name\":\"Bad\",\"phone\":\"+1999\",\"company\":\"BadCo\"}")
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    test_endpoint "POST" "/clients" "Client with disallowed field 'company'" \
+        "{\"email\":\"invalid-client-$TIMESTAMP@example.com\",\"name\":\"Bad\",\"phone\":\"+1999\",\"company\":\"BadCo\"}" > /dev/null
+    if was_rejected; then
         print_result 0 "Server rejected invalid client payload (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Server accepted invalid client payload (HTTP $LAST_HTTP_STATUS)"
@@ -587,13 +798,85 @@ run_clients_tests() {
         print_result 1 "GET /clients returned HTTP $LAST_HTTP_STATUS"
     fi
 
+    # ── SOFT-DELETE TESTS ─────────────────────────────────────────────────────
+    print_section "CREATE CLIENT (soft-delete target)"
+    local soft_resp
+    soft_resp=$(test_endpoint "POST" "/clients" "Create client for soft-delete test" \
+        "{\"email\":\"soft-client-$TIMESTAMP@lms-test.local\",\"name\":\"Soft Delete Client\",\"phone\":\"+1555000001\"}")
+    CLIENT_ID_SOFT=$(extract_json_value "$soft_resp" "data.id")
+    if [ -z "$CLIENT_ID_SOFT" ]; then
+        print_result 1 "Failed to create soft-delete target client"
+    else
+        print_result 0 "Soft-delete target created: $CLIENT_ID_SOFT"
+    fi
+
+    if [ -n "$CLIENT_ID_SOFT" ]; then
+        print_section "SOFT-DELETE: DELETE /clients/$CLIENT_ID_SOFT (no ?permanent — default soft)"
+        test_endpoint "DELETE" "/clients/$CLIENT_ID_SOFT" "Soft-delete client" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Client soft-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Client soft-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /clients → soft-deleted record should be excluded"
+        local list_normal
+        list_normal=$(test_endpoint "GET" "/clients" "List clients — expect soft-deleted excluded")
+        if echo "$list_normal" | grep -q "$CLIENT_ID_SOFT"; then
+            print_result 1 "Soft-deleted client still appears in normal list (unexpected)"
+        else
+            print_result 0 "Soft-deleted client correctly excluded from normal list"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /clients?includeDeleted=true → record IS present"
+        local list_incl
+        list_incl=$(test_endpoint "GET" "/clients?includeDeleted=true" "List clients including soft-deleted")
+        if echo "$list_incl" | grep -q "$CLIENT_ID_SOFT"; then
+            print_result 0 "Soft-deleted client found in includeDeleted=true list"
+        else
+            print_result 1 "Soft-deleted client missing from includeDeleted=true list (unexpected)"
+        fi
+    fi
+
+    # ── HARD-DELETE TESTS ─────────────────────────────────────────────────────
+    print_section "CREATE CLIENT (hard-delete target)"
+    local hard_resp
+    hard_resp=$(test_endpoint "POST" "/clients" "Create client for hard-delete test" \
+        "{\"email\":\"hard-client-$TIMESTAMP@lms-test.local\",\"name\":\"Hard Delete Client\",\"phone\":\"+1555000002\"}")
+    CLIENT_ID_HARD=$(extract_json_value "$hard_resp" "data.id")
+    if [ -z "$CLIENT_ID_HARD" ]; then
+        print_result 1 "Failed to create hard-delete target client"
+    else
+        print_result 0 "Hard-delete target created: $CLIENT_ID_HARD"
+    fi
+
+    if [ -n "$CLIENT_ID_HARD" ]; then
+        print_section "HARD-DELETE: DELETE /clients/$CLIENT_ID_HARD?permanent=true"
+        test_endpoint "DELETE" "/clients/$CLIENT_ID_HARD?permanent=true" "Hard-delete client (permanent)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Client hard-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Client hard-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY HARD-DELETE: GET /clients/$CLIENT_ID_HARD → expect not found"
+        test_endpoint "GET" "/clients/$CLIENT_ID_HARD" "Fetch permanently-deleted client (expect not found)" > /dev/null
+        if was_not_found; then
+            print_result 0 "Hard-deleted client correctly returns not-found"
+        else
+            print_result 1 "Hard-deleted client returned HTTP $LAST_HTTP_STATUS (expected 404 or success:false)"
+        fi
+    fi
+
     echo -e "\n  ${MAGENTA}Clients suite done.${NC}"
+    print_suite_summary "CLIENTS SUITE"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUITE: AFFILIATES
 # ═══════════════════════════════════════════════════════════════════════════════
 run_affiliates_tests() {
+    reset_suite_log
     echo -e "\n${MAGENTA}╔════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║  AFFILIATES SUITE                              ║${NC}"
     echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
@@ -613,7 +896,7 @@ run_affiliates_tests() {
     print_section "CREATE AFFILIATE (invalid — extra field)"
     test_endpoint "POST" "/affiliates" "Affiliate with disallowed field 'commissionRate'" \
         "{\"email\":\"invalid-aff-$TIMESTAMP@example.com\",\"name\":\"Bad\",\"phone\":\"+1222\",\"commissionRate\":0.2}" > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    if was_rejected; then
         print_result 0 "Server rejected invalid affiliate payload (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Server accepted invalid affiliate payload (HTTP $LAST_HTTP_STATUS)"
@@ -630,7 +913,78 @@ run_affiliates_tests() {
     fi
     print_result 0 "Affiliate 2 created: $AFFILIATE_ID_2"
 
+    # ── SOFT-DELETE TESTS ─────────────────────────────────────────────────────
+    print_section "CREATE AFFILIATE (soft-delete target)"
+    local aff_soft_resp
+    aff_soft_resp=$(test_endpoint "POST" "/affiliates" "Create affiliate for soft-delete test" \
+        "{\"email\":\"soft-aff-$TIMESTAMP@lms-test.local\",\"name\":\"Soft Delete Affiliate\",\"phone\":\"+1666000001\"}")
+    AFFILIATE_ID_SOFT=$(extract_json_value "$aff_soft_resp" "data.id")
+    if [ -z "$AFFILIATE_ID_SOFT" ]; then
+        print_result 1 "Failed to create soft-delete target affiliate"
+    else
+        print_result 0 "Soft-delete target created: $AFFILIATE_ID_SOFT"
+    fi
+
+    if [ -n "$AFFILIATE_ID_SOFT" ]; then
+        print_section "SOFT-DELETE: DELETE /affiliates/$AFFILIATE_ID_SOFT (default soft)"
+        test_endpoint "DELETE" "/affiliates/$AFFILIATE_ID_SOFT" "Soft-delete affiliate" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Affiliate soft-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Affiliate soft-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /affiliates → soft-deleted excluded"
+        local aff_list_normal
+        aff_list_normal=$(test_endpoint "GET" "/affiliates" "List affiliates — expect soft-deleted excluded")
+        if echo "$aff_list_normal" | grep -q "$AFFILIATE_ID_SOFT"; then
+            print_result 1 "Soft-deleted affiliate still appears in normal list (unexpected)"
+        else
+            print_result 0 "Soft-deleted affiliate correctly excluded from normal list"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /affiliates?includeDeleted=true → record IS present"
+        local aff_list_incl
+        aff_list_incl=$(test_endpoint "GET" "/affiliates?includeDeleted=true" "List affiliates including soft-deleted")
+        if echo "$aff_list_incl" | grep -q "$AFFILIATE_ID_SOFT"; then
+            print_result 0 "Soft-deleted affiliate found in includeDeleted=true list"
+        else
+            print_result 1 "Soft-deleted affiliate missing from includeDeleted=true list (unexpected)"
+        fi
+    fi
+
+    # ── HARD-DELETE TESTS ─────────────────────────────────────────────────────
+    print_section "CREATE AFFILIATE (hard-delete target)"
+    local aff_hard_resp
+    aff_hard_resp=$(test_endpoint "POST" "/affiliates" "Create affiliate for hard-delete test" \
+        "{\"email\":\"hard-aff-$TIMESTAMP@lms-test.local\",\"name\":\"Hard Delete Affiliate\",\"phone\":\"+1666000002\"}")
+    AFFILIATE_ID_HARD=$(extract_json_value "$aff_hard_resp" "data.id")
+    if [ -z "$AFFILIATE_ID_HARD" ]; then
+        print_result 1 "Failed to create hard-delete target affiliate"
+    else
+        print_result 0 "Hard-delete target created: $AFFILIATE_ID_HARD"
+    fi
+
+    if [ -n "$AFFILIATE_ID_HARD" ]; then
+        print_section "HARD-DELETE: DELETE /affiliates/$AFFILIATE_ID_HARD?permanent=true"
+        test_endpoint "DELETE" "/affiliates/$AFFILIATE_ID_HARD?permanent=true" "Hard-delete affiliate (permanent)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Affiliate hard-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Affiliate hard-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY HARD-DELETE: GET /affiliates/$AFFILIATE_ID_HARD → expect not found"
+        test_endpoint "GET" "/affiliates/$AFFILIATE_ID_HARD" "Fetch permanently-deleted affiliate (expect not found)" > /dev/null
+        if was_not_found; then
+            print_result 0 "Hard-deleted affiliate correctly returns not-found"
+        else
+            print_result 1 "Hard-deleted affiliate returned HTTP $LAST_HTTP_STATUS (expected 404 or success:false)"
+        fi
+    fi
+
     echo -e "\n  ${MAGENTA}Affiliates suite done.${NC}"
+    print_suite_summary "AFFILIATES SUITE"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -638,6 +992,7 @@ run_affiliates_tests() {
 # Depends on CLIENT_ID, AFFILIATE_ID, CLIENT_ID_2, AFFILIATE_ID_2.
 # ═══════════════════════════════════════════════════════════════════════════════
 run_campaigns_leads_tests() {
+    reset_suite_log
     echo -e "\n${MAGENTA}╔════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║  CAMPAIGNS & LEADS SUITE                       ║${NC}"
     echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
@@ -742,7 +1097,7 @@ run_campaigns_leads_tests() {
     test_endpoint "POST" "/v2/leads/test" "Bad key (should fail)" \
         "{\"campaign_id\":\"$CAMPAIGN_ID\",\"campaign_key\":\"BADKEY\",\"payload\":{\"email\":\"bad-key@example.com\"}}" \
         "external" > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    if was_rejected; then
         print_result 0 "Wrong key rejected (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Wrong key was NOT rejected (HTTP $LAST_HTTP_STATUS)"
@@ -752,7 +1107,7 @@ run_campaigns_leads_tests() {
     test_endpoint "POST" "/v2/leads" "Live endpoint while TEST (should fail)" \
         "{\"campaign_id\":\"$CAMPAIGN_ID\",\"campaign_key\":\"$CAMPAIGN_KEY\",\"payload\":{\"email\":\"live-while-test@example.com\"}}" \
         "external" > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    if was_rejected; then
         print_result 0 "Live lead blocked while TEST (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Live lead unexpectedly accepted while TEST (HTTP $LAST_HTTP_STATUS)"
@@ -772,7 +1127,7 @@ run_campaigns_leads_tests() {
     print_section "CAMPAIGN 2: try ACTIVE while participants still TEST → fail"
     test_endpoint "PUT" "/campaigns/$CAMPAIGN_ID_2/status" "ACTIVE premature (should fail)" \
         '{"status":"ACTIVE"}' > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    if was_rejected; then
         print_result 0 "ACTIVE blocked while participants TEST (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "ACTIVE incorrectly allowed with TEST participants (HTTP $LAST_HTTP_STATUS)"
@@ -806,7 +1161,7 @@ run_campaigns_leads_tests() {
     test_endpoint "POST" "/v2/leads" "Wrong key on ACTIVE campaign 2" \
         "{\"campaign_id\":\"$CAMPAIGN_ID_2\",\"campaign_key\":\"WRONGKEY\",\"payload\":{\"email\":\"badkey@example.com\"}}" \
         "external" > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    if was_rejected; then
         print_result 0 "Bad key rejected on ACTIVE campaign (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Bad key NOT rejected (HTTP $LAST_HTTP_STATUS)"
@@ -816,7 +1171,7 @@ run_campaigns_leads_tests() {
     test_endpoint "POST" "/v2/leads/test" "Test endpoint while ACTIVE (should fail)" \
         "{\"campaign_id\":\"$CAMPAIGN_ID_2\",\"campaign_key\":\"$CAMPAIGN_KEY_2\",\"payload\":{\"email\":\"test-while-active@example.com\"}}" \
         "external" > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null; then
+    if was_rejected; then
         print_result 0 "Test lead blocked while ACTIVE (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Test lead accepted while ACTIVE (HTTP $LAST_HTTP_STATUS)"
@@ -832,7 +1187,154 @@ run_campaigns_leads_tests() {
         print_result 1 "Internal API unexpectedly allowed POST /leads (HTTP $LAST_HTTP_STATUS)"
     fi
 
+    # ── CAMPAIGN SOFT-DELETE TESTS ────────────────────────────────────────────
+    print_section "CREATE CAMPAIGN (soft-delete target)"
+    local camp_soft_resp
+    camp_soft_resp=$(test_endpoint "POST" "/campaigns" "Create campaign for soft-delete test" \
+        "{\"name\":\"Soft Delete Campaign $TIMESTAMP\"}")
+    CAMPAIGN_ID_SOFT=$(extract_json_value "$camp_soft_resp" "data.id")
+    if [ -z "$CAMPAIGN_ID_SOFT" ]; then
+        print_result 1 "Failed to create soft-delete target campaign"
+    else
+        print_result 0 "Soft-delete target campaign created: $CAMPAIGN_ID_SOFT"
+    fi
+
+    if [ -n "$CAMPAIGN_ID_SOFT" ]; then
+        print_section "SOFT-DELETE: DELETE /campaigns/$CAMPAIGN_ID_SOFT (default soft)"
+        test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID_SOFT" "Soft-delete campaign" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Campaign soft-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Campaign soft-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /campaigns → soft-deleted excluded"
+        local camp_list_normal
+        camp_list_normal=$(test_endpoint "GET" "/campaigns" "List campaigns — soft-deleted should be excluded")
+        if echo "$camp_list_normal" | grep -q "$CAMPAIGN_ID_SOFT"; then
+            print_result 1 "Soft-deleted campaign still appears in normal list (unexpected)"
+        else
+            print_result 0 "Soft-deleted campaign correctly excluded from normal list"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /campaigns?includeDeleted=true → record IS present"
+        local camp_list_incl
+        camp_list_incl=$(test_endpoint "GET" "/campaigns?includeDeleted=true" "List campaigns including soft-deleted")
+        if echo "$camp_list_incl" | grep -q "$CAMPAIGN_ID_SOFT"; then
+            print_result 0 "Soft-deleted campaign found in includeDeleted=true list"
+        else
+            print_result 1 "Soft-deleted campaign missing from includeDeleted=true list (unexpected)"
+        fi
+    fi
+
+    # ── CAMPAIGN HARD-DELETE TESTS ────────────────────────────────────────────
+    print_section "CREATE CAMPAIGN (hard-delete target)"
+    local camp_hard_resp
+    camp_hard_resp=$(test_endpoint "POST" "/campaigns" "Create campaign for hard-delete test" \
+        "{\"name\":\"Hard Delete Campaign $TIMESTAMP\"}")
+    CAMPAIGN_ID_HARD=$(extract_json_value "$camp_hard_resp" "data.id")
+    if [ -z "$CAMPAIGN_ID_HARD" ]; then
+        print_result 1 "Failed to create hard-delete target campaign"
+    else
+        print_result 0 "Hard-delete target campaign created: $CAMPAIGN_ID_HARD"
+    fi
+
+    if [ -n "$CAMPAIGN_ID_HARD" ]; then
+        print_section "HARD-DELETE: DELETE /campaigns/$CAMPAIGN_ID_HARD?permanent=true"
+        test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID_HARD?permanent=true" "Hard-delete campaign (permanent)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Campaign hard-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Campaign hard-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY HARD-DELETE: GET /campaigns/$CAMPAIGN_ID_HARD → expect not found"
+        test_endpoint "GET" "/campaigns/$CAMPAIGN_ID_HARD" "Fetch permanently-deleted campaign (expect not found)" > /dev/null
+        if was_not_found; then
+            print_result 0 "Hard-deleted campaign correctly returns not-found"
+        else
+            print_result 1 "Hard-deleted campaign returned HTTP $LAST_HTTP_STATUS (expected 404 or success:false)"
+        fi
+    fi
+
+    # ── LEAD SOFT-DELETE / HARD-DELETE TESTS ─────────────────────────────────
+    print_section "LIST LEADS: grab IDs for deletion tests"
+    local leads_list_resp
+    leads_list_resp=$(test_endpoint "GET" "/leads" "List all leads to find IDs for delete tests")
+    # Extract first two lead IDs — handles both data:[...] and data:{items:[...]}
+    local lead_ids
+    lead_ids=$(echo "$leads_list_resp" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    body = d.get('data', d)
+    if isinstance(body, list):
+        items = body
+    elif isinstance(body, dict):
+        items = body.get('items', [])
+    else:
+        items = []
+    for item in items[:2]:
+        print(item.get('id', ''))
+except Exception:
+    pass
+" 2>/dev/null)
+    LEAD_ID_SOFT=$(echo "$lead_ids" | sed -n '1p')
+    local LEAD_ID_HARD
+    LEAD_ID_HARD=$(echo "$lead_ids" | sed -n '2p')
+
+    if [ -n "$LEAD_ID_SOFT" ]; then
+        print_result 0 "Lead IDs found — soft: $LEAD_ID_SOFT  hard: ${LEAD_ID_HARD:-(none)}"
+
+        print_section "SOFT-DELETE LEAD: DELETE /leads/$LEAD_ID_SOFT (default soft)"
+        test_endpoint "DELETE" "/leads/$LEAD_ID_SOFT" "Soft-delete lead" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Lead soft-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Lead soft-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /leads → soft-deleted lead excluded"
+        local lead_list_normal
+        lead_list_normal=$(test_endpoint "GET" "/leads" "List leads — soft-deleted should be excluded")
+        if echo "$lead_list_normal" | grep -q "$LEAD_ID_SOFT"; then
+            print_result 1 "Soft-deleted lead still appears in normal list (unexpected)"
+        else
+            print_result 0 "Soft-deleted lead correctly excluded from normal list"
+        fi
+
+        print_section "VERIFY SOFT-DELETE: GET /leads?includeDeleted=true → lead IS present"
+        local lead_list_incl
+        lead_list_incl=$(test_endpoint "GET" "/leads?includeDeleted=true" "List leads including soft-deleted")
+        if echo "$lead_list_incl" | grep -q "$LEAD_ID_SOFT"; then
+            print_result 0 "Soft-deleted lead found in includeDeleted=true list"
+        else
+            print_result 1 "Soft-deleted lead missing from includeDeleted=true list (unexpected)"
+        fi
+    else
+        print_result 1 "No leads found to test deletion — run lead intake tests first"
+    fi
+
+    if [ -n "$LEAD_ID_HARD" ]; then
+        print_section "HARD-DELETE LEAD: DELETE /leads/$LEAD_ID_HARD?permanent=true"
+        test_endpoint "DELETE" "/leads/$LEAD_ID_HARD?permanent=true" "Hard-delete lead (permanent)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Lead hard-deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Lead hard-delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "VERIFY HARD-DELETE: GET /leads/$LEAD_ID_HARD → expect not found"
+        test_endpoint "GET" "/leads/$LEAD_ID_HARD" "Fetch permanently-deleted lead (expect not found)" > /dev/null
+        if was_not_found; then
+            print_result 0 "Hard-deleted lead correctly returns not-found"
+        else
+            print_result 1 "Hard-deleted lead returned HTTP $LAST_HTTP_STATUS (expected 404 or success:false)"
+        fi
+    fi
+
     echo -e "\n  ${MAGENTA}Campaigns & Leads suite done.${NC}"
+    print_suite_summary "CAMPAIGNS & LEADS SUITE"
 }
 
 # ─── Optional cleanup ─────────────────────────────────────────────────────────

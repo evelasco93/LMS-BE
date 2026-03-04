@@ -9,6 +9,7 @@ import * as path from "path";
 export interface IQaDuplicateCheckServiceStackProps extends NestedStackProps {
   lambdaConfig: ILambdaConfig;
   roleName: string;
+  logicalIdPrefix: string;
 }
 
 export class QaDuplicateCheckServiceStack extends NestedStack {
@@ -21,18 +22,18 @@ export class QaDuplicateCheckServiceStack extends NestedStack {
   ) {
     super(scope, id, props);
 
-    const { lambdaConfig, roleName } = props;
+    const { lambdaConfig, roleName, logicalIdPrefix } = props;
     const role = Role.fromRoleName(
       this,
-      "QaDuplicateCheckLambdaRole",
+      `${logicalIdPrefix}-QaDuplicateCheckLambdaRole`,
       roleName,
     );
 
-    this.lambda = new NodejsFunction(this, "QaDuplicateCheckFunction", {
+    this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-QaDuplicateCheckFunction`, {
       functionName: lambdaConfig.functionName,
       entry: lambdaConfig.entry,
       handler: lambdaConfig.handler,
-      runtime: Runtime.NODEJS_20_X,
+      runtime: Runtime.NODEJS_22_X,
       role,
       memorySize: lambdaConfig.memorySize || 512,
       timeout: Duration.seconds(lambdaConfig.timeout || 30),

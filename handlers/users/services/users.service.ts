@@ -10,6 +10,8 @@ import {
   AdminAddUserToGroupCommand,
   AdminRemoveUserFromGroupCommand,
   AdminListGroupsForUserCommand,
+  AdminDisableUserCommand,
+  AdminEnableUserCommand,
   UsernameExistsException,
   UserNotFoundException as CognitoUserNotFoundException,
   MessageActionType,
@@ -23,6 +25,7 @@ import {
   UserRole,
 } from "../types/users-request.types";
 import { ServiceResult } from "../types/common.types";
+import { RequestActor } from "@shared/utils/request-audit.util";
 
 const KNOWN_ROLES: UserRole[] = ["admin", "staff"];
 
@@ -42,6 +45,7 @@ export class UsersService {
 
   async createUser(
     request: CreateUserRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<CognitoUser>> {
     const { email, password, role = "staff", firstName, lastName } = request;
 
@@ -102,6 +106,8 @@ export class UsersService {
           status: "CONFIRMED",
           enabled: true,
           role,
+          createdBy: actor,
+          updatedBy: actor,
         },
       };
     } catch (error) {
@@ -175,7 +181,10 @@ export class UsersService {
 
   // ─── Get ──────────────────────────────────────────────────────────────────
 
-  async getUser(username: string): Promise<ServiceResult<CognitoUser>> {
+  async getUser(
+    username: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<CognitoUser>> {
     try {
       const [userResp, groupsResp] = await Promise.all([
         this.cognitoClient.send(
@@ -214,6 +223,7 @@ export class UsersService {
           role,
           createdAt: userResp.UserCreateDate,
           updatedAt: userResp.UserLastModifiedDate,
+          updatedBy: actor,
         },
       };
     } catch (error) {
@@ -231,6 +241,7 @@ export class UsersService {
   async updateUserRole(
     username: string,
     request: UpdateUserRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<CognitoUser>> {
     const { role, firstName, lastName } = request;
 
@@ -293,7 +304,7 @@ export class UsersService {
         );
       }
 
-      return this.getUser(username);
+      return this.getUser(username, actor);
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
         return { result: false, error: "User not found" };
@@ -309,6 +320,7 @@ export class UsersService {
   async resetPassword(
     username: string,
     request: ResetPasswordRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult> {
     const { password } = request;
 
@@ -325,7 +337,7 @@ export class UsersService {
           Permanent: true,
         }),
       );
-      return { result: true };
+      return { result: true, data: { actor } as any };
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
         return { result: false, error: "User not found" };
@@ -338,15 +350,33 @@ export class UsersService {
 
   // ─── Delete ───────────────────────────────────────────────────────────────
 
-  async deleteUser(username: string): Promise<ServiceResult> {
+  /**
+   * Soft-delete: disables the Cognito user so they cannot log in but the
+   * account is preserved and can be re-enabled.  Pass { permanent: true }
+   * to hard-delete the account entirely from the user pool.
+   */
+  async deleteUser(
+    username: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult> {
     try {
-      await this.cognitoClient.send(
-        new AdminDeleteUserCommand({
-          UserPoolId: this.constants.COGNITO_USER_POOL_ID,
-          Username: username,
-        }),
-      );
-      return { result: true };
+      if (options.permanent) {
+        await this.cognitoClient.send(
+          new AdminDeleteUserCommand({
+            UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+            Username: username,
+          }),
+        );
+      } else {
+        await this.cognitoClient.send(
+          new AdminDisableUserCommand({
+            UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+            Username: username,
+          }),
+        );
+      }
+      return { result: true, data: { permanent: !!options.permanent, actor } as any };
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
         return { result: false, error: "User not found" };
@@ -356,4 +386,27 @@ export class UsersService {
       return { result: false, error: message };
     }
   }
-}
+
+  // ─── Re-enable ────────────────────────────────────────────────────────────
+
+  async enableUser(
+    username: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<CognitoUser>> {
+    try {
+      await this.cognitoClient.send(
+        new AdminEnableUserCommand({
+          UserPoolId: this.constants.COGNITO_USER_POOL_ID,
+          Username: username,
+        }),
+      );
+      return this.getUser(username, actor);
+    } catch (error) {
+      if (error instanceof CognitoUserNotFoundException) {
+        return { result: false, error: "User not found" };
+      }
+      const message =
+        error instanceof Error ? error.message : "Failed to enable user";
+      return { result: false, error: message };
+    }
+  }}

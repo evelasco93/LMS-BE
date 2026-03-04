@@ -5,6 +5,7 @@ import {
   POST,
   GET,
   PUT,
+  DELETE,
   body,
   produces,
   Controller,
@@ -18,12 +19,19 @@ import {
   UpdateLeadRequest,
 } from "../types/lead-request.types";
 import { RestApiResponse } from "../types/common.types";
+import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 
 @injectable()
 @apiController("/leads")
 export class LeadsController extends Controller {
   constructor(@inject("LeadsService") private readonly service: LeadsService) {
     super();
+  }
+
+  private getActor() {
+    return extractRequestActorFromHeaders(
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
   }
 
   @GET("/")
@@ -33,12 +41,15 @@ export class LeadsController extends Controller {
     @queryParam("test") test?: string,
     @queryParam("limit") limit?: string,
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
+    @queryParam("includeDeleted") includeDeleted?: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.listLeads({
       campaign_id,
       test: typeof test === "string" ? test === "true" : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       lastEvaluatedKey,
+      includeDeleted:
+        includeDeleted === "true" || includeDeleted === "1" || false,
     } satisfies ListLeadsQuery);
 
     if (!result.result) {
@@ -81,7 +92,7 @@ export class LeadsController extends Controller {
   @POST("/")
   @produces("application/json")
   async createLead(@body payload: CreateLeadRequest): Promise<RestApiResponse> {
-    const result = await this.service.createLead(payload, false);
+    const result = await this.service.createLead(payload, false, this.getActor());
 
     if (!result.result) {
       return {
@@ -105,7 +116,7 @@ export class LeadsController extends Controller {
   async createTestLead(
     @body payload: CreateLeadRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.service.createLead(payload, true);
+    const result = await this.service.createLead(payload, true, this.getActor());
 
     if (!result.result) {
       return {
@@ -130,7 +141,7 @@ export class LeadsController extends Controller {
     @pathParam("id") id: string,
     @body payload: UpdateLeadRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.service.updateLead(id, payload);
+    const result = await this.service.updateLead(id, payload, this.getActor());
 
     if (!result.result) {
       return {
@@ -144,6 +155,35 @@ export class LeadsController extends Controller {
       success: true,
       message: "Lead updated successfully",
       data: result.data,
+    };
+  }
+
+  @DELETE("/:id")
+  @produces("application/json")
+  async deleteLead(
+    @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.deleteLead(
+      id,
+      { permanent: permanent === "true" || permanent === "1" },
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to delete lead",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message:
+        permanent === "true" || permanent === "1"
+          ? "Lead permanently deleted"
+          : "Lead deleted successfully",
     };
   }
 }

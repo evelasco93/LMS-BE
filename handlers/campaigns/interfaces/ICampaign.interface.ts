@@ -1,5 +1,6 @@
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
+import { RequestActor } from "@shared/utils/request-audit.util";
 
 export interface ICampaignAffiliate {
   affiliate_id: string;
@@ -41,4 +42,10 @@ export interface ICampaign {
   status_history: ICampaignStatusChange[];
   created_at: string;
   updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+  deleted_by?: RequestActor;
+  deleted_at?: string;
+  is_deleted?: boolean;
+  active?: boolean;
 }

@@ -3,11 +3,11 @@
 # Interactive lead sender for LMS API.
 # Prompts for campaign_id, campaign_key, and whether to send TEST or LIVE.
 # Usage: ./scripts/send-lead.sh [BASE_URL]
-# Example: ./scripts/send-lead.sh https://eg0tg7ncg5.execute-api.us-east-1.amazonaws.com/dev/v2
+# Example: ./scripts/send-lead.sh https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2
 
 set -euo pipefail
 
-DEFAULT_BASE_URL="${1:-https://eg0tg7ncg5.execute-api.us-east-1.amazonaws.com/dev/v2}"
+DEFAULT_BASE_URL="${1:-https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2}"
 BASE_URL="$DEFAULT_BASE_URL"
 HEADERS=(-H "Content-Type: application/json")
 

@@ -8,6 +8,7 @@ import {
 } from "../interfaces/ITenantConfig.interface";
 import { UpsertCredentialRequest } from "../types/tenant-config-request.types";
 import { ServiceResult } from "../types/common.types";
+import { RequestActor } from "@shared/utils/request-audit.util";
 
 @injectable()
 export class TenantConfigService {
@@ -21,6 +22,7 @@ export class TenantConfigService {
 
   async upsertCredential(
     request: UpsertCredentialRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
       const provider = request.provider?.trim().toLowerCase();
@@ -47,6 +49,7 @@ export class TenantConfigService {
         type: request.type,
         credentials: request.credentials,
         updated_at: new Date().toISOString(),
+        updated_by: actor,
       };
 
       await this.secretsManagerUtil.upsertJsonSecret(secretName, record);

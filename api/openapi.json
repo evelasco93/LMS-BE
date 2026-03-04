@@ -7,11 +7,11 @@
   },
   "servers": [
     {
-      "url": "https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2",
+      "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
       "description": "Development - Internal API (Bearer token)"
     },
     {
-      "url": "https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2",
+      "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
       "description": "Development - External Leads API (open — campaign_id + campaign_key auth)"
     }
   ],
@@ -226,12 +226,41 @@
         }
       },
       "delete": {
-        "summary": "Delete user (admin only)",
+        "summary": "Disable user (soft-delete — admin only)",
+        "description": "Disables the Cognito user account (AdminDisableUser). The user can no longer log in but the account is preserved. Use `PUT /users/{id}/enable` to re-enable.",
         "tags": ["users"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [{ "$ref": "#/components/parameters/UserId" }],
         "responses": {
-          "200": { "description": "User deleted" },
+          "200": { "description": "User disabled",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — admin role required" },
+          "404": { "description": "User not found" }
+        }
+      }
+    },
+    "/users/{id}/enable": {
+      "put": {
+        "summary": "Re-enable a disabled user (admin only)",
+        "description": "Re-enables a previously disabled Cognito user account (AdminEnableUser). The user can log in again immediately.",
+        "tags": ["users"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "responses": {
+          "200": {
+            "description": "User re-enabled",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          },
           "401": { "description": "Unauthorized" },
           "403": { "description": "Forbidden — admin role required" },
           "404": { "description": "User not found" }
@@ -307,6 +336,12 @@
             "name": "status",
             "in": "query",
             "schema": { "$ref": "#/components/schemas/ClientStatus" }
+          },
+          {
+            "name": "includeDeleted",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, soft-deleted records are included in the response"
           },
           {
             "name": "limit",
@@ -407,11 +442,29 @@
         }
       },
       "delete": {
-        "summary": "Delete client",
+        "summary": "Delete client (soft by default; ?permanent=true for hard delete)",
+        "description": "Without `?permanent=true`: sets `is_deleted=true`, `active=false`, `deleted_by`, and `deleted_at`. The record is hidden from normal list responses but retrievable with `?includeDeleted=true`. With `?permanent=true`: permanently removes the record from DynamoDB. Cannot be undone.",
         "tags": ["clients"],
-        "parameters": [{ "$ref": "#/components/parameters/ClientId" }],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/ClientId" },
+          {
+            "name": "permanent",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, permanently removes the record. Omit or pass false for soft-delete."
+          }
+        ],
         "responses": {
-          "200": { "description": "Deleted" },
+          "200": {
+            "description": "Deleted (soft or permanent)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
           "404": { "description": "Not found" }
         }
       }
@@ -460,6 +513,12 @@
             "name": "status",
             "in": "query",
             "schema": { "$ref": "#/components/schemas/AffiliateStatus" }
+          },
+          {
+            "name": "includeDeleted",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, soft-deleted records are included in the response"
           },
           {
             "name": "limit",
@@ -544,11 +603,29 @@
         }
       },
       "delete": {
-        "summary": "Delete affiliate",
+        "summary": "Delete affiliate (soft by default; ?permanent=true for hard delete)",
+        "description": "Without `?permanent=true`: soft-deletes the record (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). With `?permanent=true`: permanently removes the record.",
         "tags": ["affiliates"],
-        "parameters": [{ "$ref": "#/components/parameters/AffiliateId" }],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/AffiliateId" },
+          {
+            "name": "permanent",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, permanently removes the record."
+          }
+        ],
         "responses": {
-          "200": { "description": "Deleted" },
+          "200": {
+            "description": "Deleted (soft or permanent)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
           "404": { "description": "Not found" }
         }
       }
@@ -592,6 +669,12 @@
             "schema": { "$ref": "#/components/schemas/CampaignStatus" }
           },
           {
+            "name": "includeDeleted",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, soft-deleted campaigns are included in the response"
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -621,6 +704,53 @@
               }
             }
           }
+        }
+      }
+    },
+    "/campaigns/{id}": {
+      "get": {
+        "summary": "Get campaign by id",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "responses": {
+          "200": {
+            "description": "Campaign found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "delete": {
+        "summary": "Delete campaign (soft by default; ?permanent=true for hard delete)",
+        "description": "Without `?permanent=true`: soft-deletes the campaign (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). Campaign must not be ACTIVE. With `?permanent=true`: permanently removes the record.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "name": "permanent",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, permanently removes the campaign and all participant links."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted (soft or permanent)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Not found" }
         }
       }
     },
@@ -902,7 +1032,7 @@
         "tags": ["leads"],
         "servers": [
           {
-            "url": "https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - External Leads API"
           }
         ],
@@ -944,7 +1074,7 @@
         "tags": ["leads"],
         "servers": [
           {
-            "url": "https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
@@ -956,6 +1086,12 @@
             "schema": { "type": "string" }
           },
           { "name": "test", "in": "query", "schema": { "type": "boolean" } },
+          {
+            "name": "includeDeleted",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, soft-deleted leads are included in the response"
+          },
           {
             "name": "limit",
             "in": "query",
@@ -993,7 +1129,7 @@
         "tags": ["leads"],
         "servers": [
           {
-            "url": "https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
@@ -1023,7 +1159,7 @@
         "tags": ["leads"],
         "servers": [
           {
-            "url": "https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
@@ -1061,6 +1197,44 @@
           "400": { "description": "Validation error" },
           "404": { "description": "Not found" }
         }
+      },
+      "delete": {
+        "summary": "Delete lead (INTERNAL API — soft by default; ?permanent=true for hard delete)",
+        "description": "Without `?permanent=true`: soft-deletes the lead. With `?permanent=true`: permanently removes the record.",
+        "tags": ["leads"],
+        "servers": [
+          {
+            "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "description": "Development - Internal API"
+          }
+        ],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "permanent",
+            "in": "query",
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true, permanently removes the record."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted (soft or permanent)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Not found" }
+        }
       }
     },
     "/leads/test": {
@@ -1069,7 +1243,7 @@
         "tags": ["leads"],
         "servers": [
           {
-            "url": "https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - External Leads API"
           }
         ],
@@ -1274,7 +1448,13 @@
           "client_code": { "type": "string" },
           "status": { "$ref": "#/components/schemas/ClientStatus" },
           "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "updated_at": { "type": "string", "format": "date-time" },
+          "created_by": { "type": "string", "description": "Username of the user who created this record" },
+          "updated_by": { "type": "string", "description": "Username of the user who last updated this record" },
+          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this record; null if not deleted" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true, "description": "ISO timestamp of soft-deletion; null if not deleted" },
+          "is_deleted": { "type": "boolean", "description": "True when the record has been soft-deleted" },
+          "active": { "type": "boolean", "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise" }
         }
       },
       "Affiliate": {
@@ -1287,7 +1467,13 @@
           "affiliate_code": { "type": "string" },
           "status": { "$ref": "#/components/schemas/AffiliateStatus" },
           "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "updated_at": { "type": "string", "format": "date-time" },
+          "created_by": { "type": "string", "description": "Username of the user who created this record" },
+          "updated_by": { "type": "string", "description": "Username of the user who last updated this record" },
+          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this record; null if not deleted" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true, "description": "ISO timestamp of soft-deletion; null if not deleted" },
+          "is_deleted": { "type": "boolean", "description": "True when the record has been soft-deleted" },
+          "active": { "type": "boolean", "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise" }
         }
       },
       "CampaignAffiliate": {
@@ -1334,7 +1520,13 @@
             }
           },
           "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "updated_at": { "type": "string", "format": "date-time" },
+          "created_by": { "type": "string", "description": "Username of the user who created this campaign" },
+          "updated_by": { "type": "string", "description": "Username of the user who last updated this campaign" },
+          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this campaign; null if not deleted" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true, "description": "ISO timestamp of soft-deletion; null if not deleted" },
+          "is_deleted": { "type": "boolean", "description": "True when the campaign has been soft-deleted" },
+          "active": { "type": "boolean", "description": "Convenience inverse of is_deleted" }
         }
       },
       "Lead": {
@@ -1358,7 +1550,13 @@
           "created_at": { "type": "string", "format": "date-time" },
           "affiliate_status_at_intake": { "type": "string" },
           "rejected": { "type": "boolean" },
-          "rejection_reason": { "type": "string" }
+          "rejection_reason": { "type": "string" },
+          "created_by": { "type": "string", "description": "campaign_key of the affiliate that submitted this lead (actor identity at intake)" },
+          "updated_by": { "type": "string", "nullable": true, "description": "Username of the internal user who last updated this lead" },
+          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this lead; null if not deleted" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true },
+          "is_deleted": { "type": "boolean" },
+          "active": { "type": "boolean" }
         }
       },
       "DuplicateCheckPluginConfig": {
@@ -1475,6 +1673,21 @@
           "campaign_id": { "type": "string" },
           "campaign_key": { "type": "string" },
           "payload": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "DeleteResponse": {
+        "type": "object",
+        "description": "Returned by all delete endpoints. `permanent` indicates whether the record was hard-deleted (true) or soft-deleted (false).",
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string", "example": "Client soft-deleted successfully" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "description": "ID of the deleted record" },
+              "permanent": { "type": "boolean", "description": "True = hard-deleted (gone); false = soft-deleted (recoverable with includeDeleted=true)" }
+            }
+          }
         }
       },
       "ClientResponse": {

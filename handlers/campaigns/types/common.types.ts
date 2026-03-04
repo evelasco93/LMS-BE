@@ -9,4 +9,6 @@ export type RestApiResponse<T = any> = {
   message?: string;
   data?: T;
   error?: string;
+  count?: number;
+  lastEvaluatedKey?: string;
 };

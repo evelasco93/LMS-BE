@@ -39,6 +39,7 @@ export interface IInternalApiStackProps extends NestedStackProps {
   apiConfig: IInternalApiConfig;
   authLambdaRoleName: string;
   usersLambdaRoleName: string;
+  logicalIdPrefix: string;
 }
 
 /**
@@ -68,12 +69,13 @@ export class InternalApiStack extends NestedStack {
       apiConfig,
       authLambdaRoleName,
       usersLambdaRoleName,
+      logicalIdPrefix,
     } = props;
 
     // ============================================================================
     // REST API SETUP
     // ============================================================================
-    this.api = new RestApi(this, "InternalApi", {
+    this.api = new RestApi(this, `${logicalIdPrefix}-InternalApi`, {
       restApiName: apiConfig.name,
       description: apiConfig.description,
       deployOptions: {
@@ -106,7 +108,7 @@ export class InternalApiStack extends NestedStack {
       scopeDescription: "Write access for internal API",
     });
 
-    this.userPool = new UserPool(this, "InternalApiUserPool", {
+    this.userPool = new UserPool(this, `${logicalIdPrefix}-InternalApiUserPool`, {
       userPoolName: `${apiConfig.name}-users`,
       selfSignUpEnabled: false,
       signInAliases: {
@@ -124,14 +126,14 @@ export class InternalApiStack extends NestedStack {
     });
 
     const resourceServer = this.userPool.addResourceServer(
-      "InternalApiResourceServer",
+      `${logicalIdPrefix}-InternalApiResourceServer`,
       {
         identifier: "internal-api",
         scopes: [readResourceScope, writeResourceScope],
       },
     );
 
-    this.userPoolClient = this.userPool.addClient("InternalApiAppClient", {
+    this.userPoolClient = this.userPool.addClient(`${logicalIdPrefix}-InternalApiAppClient`, {
       userPoolClientName: `${apiConfig.name}-app-client`,
       authFlows: {
         userPassword: true,
@@ -156,7 +158,7 @@ export class InternalApiStack extends NestedStack {
       supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
     });
 
-    const userPoolDomain = this.userPool.addDomain("InternalApiDomain", {
+    const userPoolDomain = this.userPool.addDomain(`${logicalIdPrefix}-InternalApiDomain`, {
       cognitoDomain: {
         domainPrefix:
           apiConfig.cognitoDomainPrefix ??
@@ -169,7 +171,7 @@ export class InternalApiStack extends NestedStack {
     // USER POOL GROUPS (role-based access control)
     // ──────────────────────────────────────────────────────────────────────────
     // "admin" — full management access (create/delete users, etc.)
-    new CfnUserPoolGroup(this, "AdminGroup", {
+    new CfnUserPoolGroup(this, `${logicalIdPrefix}-AdminGroup`, {
       userPoolId: this.userPool.userPoolId,
       groupName: "admin",
       description: "Admin users with full management access",
@@ -177,7 +179,7 @@ export class InternalApiStack extends NestedStack {
     });
 
     // "staff" — standard authenticated access
-    new CfnUserPoolGroup(this, "StaffGroup", {
+    new CfnUserPoolGroup(this, `${logicalIdPrefix}-StaffGroup`, {
       userPoolId: this.userPool.userPoolId,
       groupName: "staff",
       description: "Staff users with standard access",
@@ -186,7 +188,7 @@ export class InternalApiStack extends NestedStack {
 
     this.cognitoAuthorizer = new CognitoUserPoolsAuthorizer(
       this,
-      "InternalApiAuthorizer",
+      `${logicalIdPrefix}-InternalApiAuthorizer`,
       {
         cognitoUserPools: [this.userPool],
       },
@@ -197,14 +199,14 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const authRole = Role.fromRoleName(
       this,
-      "AuthLambdaRole",
+      `${logicalIdPrefix}-AuthLambdaRole`,
       authLambdaRoleName,
     );
-    this.authLambda = new NodejsFunction(this, "AuthFunction", {
+    this.authLambda = new NodejsFunction(this, `${logicalIdPrefix}-AuthFunction`, {
       functionName: nameBuilder.lambda("auth"),
       entry: path.join(__dirname, "../../../handlers/auth/main.ts"),
       handler: "handler",
-      runtime: Runtime.NODEJS_20_X,
+      runtime: Runtime.NODEJS_22_X,
       role: authRole,
       memorySize: 256,
       timeout: Duration.seconds(10),
@@ -232,14 +234,14 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const usersRole = Role.fromRoleName(
       this,
-      "UsersLambdaRole",
+      `${logicalIdPrefix}-UsersLambdaRole`,
       usersLambdaRoleName,
     );
-    this.usersLambda = new NodejsFunction(this, "UsersFunction", {
+    this.usersLambda = new NodejsFunction(this, `${logicalIdPrefix}-UsersFunction`, {
       functionName: nameBuilder.lambda("users"),
       entry: path.join(__dirname, "../../../handlers/users/main.ts"),
       handler: "handler",
-      runtime: Runtime.NODEJS_20_X,
+      runtime: Runtime.NODEJS_22_X,
       role: usersRole,
       memorySize: 256,
       timeout: Duration.seconds(15),
@@ -269,6 +271,8 @@ export class InternalApiStack extends NestedStack {
       "cognito-idp:AdminCreateUser",
       "cognito-idp:AdminSetUserPassword",
       "cognito-idp:AdminDeleteUser",
+      "cognito-idp:AdminDisableUser",
+      "cognito-idp:AdminEnableUser",
       "cognito-idp:AdminGetUser",
       "cognito-idp:ListUsers",
       "cognito-idp:AdminAddUserToGroup",
@@ -363,6 +367,12 @@ export class InternalApiStack extends NestedStack {
     // PUT /v2/users/{id}/password — reset password (admin only)
     const userPasswordResource = userByIdResource.addResource("password");
     addProtectedMethod(userPasswordResource, "PUT", usersLambdaIntegration, [
+      writeScope,
+    ]);
+
+    // PUT /v2/users/{id}/enable — re-enable a disabled (soft-deleted) user (admin only)
+    const userEnableResource = userByIdResource.addResource("enable");
+    addProtectedMethod(userEnableResource, "PUT", usersLambdaIntegration, [
       writeScope,
     ]);
 
@@ -466,6 +476,18 @@ export class InternalApiStack extends NestedStack {
     ]);
 
     const campaignResource = campaignsResource.addResource("{id}");
+
+    // GET /v2/campaigns/{id} - get campaign by id
+    addProtectedMethod(campaignResource, "GET", campaignsLambdaIntegration, [
+      readScope,
+    ]);
+    // DELETE /v2/campaigns/{id} - soft/hard delete campaign
+    addProtectedMethod(
+      campaignResource,
+      "DELETE",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
 
     // clients under campaign
     const campaignClientsResource = campaignResource.addResource("clients");
@@ -573,6 +595,10 @@ export class InternalApiStack extends NestedStack {
     addProtectedMethod(leadByIdResource, "PUT", leadsLambdaIntegration, [
       writeScope,
     ]);
+    // delete lead — soft by default, ?permanent=true for hard delete (admin only)
+    addProtectedMethod(leadByIdResource, "DELETE", leadsLambdaIntegration, [
+      writeScope,
+    ]);
 
     // ============================================================================
     // TENANT CONFIG INTEGRATION
@@ -632,17 +658,17 @@ export class InternalApiStack extends NestedStack {
           },
     );
 
-    new CfnOutput(this, "InternalApiCognitoUserPoolId", {
+    new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolId`, {
       value: this.userPool.userPoolId,
       description: "Cognito User Pool ID for internal API OAuth",
     });
 
-    new CfnOutput(this, "InternalApiCognitoUserPoolClientId", {
+    new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolClientId`, {
       value: this.userPoolClient.userPoolClientId,
       description: "Cognito App Client ID for custom login screen",
     });
 
-    new CfnOutput(this, "InternalApiCognitoDomainName", {
+    new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoDomainName`, {
       value: userPoolDomain.domainName,
       description: "Cognito domain for OAuth2 authorize/token endpoints",
     });

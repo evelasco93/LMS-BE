@@ -19,6 +19,7 @@ import {
 } from "../types/client-request.types";
 import { ClientStatus } from "../enums/client-status.enum";
 import { RestApiResponse } from "../types/common.types";
+import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 
 @injectable()
 @apiController("/clients")
@@ -29,12 +30,18 @@ export class ClientController extends Controller {
     super();
   }
 
+  private getActor() {
+    return extractRequestActorFromHeaders(
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
+  }
+
   @POST("/")
   @produces("application/json")
   async createClient(
     @body payload: CreateClientRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.clientService.createClient(payload);
+    const result = await this.clientService.createClient(payload, this.getActor());
 
     if (!result.result) {
       return {
@@ -77,11 +84,14 @@ export class ClientController extends Controller {
     @queryParam("status") status?: ClientStatus,
     @queryParam("limit") limit?: string,
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
+    @queryParam("includeDeleted") includeDeleted?: string,
   ): Promise<RestApiResponse> {
     const result = await this.clientService.listClients({
       status,
       limit: limit ? parseInt(limit, 10) : undefined,
       lastEvaluatedKey,
+      includeDeleted:
+        includeDeleted === "true" || includeDeleted === "1" || false,
     });
 
     if (!result.result) {
@@ -106,7 +116,11 @@ export class ClientController extends Controller {
     @pathParam("id") id: string,
     @body payload: UpdateClientRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.clientService.updateClient(id, payload);
+    const result = await this.clientService.updateClient(
+      id,
+      payload,
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -125,8 +139,17 @@ export class ClientController extends Controller {
 
   @DELETE("/:id")
   @produces("application/json")
-  async deleteClient(@pathParam("id") id: string): Promise<RestApiResponse> {
-    const result = await this.clientService.deleteClient(id);
+  async deleteClient(
+    @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.clientService.deleteClient(
+      id,
+      {
+        permanent: permanent === "true" || permanent === "1",
+      },
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -138,7 +161,10 @@ export class ClientController extends Controller {
 
     return {
       success: true,
-      message: "Client deleted successfully",
+      message:
+        permanent === "true" || permanent === "1"
+          ? "Client permanently deleted successfully"
+          : "Client deleted successfully",
     };
   }
 }

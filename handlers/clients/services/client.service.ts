@@ -12,6 +12,7 @@ import {
 } from "../types/client-request.types";
 import { ServiceResult } from "../types/common.types";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
+import { RequestActor } from "@shared/utils/request-audit.util";
 
 @injectable()
 export class ClientService {
@@ -23,6 +24,7 @@ export class ClientService {
 
   async createClient(
     request: CreateClientRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<IClient>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -55,6 +57,10 @@ export class ClientService {
         client_code: request.client_code,
         created_at: now,
         updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+        is_deleted: false,
+        active: true,
       };
 
       await this.dynamoDBUtil.put({
@@ -137,19 +143,33 @@ export class ClientService {
     }>
   > {
     try {
-      const { status, limit = 20, lastEvaluatedKey } = query;
+      const {
+        status,
+        limit = 20,
+        lastEvaluatedKey,
+        includeDeleted = false,
+      } = query;
 
       if (status) {
+        const expressionAttributeValues: Record<string, unknown> = {
+          ":status": status,
+          ...(includeDeleted ? {} : { ":is_deleted_false": false }),
+        };
+
         const queryResult = await this.dynamoDBUtil.query<IClient>({
           TableName: this.constants.CLIENTS_TABLE_NAME,
           IndexName: "status-index",
           KeyConditionExpression: "#status = :status",
+          ...(includeDeleted
+            ? {}
+            : {
+                FilterExpression:
+                  "attribute_not_exists(is_deleted) OR is_deleted = :is_deleted_false",
+              }),
           ExpressionAttributeNames: {
             "#status": "status",
           },
-          ExpressionAttributeValues: {
-            ":status": status,
-          },
+          ExpressionAttributeValues: expressionAttributeValues,
           Limit: limit,
           ExclusiveStartKey: lastEvaluatedKey
             ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
@@ -172,6 +192,15 @@ export class ClientService {
 
       const scanResult = await this.dynamoDBUtil.scan<IClient>({
         TableName: this.constants.CLIENTS_TABLE_NAME,
+        ...(includeDeleted
+          ? {}
+          : {
+              FilterExpression:
+                "attribute_not_exists(is_deleted) OR is_deleted = :is_deleted_false",
+              ExpressionAttributeValues: {
+                ":is_deleted_false": false,
+              },
+            }),
         Limit: limit,
         ExclusiveStartKey: lastEvaluatedKey
           ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
@@ -202,6 +231,7 @@ export class ClientService {
   async updateClient(
     id: string,
     request: UpdateClientRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<IClient>> {
     try {
       const existing = await this.getClient(id);
@@ -225,6 +255,7 @@ export class ClientService {
       const updates = {
         ...request,
         updated_at: new Date().toISOString(),
+        updated_by: actor,
       };
 
       const expression = this.dynamoDBUtil.buildUpdateExpression(updates);
@@ -250,7 +281,11 @@ export class ClientService {
     }
   }
 
-  async deleteClient(id: string): Promise<ServiceResult<void>> {
+  async deleteClient(
+    id: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
     try {
       const existing = await this.getClient(id);
       if (!existing.result || !existing.data) {
@@ -260,12 +295,36 @@ export class ClientService {
         };
       }
 
-      await this.dynamoDBUtil.delete({
-        TableName: this.constants.CLIENTS_TABLE_NAME,
-        Key: { id },
-      });
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.CLIENTS_TABLE_NAME,
+          Key: { id },
+        });
 
-      this.logger.info("Client deleted successfully", { clientId: id });
+        this.logger.info("Client permanently deleted", {
+          clientId: id,
+          actor,
+        });
+      } else {
+        const now = new Date().toISOString();
+        const expression = this.dynamoDBUtil.buildUpdateExpression({
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor,
+          updated_at: now,
+          updated_by: actor,
+        });
+
+        await this.dynamoDBUtil.update({
+          TableName: this.constants.CLIENTS_TABLE_NAME,
+          Key: { id },
+          ...expression,
+        });
+
+        this.logger.info("Client soft-deleted", { clientId: id, actor });
+      }
+
       return {
         result: true,
       };

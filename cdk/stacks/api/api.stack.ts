@@ -40,6 +40,7 @@ export class ApiStack extends Stack {
         apiConfig: apiConfig.internalApi,
         authLambdaRoleName,
         usersLambdaRoleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
 
@@ -49,6 +50,7 @@ export class ApiStack extends Stack {
       {
         leadsLambda,
         apiConfig: apiConfig.externalLeadsApi,
+        logicalIdPrefix: config.appPrefix,
       },
     );
 

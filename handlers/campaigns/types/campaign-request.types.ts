@@ -35,4 +35,5 @@ export type ListCampaignsQuery = {
   status?: CampaignStatus;
   limit?: number;
   lastEvaluatedKey?: string;
+  includeDeleted?: boolean;
 };

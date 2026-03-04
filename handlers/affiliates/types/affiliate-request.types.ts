@@ -19,4 +19,5 @@ export type ListAffiliatesQuery = {
   status?: AffiliateStatus;
   limit?: number;
   lastEvaluatedKey?: string;
+  includeDeleted?: boolean;
 };

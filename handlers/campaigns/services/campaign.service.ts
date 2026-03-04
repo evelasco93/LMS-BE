@@ -23,6 +23,7 @@ import {
   UpdateParticipantStatusRequest,
 } from "../types/campaign-request.types";
 import { ServiceResult } from "../types/common.types";
+import { RequestActor } from "@shared/utils/request-audit.util";
 
 @injectable()
 export class CampaignService {
@@ -34,6 +35,7 @@ export class CampaignService {
 
   async createCampaign(
     request: CreateCampaignRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -66,6 +68,10 @@ export class CampaignService {
         ],
         created_at: now,
         updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+        is_deleted: false,
+        active: true,
       };
 
       await this.dynamoDBUtil.put({
@@ -92,21 +98,46 @@ export class CampaignService {
     }>
   > {
     try {
-      const { status, limit = 20, lastEvaluatedKey } = query;
+      const {
+        status,
+        limit = 20,
+        lastEvaluatedKey,
+        includeDeleted = false,
+      } = query;
 
       const exclusiveStartKey = lastEvaluatedKey
         ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
         : undefined;
 
+      // Build filter expression combining status and soft-delete filters
+      const filterParts: string[] = [];
+      const filterNames: Record<string, string> = {};
+      const filterValues: Record<string, unknown> = {};
+
+      if (status) {
+        filterParts.push("#status = :status");
+        filterNames["#status"] = "status";
+        filterValues[":status"] = status;
+      }
+
+      if (!includeDeleted) {
+        filterParts.push(
+          "(attribute_not_exists(is_deleted) OR is_deleted = :is_deleted_false)",
+        );
+        filterValues[":is_deleted_false"] = false;
+      }
+
       const scanResult = await this.dynamoDBUtil.scan<ICampaign>({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Limit: limit,
         ExclusiveStartKey: exclusiveStartKey,
-        ...(status
+        ...(filterParts.length > 0
           ? {
-              FilterExpression: "#status = :status",
-              ExpressionAttributeNames: { "#status": "status" },
-              ExpressionAttributeValues: { ":status": status },
+              FilterExpression: filterParts.join(" AND "),
+              ExpressionAttributeValues: filterValues,
+              ...(Object.keys(filterNames).length > 0
+                ? { ExpressionAttributeNames: filterNames }
+                : {}),
             }
           : {}),
       });
@@ -135,6 +166,7 @@ export class CampaignService {
   async linkClient(
     campaignId: string,
     request: LinkClientRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -176,6 +208,7 @@ export class CampaignService {
       }
 
       campaign.updated_at = new Date().toISOString();
+      campaign.updated_by = actor;
 
       this.logger.info("Client linked to campaign", {
         campaignId,
@@ -202,6 +235,7 @@ export class CampaignService {
   async linkAffiliate(
     campaignId: string,
     request: LinkAffiliateRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<{ campaign: ICampaign; campaign_key: string }>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -246,6 +280,7 @@ export class CampaignService {
       }
 
       campaign.updated_at = new Date().toISOString();
+      campaign.updated_by = actor;
 
       this.logger.info("Affiliate linked to campaign", {
         campaignId,
@@ -273,6 +308,7 @@ export class CampaignService {
   async updateStatus(
     campaignId: string,
     request: UpdateCampaignStatusRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -388,6 +424,7 @@ export class CampaignService {
       ];
       campaign.status = status;
       campaign.updated_at = now;
+      campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
@@ -407,6 +444,7 @@ export class CampaignService {
   async updatePlugins(
     campaignId: string,
     request: UpdateCampaignPluginsRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
@@ -520,6 +558,7 @@ export class CampaignService {
 
       campaign.plugins = nextPlugins;
       campaign.updated_at = new Date().toISOString();
+      campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
@@ -545,48 +584,53 @@ export class CampaignService {
     campaignId: string,
     affiliateId: string,
     request: UpdateParticipantStatusRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     return this.mutateAffiliate(campaignId, affiliateId, (a) => {
       a.status = request.status;
-    });
+    }, actor);
   }
 
   async deleteAffiliate(
     campaignId: string,
     affiliateId: string,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     return this.mutateAffiliate(campaignId, affiliateId, (a, campaign) => {
       campaign.affiliates = (campaign.affiliates ?? []).filter(
         (x) => x.affiliate_id !== affiliateId,
       );
-    });
+    }, actor);
   }
 
   async updateClientStatus(
     campaignId: string,
     clientId: string,
     request: UpdateParticipantStatusRequest,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     return this.mutateClient(campaignId, clientId, (c) => {
       c.status = request.status;
-    });
+    }, actor);
   }
 
   async deleteClient(
     campaignId: string,
     clientId: string,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     return this.mutateClient(campaignId, clientId, (c, campaign) => {
       campaign.clients = (campaign.clients ?? []).filter(
         (x) => x.client_id !== clientId,
       );
-    });
+    }, actor);
   }
 
   private async mutateAffiliate(
     campaignId: string,
     affiliateId: string,
     mutate: (a: ICampaignAffiliate, campaign: ICampaign) => void,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const campaign = await this.getCampaignById(campaignId);
@@ -607,6 +651,7 @@ export class CampaignService {
 
       mutate(affiliate, campaign);
       campaign.updated_at = new Date().toISOString();
+      campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
@@ -634,6 +679,7 @@ export class CampaignService {
     campaignId: string,
     clientId: string,
     mutate: (c: ICampaignClient, campaign: ICampaign) => void,
+    actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const campaign = await this.getCampaignById(campaignId);
@@ -654,6 +700,7 @@ export class CampaignService {
 
       mutate(client, campaign);
       campaign.updated_at = new Date().toISOString();
+      campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
@@ -684,6 +731,62 @@ export class CampaignService {
     });
 
     return campaign ?? null;
+  }
+
+  async getCampaign(id: string): Promise<ServiceResult<ICampaign>> {
+    try {
+      const campaign = await this.getCampaignById(id);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign with id ${id} not found` };
+      }
+      return { result: true, data: this.normalizeParticipants(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to get campaign", error);
+      return { result: false, error: error.message || "Failed to get campaign" };
+    }
+  }
+
+  async deleteCampaign(
+    id: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string; permanent: boolean }>> {
+    try {
+      const existing = await this.getCampaignById(id);
+      if (!existing) {
+        return { result: false, error: `Campaign with id ${id} not found` };
+      }
+
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+          Key: { id },
+        });
+        this.logger.info("Campaign permanently deleted", { campaignId: id, actor });
+      } else {
+        const now = new Date().toISOString();
+        const expression = this.dynamoDBUtil.buildUpdateExpression({
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor,
+          updated_at: now,
+          updated_by: actor,
+        });
+
+        await this.dynamoDBUtil.update({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+          Key: { id },
+          ...expression,
+        });
+        this.logger.info("Campaign soft-deleted", { campaignId: id, actor });
+      }
+
+      return { result: true, data: { id, permanent: !!options.permanent } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete campaign", error);
+      return { result: false, error: error.message || "Failed to delete campaign" };
+    }
   }
 
   private normalizeParticipants(campaign: ICampaign): ICampaign {

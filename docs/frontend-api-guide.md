@@ -21,12 +21,37 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 - Campaign participant status: TEST, LIVE, DISABLED (per linked client/affiliate inside the campaign).
 - Campaign status: DRAFT → TEST → ACTIVE.
 
+### Audit fields (present on every Client, Affiliate, Campaign, and Lead)
+
+Every entity now carries the following audit and soft-delete fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `created_by` | string | Username / identity that created the record |
+| `updated_by` | string \| null | Username that last mutated the record |
+| `deleted_by` | string \| null | Username that soft-deleted the record; `null` when not deleted |
+| `deleted_at` | ISO timestamp \| null | When the soft-delete occurred; `null` when not deleted |
+| `is_deleted` | boolean | `true` when soft-deleted |
+| `active` | boolean | Convenience inverse of `is_deleted` (`false` when deleted) |
+
+Use `active` / `is_deleted` in the UI to show/hide deleted records without re-fetching.
+
+### API error handling note
+
+All endpoints **always return HTTP 200**, including business-logic rejections. Check the `success` field in the response body:
+
+```json
+{ "success": false, "error": "Campaign is in test mode; send to /lead/test" }
+```
+
+Only network or Gateway-level failures return non-200 status codes (e.g. 401 for an invalid/missing Bearer token, 403 for an unregistered route).
+
 ## Endpoint walkthrough (key payloads)
 
 Examples assume base `https://.../v2`.
 
-- Internal API base (dev): `https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2`
-- External leads API base (dev): `https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2`
+- Internal API base (dev): `https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2`
+- External leads API base (dev): `https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2`
 
 **Create client** `POST /clients`
 
@@ -97,7 +122,45 @@ Valid values: TEST, LIVE, DISABLED. Use these endpoints to move participants fro
 - Affiliate: `DELETE /campaigns/{id}/affiliates/{affiliateId}`
   Removes participant from campaign (useful for cleanup or replacing participants).
 
-**Move campaign status** `PUT /campaigns/{id}/status`
+**Get campaign by id** `GET /campaigns/{id}`
+
+Returns the full campaign object including participants, plugins, status history, and all audit fields.
+
+**Delete campaign** `DELETE /campaigns/{id}` (soft) · `DELETE /campaigns/{id}?permanent=true` (hard)
+
+Soft-delete (default): sets `is_deleted=true`, `active=false`, records `deleted_by` + `deleted_at`. Campaign must not currently be ACTIVE.
+Hard-delete: permanently removes the record from DynamoDB — irreversible.
+
+Response:
+```json
+{ "success": true, "message": "Campaign soft-deleted successfully", "data": { "id": "CMABC12345", "permanent": false } }
+```
+
+**Soft-delete and hard-delete** — applies to clients, affiliates, campaigns, and leads
+
+All `DELETE /{resource}/{id}` endpoints support two modes:
+
+| Mode | URL | What happens |
+|------|-----|------|
+| Soft-delete (default) | `DELETE /clients/{id}` | Sets `is_deleted=true`, `active=false`, records `deleted_by` + `deleted_at`. Record is hidden from normal queries but still in the DB. |
+| Hard-delete (permanent) | `DELETE /clients/{id}?permanent=true` | Permanently removes the record from DynamoDB. Irreversible. |
+
+Response shape for all delete endpoints:
+```json
+{ "success": true, "message": "Client soft-deleted successfully", "data": { "id": "CLABC12345", "permanent": false } }
+```
+`permanent: true` → hard-deleted (gone). `permanent: false` → soft-deleted (recoverable).
+
+**Listing with soft-deleted records** — add `?includeDeleted=true` to any list endpoint:
+
+- `GET /clients?includeDeleted=true`
+- `GET /affiliates?includeDeleted=true`
+- `GET /campaigns?includeDeleted=true`
+- `GET /leads?includeDeleted=true`
+
+Soft-deleted records have `is_deleted: true` and `active: false`. Use `active` to quickly filter in your frontend state.
+
+
 
 ```json
 { "status": "TEST" } // or "ACTIVE"
@@ -151,11 +214,12 @@ Requirements: campaign status TEST; affiliate participant status TEST; `campaign
 Requirements: campaign status ACTIVE; affiliate participant status LIVE; `campaign_key` matches. If the affiliate is DISABLED, the lead is stored with `rejected=true`, `rejection_reason`, and `affiliate_status_at_intake`.
 
 No API key required — authentication is entirely via `campaign_id` + `campaign_key`.
-**Internal lead reads/updates (internal API only)**
+**Internal lead reads/updates/deletes (internal API only)**
 
-- `GET /leads`
-- `GET /leads/{id}`
-- `PUT /leads/{id}`
+- `GET /leads` — list all leads; supports `?campaign_id`, `?test`, `?includeDeleted=true`, `?limit`, `?lastEvaluatedKey`
+- `GET /leads/{id}` — get single lead
+- `PUT /leads/{id}` — update lead payload
+- `DELETE /leads/{id}` — soft-delete; `DELETE /leads/{id}?permanent=true` for hard-delete
 
 `POST /leads` and `POST /leads/test` are intentionally **not** exposed on the internal API.
 
@@ -173,7 +237,13 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
   "affiliate_status_at_intake": "TEST",
   "rejected": false,
   "rejection_reason": null,
-  "created_at": "2024-01-01T00:00:00Z"
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "123456789012",
+  "updated_by": null,
+  "deleted_by": null,
+  "deleted_at": null,
+  "is_deleted": false,
+  "active": true
 }
 ```
 
@@ -189,8 +259,9 @@ Rejection behavior:
 - Surface `campaign_key` to affiliates once linked; they need it for both test and live lead intake.
 - When sending leads, display backend message and `rejected` flag to make DISABLED affiliate behavior clear.
 - Display duplicate metadata: `duplicate=true` means lead matched existing campaign leads; use `duplicate_matches.lead_ids` to show linked duplicates.
-- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).
-
+- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).- **Soft-delete UI**: use `active` (boolean) to control visibility. Show a "deleted" badge or hide the row when `active=false`. Offer a restore action that calls `PUT /users/{id}/enable` (users) or a future restore endpoint for other entities.
+- **Audit trail**: display `created_by` and `updated_by` in detail views / tooltips. Show `deleted_by` + `deleted_at` in soft-deleted record summaries.
+- **All responses are HTTP 200** — check `success` (boolean) in the body, not the HTTP status, to determine if an operation succeeded. On `success: false`, display the `error` field to the user.
 ## Internal login
 
 The internal API uses custom Bearer token auth backed by Cognito. No OAuth redirects or hosted UI needed — your login screen calls the backend directly.
@@ -251,8 +322,8 @@ Response is the same shape as login (`data.access_token`, `data.id_token`, `data
 Minimal values needed for frontend integration:
 
 ```dotenv
-VITE_INTERNAL_API_BASE_URL=https://zf7o4xenif.execute-api.us-east-1.amazonaws.com/dev/v2
-VITE_EXTERNAL_LEADS_API_BASE_URL=https://9mfoe2pmqb.execute-api.us-east-1.amazonaws.com/dev/v2
+VITE_INTERNAL_API_BASE_URL=https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2
+VITE_EXTERNAL_LEADS_API_BASE_URL=https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2
 ```
 
 The internal API URL already includes `/v2`. The external API URL also includes `/v2`. No API keys or Cognito OAuth URLs are needed on the frontend.
@@ -348,9 +419,17 @@ At least one field must be present. Fields not included are left unchanged.
 { "password": "NewPass1!" }
 ```
 
-### Delete user
+### Disable user (soft-delete)
 
-`DELETE /v2/users/{id}` — permanently removes the user from the Cognito User Pool.
+`DELETE /v2/users/{id}` — disables the Cognito account (`AdminDisableUser`). The account is preserved but the user cannot log in. `enabled` on the user object becomes `false`.
+
+### Re-enable user
+
+`PUT /v2/users/{id}/enable` — re-enables a previously disabled account (`AdminEnableUser`). No request body needed. Returns the updated user object with `enabled: true`.
+
+### Delete user (permanent)
+
+There is no permanent user delete endpoint; `DELETE /v2/users/{id}` is always a soft-disable.
 
 ### User object shape
 

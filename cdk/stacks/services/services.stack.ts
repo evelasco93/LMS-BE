@@ -30,6 +30,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.campaigns.lambda,
         roleName: servicesConfig.campaigns.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.campaignsLambda = campaignsServiceStack.lambda;
@@ -40,6 +41,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.leads.lambda,
         roleName: servicesConfig.leads.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.leadsLambda = leadsServiceStack.lambda;
@@ -50,6 +52,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.tenantConfig.lambda,
         roleName: servicesConfig.tenantConfig.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.tenantConfigLambda = tenantConfigServiceStack.lambda;
@@ -60,6 +63,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.qaOrchestrator.lambda,
         roleName: servicesConfig.qaOrchestrator.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.qaOrchestratorLambda = qaOrchestratorServiceStack.lambda;
@@ -70,6 +74,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.qaDuplicateCheck.lambda,
         roleName: servicesConfig.qaDuplicateCheck.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.qaDuplicateCheckLambda = qaDuplicateCheckServiceStack.lambda;
@@ -80,6 +85,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.clients.lambda,
         roleName: servicesConfig.clients.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.clientsLambda = clientsServiceStack.lambda;
@@ -90,6 +96,7 @@ export class ServicesStack extends Stack {
       {
         lambdaConfig: servicesConfig.affiliates.lambda,
         roleName: servicesConfig.affiliates.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
       },
     );
     this.affiliatesLambda = affiliatesServiceStack.lambda;

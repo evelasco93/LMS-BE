@@ -9,6 +9,7 @@ import {
   body,
   pathParam,
   produces,
+  queryParam,
   Controller,
 } from "ts-lambda-api";
 import { UsersService } from "../services/users.service";
@@ -19,6 +20,7 @@ import {
 } from "../types/users-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { isAdmin } from "../guards/admin.guard";
+import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 
 @injectable()
 @apiController("/users")
@@ -27,6 +29,12 @@ export class UsersController extends Controller {
     @inject("UsersService") private readonly usersService: UsersService,
   ) {
     super();
+  }
+
+  private getActor() {
+    return extractRequestActorFromHeaders(
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
   }
 
   /**
@@ -67,7 +75,7 @@ export class UsersController extends Controller {
       };
     }
 
-    const result = await this.usersService.createUser(payload);
+    const result = await this.usersService.createUser(payload, this.getActor());
 
     if (!result.result) {
       this.response.status(400);
@@ -165,6 +173,7 @@ export class UsersController extends Controller {
     const result = await this.usersService.updateUserRole(
       decodeURIComponent(id),
       payload,
+      this.getActor(),
     );
 
     if (!result.result) {
@@ -202,6 +211,7 @@ export class UsersController extends Controller {
     const result = await this.usersService.resetPassword(
       decodeURIComponent(id),
       payload,
+      this.getActor(),
     );
 
     if (!result.result) {
@@ -217,13 +227,13 @@ export class UsersController extends Controller {
   }
 
   /**
-   * DELETE /v2/users/:id
-   * Permanently delete a user from Cognito.
+   * PUT /v2/users/:id/enable
+   * Re-enable a previously disabled (soft-deleted) Cognito user.
    * Admin only.
    */
-  @DELETE("/:id")
+  @PUT("/:id/enable")
   @produces("application/json")
-  async deleteUser(@pathParam("id") id: string): Promise<RestApiResponse> {
+  async enableUser(@pathParam("id") id: string): Promise<RestApiResponse> {
     if (!this.guardAdmin()) {
       return {
         success: false,
@@ -232,7 +242,50 @@ export class UsersController extends Controller {
       };
     }
 
-    const result = await this.usersService.deleteUser(decodeURIComponent(id));
+    const result = await this.usersService.enableUser(
+      decodeURIComponent(id),
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      this.response.status(result.error === "User not found" ? 404 : 500);
+      return {
+        success: false,
+        message: result.error ?? "Failed to enable user",
+        error: result.error,
+      };
+    }
+
+    return { success: true, message: "User enabled", data: result.data };
+  }
+
+  /**
+   * DELETE /v2/users/:id
+   * Soft-delete (disable) a user from Cognito by default.
+   * Pass ?permanent=true to permanently remove the account.
+   * Admin only.
+   */
+  @DELETE("/:id")
+  @produces("application/json")
+  async deleteUser(
+    @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
+  ): Promise<RestApiResponse> {
+    if (!this.guardAdmin()) {
+      return {
+        success: false,
+        message: "Forbidden",
+        error: "Admin access required",
+      };
+    }
+
+    const result = await this.usersService.deleteUser(
+      decodeURIComponent(id),
+      {
+        permanent: permanent === "true" || permanent === "1",
+      },
+      this.getActor(),
+    );
 
     if (!result.result) {
       this.response.status(result.error === "User not found" ? 404 : 500);
@@ -244,6 +297,12 @@ export class UsersController extends Controller {
     }
 
     this.response.status(200);
-    return { success: true, message: "User deleted" };
+    return {
+      success: true,
+      message:
+        permanent === "true" || permanent === "1"
+          ? "User permanently deleted"
+          : "User disabled successfully",
+    };
   }
 }
