@@ -1543,6 +1543,41 @@ except Exception:
     if [ -n "$LEAD_ID_SOFT" ]; then
         print_result 0 "Lead IDs found — soft: $LEAD_ID_SOFT  hard: ${LEAD_ID_HARD:-(none)}"
 
+        # ── LEAD EDIT HISTORY ─────────────────────────────────────────────────
+        print_section "LEAD EDIT HISTORY: PUT /leads/$LEAD_ID_SOFT → update payload fields"
+        local edit_put_resp
+        edit_put_resp=$(test_endpoint "PUT" "/leads/$LEAD_ID_SOFT" \
+            "Update lead payload (name + email + phone) — should generate edit_history entries" \
+            '{"payload":{"name":"Updated Lead Name","email":"updated-lead@example.com","phone":"+15550009999"}}')
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Lead payload updated (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Lead payload update failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        print_section "LEAD EDIT HISTORY: GET /leads/$LEAD_ID_SOFT → verify edit_history populated"
+        local edit_verify_resp
+        edit_verify_resp=$(test_endpoint "GET" "/leads/$LEAD_ID_SOFT" \
+            "Fetch updated lead — check edit_history array")
+        local history_len
+        history_len=$(echo "$edit_verify_resp" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    hist=d.get('data',{}).get('edit_history',[])
+    print(len(hist))
+except: print(0)
+" 2>/dev/null)
+        if [ "${history_len:-0}" -gt 0 ] 2>/dev/null; then
+            local entry_word
+            [ "$history_len" -eq 1 ] && entry_word="entry" || entry_word="entries"
+            print_result 0 "edit_history has $history_len $entry_word — full lead:"
+            print_json "$edit_verify_resp"
+        else
+            print_result 1 "edit_history is empty or missing (expected entries from the PUT above)"
+            print_json "$edit_verify_resp"
+        fi
+
         print_section "SOFT-DELETE LEAD: DELETE /leads/$LEAD_ID_SOFT (default soft)"
         test_endpoint "DELETE" "/leads/$LEAD_ID_SOFT" "Soft-delete lead" > /dev/null
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then

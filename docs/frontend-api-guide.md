@@ -18,8 +18,8 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 
 ## Entities and statuses
 
-- Client status: ACTIVE, INACTIVE.
-- Affiliate status: ACTIVE, INACTIVE.
+- Client status: ACTIVE, INACTIVE, SUSPENDED. **Soft-deleting a client automatically sets status to INACTIVE.**
+- Affiliate status: ACTIVE, INACTIVE. **Soft-deleting an affiliate automatically sets status to INACTIVE.**
 - Campaign participant status: TEST, LIVE, DISABLED (per linked client/affiliate inside the campaign).
 - Campaign status: DRAFT → TEST → ACTIVE.
 
@@ -27,14 +27,15 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 
 Every entity now carries the following audit and soft-delete fields:
 
-| Field        | Type                  | Description                                                    |
-| ------------ | --------------------- | -------------------------------------------------------------- |
-| `created_by` | string                | Username / identity that created the record                    |
-| `updated_by` | string \| null        | Username that last mutated the record                          |
-| `deleted_by` | string \| null        | Username that soft-deleted the record; `null` when not deleted |
-| `deleted_at` | ISO timestamp \| null | When the soft-delete occurred; `null` when not deleted         |
-| `is_deleted` | boolean               | `true` when soft-deleted                                       |
-| `active`     | boolean               | Convenience inverse of `is_deleted` (`false` when deleted)     |
+| Field          | Type                                   | Description                                                    |
+| -------------- | -------------------------------------- | -------------------------------------------------------------- |
+| `created_by`   | RequestActor                           | Identity that created the record                               |
+| `updated_by`   | RequestActor \| null                   | Identity that last mutated the record                          |
+| `deleted_by`   | RequestActor \| null                   | Identity that soft-deleted the record; `null` when not deleted |
+| `deleted_at`   | ISO timestamp \| null                  | When the soft-delete occurred; `null` when not deleted         |
+| `is_deleted`   | boolean                                | `true` when soft-deleted                                       |
+| `active`       | boolean                                | Convenience inverse of `is_deleted` (`false` when deleted)     |
+| `edit_history` | array (Client/Affiliate/Lead/Campaign) | Ordered log of field-level changes; see below.                 |
 
 Use `active` / `is_deleted` in the UI to show/hide deleted records without re-fetching.
 
@@ -78,6 +79,52 @@ Response returns the client with `id` and timestamps.
   "affiliate_code": "GROW-99"
 }
 ```
+
+**Update client** `PUT /clients/{id}`
+
+All fields optional — only supplied fields are updated. Every changed field is automatically appended to `edit_history`.
+
+```json
+{ "name": "New Name", "phone": "+15550001111", "status": "INACTIVE" }
+```
+
+**Update affiliate** `PUT /affiliates/{id}`
+
+Same pattern — all fields optional. Changed fields recorded in `edit_history`.
+
+```json
+{ "name": "Updated Partner", "company": "New Co", "status": "INACTIVE" }
+```
+
+**Edit history (clients, affiliates, leads, campaigns)**
+
+Every `PUT` to a client, affiliate, lead, or campaign records a history entry per changed field. The `edit_history` array on each object grows with each update and is never truncated.
+
+```json
+"edit_history": [
+  {
+    "field": "name",
+    "previous_value": "Old Name",
+    "new_value": "New Name",
+    "changed_at": "2026-03-04T18:00:00.000Z",
+    "changed_by": {
+      "sub": "...",
+      "username": "edgar@summitedgelegal.com",
+      "email": "edgar@summitedgelegal.com",
+      "first_name": "Edgar",
+      "last_name": "Velasco",
+      "full_name": "Edgar Velasco"
+    }
+  }
+]
+```
+
+- Client tracks: `name`, `email`, `phone`, `client_code`, `status`
+- Affiliate tracks: `name`, `email`, `phone`, `company`, `affiliate_code`, `status`
+- Lead tracks: every key inside `payload` (e.g. `payload.name`, `payload.email`)
+- Campaign tracks: `name`
+
+Note: `edit_history` is **read-only** from the frontend perspective — never send it in a PUT request body.
 
 **Create campaign** `POST /campaigns`
 
@@ -331,7 +378,8 @@ Rejection behavior:
 - Surface `campaign_key` to affiliates once linked; they need it for both test and live lead intake.
 - When sending leads, display backend message and `rejected` flag to make DISABLED affiliate behavior clear.
 - Display duplicate metadata: `duplicate=true` means lead matched existing campaign leads; use `duplicate_matches.lead_ids` to show linked duplicates.
-- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).- **Soft-delete UI**: use `active` (boolean) to control visibility. Show a "deleted" badge or hide the row when `active=false`. Offer a restore action that calls `PUT /users/{id}/enable` (users) or a future restore endpoint for other entities.
+- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).- **Edit history**: display `edit_history` in a collapsible timeline on client, affiliate, lead, and campaign detail views. Each entry shows `field`, `previous_value → new_value`, `changed_at`, and `changed_by.full_name` (or fall back to `changed_by.email`).
+- **Soft-delete UI**: use `active` (boolean) to control visibility. Show a "deleted" badge or hide the row when `active=false`. Offer a restore action that calls `PUT /users/{id}/enable` (users) or a future restore endpoint for other entities.
 - **Audit trail**: display `created_by` and `updated_by` in detail views / tooltips. Show `deleted_by` + `deleted_at` in soft-deleted record summaries.
 - **All responses are HTTP 200** — check `success` (boolean) in the body, not the HTTP status, to determine if an operation succeeded. On `success: false`, display the `error` field to the user.
 

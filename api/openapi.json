@@ -1496,12 +1496,14 @@
       },
       "ClientStatus": {
         "type": "string",
-        "enum": ["ACTIVE", "INACTIVE"],
+        "enum": ["ACTIVE", "INACTIVE", "SUSPENDED"],
+        "description": "INACTIVE is set automatically when a client is soft-deleted.",
         "example": "ACTIVE"
       },
       "AffiliateStatus": {
         "type": "string",
         "enum": ["ACTIVE", "INACTIVE"],
+        "description": "INACTIVE is set automatically when an affiliate is soft-deleted.",
         "example": "ACTIVE"
       },
       "CampaignParticipantStatus": {
@@ -1525,18 +1527,15 @@
           "status": { "$ref": "#/components/schemas/ClientStatus" },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": {
-            "type": "string",
-            "description": "Username of the user who created this record"
-          },
+          "created_by": { "$ref": "#/components/schemas/RequestActor" },
           "updated_by": {
-            "type": "string",
-            "description": "Username of the user who last updated this record"
+            "$ref": "#/components/schemas/RequestActor",
+            "nullable": true
           },
           "deleted_by": {
-            "type": "string",
+            "$ref": "#/components/schemas/RequestActor",
             "nullable": true,
-            "description": "Username of the user who soft-deleted this record; null if not deleted"
+            "description": "Set when soft-deleted; null otherwise"
           },
           "deleted_at": {
             "type": "string",
@@ -1551,6 +1550,28 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
+          },
+          "edit_history": {
+            "type": "array",
+            "description": "Ordered log of all field-level changes made via PUT /clients/{id}. Each entry records the field name, before/after values, timestamp, and actor.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Name of the field that changed (e.g. name, email, status, phone, client_code)",
+                  "example": "name"
+                },
+                "previous_value": {
+                  "description": "Value before the change (null if the field was newly added)"
+                },
+                "new_value": {
+                  "description": "Value after the change"
+                },
+                "changed_at": { "type": "string", "format": "date-time" },
+                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+              }
+            }
           }
         }
       },
@@ -1561,22 +1582,20 @@
           "name": { "type": "string" },
           "email": { "type": "string", "format": "email" },
           "phone": { "type": "string" },
+          "company": { "type": "string" },
           "affiliate_code": { "type": "string" },
           "status": { "$ref": "#/components/schemas/AffiliateStatus" },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": {
-            "type": "string",
-            "description": "Username of the user who created this record"
-          },
+          "created_by": { "$ref": "#/components/schemas/RequestActor" },
           "updated_by": {
-            "type": "string",
-            "description": "Username of the user who last updated this record"
+            "$ref": "#/components/schemas/RequestActor",
+            "nullable": true
           },
           "deleted_by": {
-            "type": "string",
+            "$ref": "#/components/schemas/RequestActor",
             "nullable": true,
-            "description": "Username of the user who soft-deleted this record; null if not deleted"
+            "description": "Set when soft-deleted; null otherwise"
           },
           "deleted_at": {
             "type": "string",
@@ -1591,6 +1610,28 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
+          },
+          "edit_history": {
+            "type": "array",
+            "description": "Ordered log of all field-level changes made via PUT /affiliates/{id}. Each entry records the field name, before/after values, timestamp, and actor.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Name of the field that changed (e.g. name, email, status, phone, company, affiliate_code)",
+                  "example": "name"
+                },
+                "previous_value": {
+                  "description": "Value before the change (null if the field was newly added)"
+                },
+                "new_value": {
+                  "description": "Value after the change"
+                },
+                "changed_at": { "type": "string", "format": "date-time" },
+                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+              }
+            }
           }
         }
       },
@@ -1688,7 +1729,7 @@
                   "$ref": "#/components/schemas/CampaignParticipantStatus"
                 },
                 "removed_at": { "type": "string", "format": "date-time" },
-                "removed_by": { "type": "string" }
+                "removed_by": { "$ref": "#/components/schemas/RequestActor" }
               }
             }
           },
@@ -1704,7 +1745,7 @@
                   "$ref": "#/components/schemas/CampaignParticipantStatus"
                 },
                 "removed_at": { "type": "string", "format": "date-time" },
-                "removed_by": { "type": "string" }
+                "removed_by": { "$ref": "#/components/schemas/RequestActor" }
               }
             }
           },
@@ -1723,18 +1764,15 @@
           "updated_at": { "type": "string", "format": "date-time" },
           "ever_linked_participants": { "type": "boolean" },
           "has_received_leads": { "type": "boolean" },
-          "created_by": {
-            "type": "string",
-            "description": "Username of the user who created this campaign"
-          },
+          "created_by": { "$ref": "#/components/schemas/RequestActor" },
           "updated_by": {
-            "type": "string",
-            "description": "Username of the user who last updated this campaign"
+            "$ref": "#/components/schemas/RequestActor",
+            "nullable": true
           },
           "deleted_by": {
-            "type": "string",
+            "$ref": "#/components/schemas/RequestActor",
             "nullable": true,
-            "description": "Username of the user who soft-deleted this campaign; null if not deleted"
+            "description": "Set when soft-deleted; null otherwise"
           },
           "deleted_at": {
             "type": "string",
@@ -1749,6 +1787,24 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted"
+          },
+          "edit_history": {
+            "type": "array",
+            "description": "Ordered log of campaign-level field changes (currently tracks name). Appended automatically on PUT /campaigns/{id}.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Name of the field that changed (e.g. name)",
+                  "example": "name"
+                },
+                "previous_value": { "description": "Value before the change" },
+                "new_value": { "description": "Value after the change" },
+                "changed_at": { "type": "string", "format": "date-time" },
+                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+              }
+            }
           }
         }
       },
@@ -1774,6 +1830,28 @@
           "affiliate_status_at_intake": { "type": "string" },
           "rejected": { "type": "boolean" },
           "rejection_reason": { "type": "string" },
+          "edit_history": {
+            "type": "array",
+            "description": "Ordered log of all field changes. Each entry records what changed, the before/after values, when it happened, and who made the change.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Dot-notation path of the changed field, e.g. payload.name or payload.email",
+                  "example": "payload.name"
+                },
+                "previous_value": {
+                  "description": "Value before the change (null if the field was newly added)"
+                },
+                "new_value": {
+                  "description": "Value after the change (null if the field was removed)"
+                },
+                "changed_at": { "type": "string", "format": "date-time" },
+                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+              }
+            }
+          },
           "created_by": {
             "type": "string",
             "description": "campaign_key of the affiliate that submitted this lead (actor identity at intake)"
@@ -1829,6 +1907,7 @@
       },
       "UpdateClientRequest": {
         "type": "object",
+        "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
         "properties": {
           "name": { "type": "string" },
           "email": { "type": "string", "format": "email" },
@@ -1849,10 +1928,12 @@
       },
       "UpdateAffiliateRequest": {
         "type": "object",
+        "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
         "properties": {
           "name": { "type": "string" },
           "email": { "type": "string", "format": "email" },
           "phone": { "type": "string" },
+          "company": { "type": "string" },
           "affiliate_code": { "type": "string" },
           "status": { "$ref": "#/components/schemas/AffiliateStatus" }
         }
@@ -2075,6 +2156,18 @@
         "required": ["status"],
         "properties": {
           "status": { "$ref": "#/components/schemas/CampaignParticipantStatus" }
+        }
+      },
+      "RequestActor": {
+        "type": "object",
+        "description": "Identity of the user who performed an action.",
+        "properties": {
+          "sub": { "type": "string", "description": "Cognito subject (UUID)" },
+          "username": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "full_name": { "type": "string" }
         }
       },
       "UserRole": {

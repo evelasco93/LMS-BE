@@ -3,7 +3,7 @@ import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { ClientConstants } from "../constants/client.constants";
-import { IClient } from "../interfaces/IClient.interface";
+import { IClient, IEditHistoryEntry } from "../interfaces/IClient.interface";
 import { ClientStatus } from "../enums/client-status.enum";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
@@ -253,25 +253,56 @@ export class ClientService {
         }
       }
 
-      const updates = {
-        ...request,
-        updated_at: new Date().toISOString(),
+      const now = new Date().toISOString();
+      const current = existing.data;
+      const tracked: (keyof UpdateClientRequest)[] = [
+        "name",
+        "email",
+        "phone",
+        "client_code",
+        "status",
+      ];
+      const newHistoryEntries: IEditHistoryEntry[] = [];
+      for (const key of tracked) {
+        const prev = current[key as keyof IClient];
+        const next = request[key as keyof UpdateClientRequest];
+        if (
+          next !== undefined &&
+          JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)
+        ) {
+          newHistoryEntries.push({
+            field: key,
+            previous_value: prev ?? null,
+            new_value: next,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+      }
+
+      const updated: IClient = {
+        ...current,
+        ...(request.name !== undefined ? { name: request.name } : {}),
+        ...(request.email !== undefined ? { email: request.email } : {}),
+        ...(request.phone !== undefined ? { phone: request.phone } : {}),
+        ...(request.client_code !== undefined
+          ? { client_code: request.client_code }
+          : {}),
+        ...(request.status !== undefined ? { status: request.status } : {}),
+        edit_history: [...(current.edit_history ?? []), ...newHistoryEntries],
+        updated_at: now,
         updated_by: actor,
       };
 
-      const expression = this.dynamoDBUtil.buildUpdateExpression(updates);
-
-      const updateResult = await this.dynamoDBUtil.update({
+      await this.dynamoDBUtil.put({
         TableName: this.constants.CLIENTS_TABLE_NAME,
-        Key: { id },
-        ...expression,
-        ReturnValues: "ALL_NEW",
+        Item: updated,
       });
 
       this.logger.info("Client updated successfully", { clientId: id });
       return {
         result: true,
-        data: updateResult as IClient,
+        data: updated,
       };
     } catch (error: any) {
       this.logger.error("Failed to update client", error);
@@ -349,6 +380,7 @@ export class ClientService {
         const expression = this.dynamoDBUtil.buildUpdateExpression({
           is_deleted: true,
           active: false,
+          status: ClientStatus.INACTIVE,
           deleted_at: now,
           deleted_by: actor,
           updated_at: now,
@@ -376,9 +408,7 @@ export class ClientService {
     }
   }
 
-  private async findCampaignsWithClient(
-    clientId: string,
-  ): Promise<
+  private async findCampaignsWithClient(clientId: string): Promise<
     {
       id: string;
       clients?: { client_id: string; status?: CampaignParticipantStatus }[];

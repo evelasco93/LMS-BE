@@ -12,7 +12,7 @@ import {
   UpdateLeadRequest,
 } from "../types/lead-request.types";
 import { ServiceResult } from "../types/common.types";
-import { ILead } from "../interfaces/ILead.interface";
+import { ILead, IEditHistoryEntry } from "../interfaces/ILead.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
 
@@ -335,11 +335,35 @@ export class LeadsService {
       }
 
       const now = new Date().toISOString();
+
+      // Diff payload fields and append to edit_history
+      const oldPayload = existing.payload ?? {};
+      const newPayload = sanitized.payload
+        ? (sanitized.payload as Record<string, unknown>)
+        : oldPayload;
+      const allKeys = new Set([
+        ...Object.keys(oldPayload),
+        ...Object.keys(newPayload),
+      ]);
+      const newHistoryEntries: IEditHistoryEntry[] = [];
+      for (const key of allKeys) {
+        const prev = oldPayload[key];
+        const next = newPayload[key];
+        if (JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)) {
+          newHistoryEntries.push({
+            field: `payload.${key}`,
+            previous_value: prev ?? null,
+            new_value: next ?? null,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+      }
+
       const updated: ILead = {
         ...existing,
-        ...(sanitized.payload
-          ? { payload: sanitized.payload as Record<string, unknown> }
-          : {}),
+        ...(sanitized.payload ? { payload: newPayload } : {}),
+        edit_history: [...(existing.edit_history ?? []), ...newHistoryEntries],
         updated_at: now,
         updated_by: actor,
       };

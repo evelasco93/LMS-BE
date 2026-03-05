@@ -499,6 +499,10 @@ export class InternalApiStack extends NestedStack {
     addProtectedMethod(campaignResource, "GET", campaignsLambdaIntegration, [
       readScope,
     ]);
+    // PUT /v2/campaigns/{id} - update campaign name
+    addProtectedMethod(campaignResource, "PUT", campaignsLambdaIntegration, [
+      writeScope,
+    ]);
     // DELETE /v2/campaigns/{id} - soft/hard delete campaign
     addProtectedMethod(campaignResource, "DELETE", campaignsLambdaIntegration, [
       writeScope,

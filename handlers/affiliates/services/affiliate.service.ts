@@ -3,7 +3,10 @@ import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { AffiliateConstants } from "../constants/affiliate.constants";
-import { IAffiliate } from "../interfaces/IAffiliate.interface";
+import {
+  IAffiliate,
+  IEditHistoryEntry,
+} from "../interfaces/IAffiliate.interface";
 import { AffiliateStatus } from "../enums/affiliate-status.enum";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
@@ -256,25 +259,58 @@ export class AffiliateService {
         }
       }
 
-      const updates = {
-        ...request,
-        updated_at: new Date().toISOString(),
+      const now = new Date().toISOString();
+      const current = existing.data;
+      const tracked: (keyof UpdateAffiliateRequest)[] = [
+        "name",
+        "email",
+        "phone",
+        "company",
+        "affiliate_code",
+        "status",
+      ];
+      const newHistoryEntries: IEditHistoryEntry[] = [];
+      for (const key of tracked) {
+        const prev = current[key as keyof IAffiliate];
+        const next = request[key as keyof UpdateAffiliateRequest];
+        if (
+          next !== undefined &&
+          JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)
+        ) {
+          newHistoryEntries.push({
+            field: key,
+            previous_value: prev ?? null,
+            new_value: next,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+      }
+
+      const updated: IAffiliate = {
+        ...current,
+        ...(request.name !== undefined ? { name: request.name } : {}),
+        ...(request.email !== undefined ? { email: request.email } : {}),
+        ...(request.phone !== undefined ? { phone: request.phone } : {}),
+        ...(request.company !== undefined ? { company: request.company } : {}),
+        ...(request.affiliate_code !== undefined
+          ? { affiliate_code: request.affiliate_code }
+          : {}),
+        ...(request.status !== undefined ? { status: request.status } : {}),
+        edit_history: [...(current.edit_history ?? []), ...newHistoryEntries],
+        updated_at: now,
         updated_by: actor,
       };
 
-      const expression = this.dynamoDBUtil.buildUpdateExpression(updates);
-
-      const updateResult = await this.dynamoDBUtil.update({
+      await this.dynamoDBUtil.put({
         TableName: this.constants.AFFILIATES_TABLE_NAME,
-        Key: { id },
-        ...expression,
-        ReturnValues: "ALL_NEW",
+        Item: updated,
       });
 
       this.logger.info("Affiliate updated successfully", { affiliateId: id });
       return {
         result: true,
-        data: updateResult as IAffiliate,
+        data: updated,
       };
     } catch (error: any) {
       this.logger.error("Failed to update affiliate", error);
@@ -352,6 +388,7 @@ export class AffiliateService {
         const expression = this.dynamoDBUtil.buildUpdateExpression({
           is_deleted: true,
           active: false,
+          status: AffiliateStatus.INACTIVE,
           deleted_at: now,
           deleted_by: actor,
           updated_at: now,
@@ -379,9 +416,7 @@ export class AffiliateService {
     }
   }
 
-  private async findCampaignsWithAffiliate(
-    affiliateId: string,
-  ): Promise<
+  private async findCampaignsWithAffiliate(affiliateId: string): Promise<
     {
       id: string;
       affiliates?: {

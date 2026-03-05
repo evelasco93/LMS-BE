@@ -11,6 +11,7 @@ import {
   ICampaignPlugins,
   ICampaignStatusChange,
   IParticipantHistoryEntry,
+  IEditHistoryEntry,
 } from "../interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
@@ -193,8 +194,24 @@ export class CampaignService {
       const normalized = this.normalizeParticipants(campaign);
       Object.assign(campaign, normalized);
 
+      const now = new Date().toISOString();
+      const newHistoryEntries: IEditHistoryEntry[] = [];
+      if (campaign.name !== name) {
+        newHistoryEntries.push({
+          field: "name",
+          previous_value: campaign.name,
+          new_value: name,
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+
       campaign.name = name;
-      campaign.updated_at = new Date().toISOString();
+      campaign.edit_history = [
+        ...(campaign.edit_history ?? []),
+        ...newHistoryEntries,
+      ];
+      campaign.updated_at = now;
       campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
