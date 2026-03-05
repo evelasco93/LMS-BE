@@ -18,6 +18,7 @@ import {
   LinkAffiliateRequest,
   LinkClientRequest,
   ListCampaignsQuery,
+  UpdateCampaignRequest,
   UpdateCampaignStatusRequest,
   UpdateCampaignPluginsRequest,
   UpdateParticipantStatusRequest,
@@ -97,6 +98,33 @@ export class CampaignController extends Controller {
       count: result.data?.count,
       data: result.data?.items,
       lastEvaluatedKey: result.data?.lastEvaluatedKey,
+    };
+  }
+
+  @PUT("/:id")
+  @produces("application/json")
+  async updateCampaign(
+    @pathParam("id") id: string,
+    @body payload: UpdateCampaignRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateCampaign(
+      id,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to update campaign",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Campaign updated successfully",
+      data: result.data,
     };
   }
 
@@ -235,6 +263,33 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Affiliate status updated",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/affiliates/:affiliateId/rotate-key")
+  @produces("application/json")
+  async rotateAffiliateKey(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.rotateAffiliateKey(
+      id,
+      affiliateId,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to rotate affiliate campaign key",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Affiliate campaign key rotated",
       data: result.data,
     };
   }

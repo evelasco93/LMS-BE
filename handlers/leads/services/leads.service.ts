@@ -180,6 +180,19 @@ export class LeadsService {
         Item: lead,
       });
 
+      if (!campaign.has_received_leads) {
+        await this.dynamoDBUtil.update({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+          Key: { id: campaignId },
+          UpdateExpression:
+            "SET has_received_leads = :true, updated_at = if_not_exists(updated_at, :now)",
+          ExpressionAttributeValues: {
+            ":true": true,
+            ":now": now,
+          },
+        });
+      }
+
       this.logger.info("Lead stored", {
         leadId: lead.id,
         campaignId,

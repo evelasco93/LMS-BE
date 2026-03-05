@@ -232,7 +232,8 @@
         "security": [{ "BearerAuth": [] }],
         "parameters": [{ "$ref": "#/components/parameters/UserId" }],
         "responses": {
-          "200": { "description": "User disabled",
+          "200": {
+            "description": "User disabled",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/DeleteResponse" }
@@ -443,7 +444,7 @@
       },
       "delete": {
         "summary": "Delete client (soft by default; ?permanent=true for hard delete)",
-        "description": "Without `?permanent=true`: sets `is_deleted=true`, `active=false`, `deleted_by`, and `deleted_at`. The record is hidden from normal list responses but retrievable with `?includeDeleted=true`. With `?permanent=true`: permanently removes the record from DynamoDB. Cannot be undone.",
+        "description": "Soft delete requires the client to be disabled in all campaigns. Hard delete is allowed only when the client is not linked to any campaign and has no campaign leads. Without `?permanent=true`: sets `is_deleted=true`, `active=false`, `deleted_by`, and `deleted_at`. With `?permanent=true`: permanently removes the record from DynamoDB.",
         "tags": ["clients"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [
@@ -604,7 +605,7 @@
       },
       "delete": {
         "summary": "Delete affiliate (soft by default; ?permanent=true for hard delete)",
-        "description": "Without `?permanent=true`: soft-deletes the record (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). With `?permanent=true`: permanently removes the record.",
+        "description": "Soft delete requires the affiliate to be disabled in all campaigns. Hard delete is allowed only when the affiliate is not linked to any campaign and has no campaign leads. Without `?permanent=true`: soft-deletes the record (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). With `?permanent=true`: permanently removes the record.",
         "tags": ["affiliates"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [
@@ -726,9 +727,41 @@
           "404": { "description": "Not found" }
         }
       },
+      "put": {
+        "summary": "Update campaign (name only)",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCampaignRequest"
+              },
+              "examples": {
+                "default": { "value": { "name": "Spring Promo (v2)" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Campaign updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Not found" }
+        }
+      },
       "delete": {
         "summary": "Delete campaign (soft by default; ?permanent=true for hard delete)",
-        "description": "Without `?permanent=true`: soft-deletes the campaign (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). Campaign must not be ACTIVE. With `?permanent=true`: permanently removes the record.",
+        "description": "Deletion allowed only when status is DRAFT or TEST, with no linked clients, affiliates, or leads. Hard delete is allowed only if the campaign has never had participants or leads. Without `?permanent=true`: soft-deletes the campaign (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`).",
         "tags": ["campaigns"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [
@@ -822,6 +855,7 @@
       },
       "delete": {
         "summary": "Remove linked client from campaign",
+        "description": "Removal is blocked if the campaign has leads; disable the client instead.",
         "tags": ["campaigns"],
         "parameters": [
           { "$ref": "#/components/parameters/CampaignId" },
@@ -926,6 +960,7 @@
       },
       "delete": {
         "summary": "Remove linked affiliate from campaign",
+        "description": "Removal is blocked if the campaign has leads; disable the affiliate instead.",
         "tags": ["campaigns"],
         "parameters": [
           { "$ref": "#/components/parameters/CampaignId" },
@@ -945,6 +980,47 @@
               }
             }
           },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/campaigns/{id}/affiliates/{affiliateId}/rotate-key": {
+      "post": {
+        "summary": "Rotate linked affiliate campaign_key",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "name": "affiliateId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Affiliate campaign_key rotated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "campaign": { "$ref": "#/components/schemas/Campaign" },
+                        "campaign_key": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
           "404": { "description": "Not found" }
         }
       }
@@ -1449,12 +1525,33 @@
           "status": { "$ref": "#/components/schemas/ClientStatus" },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "type": "string", "description": "Username of the user who created this record" },
-          "updated_by": { "type": "string", "description": "Username of the user who last updated this record" },
-          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this record; null if not deleted" },
-          "deleted_at": { "type": "string", "format": "date-time", "nullable": true, "description": "ISO timestamp of soft-deletion; null if not deleted" },
-          "is_deleted": { "type": "boolean", "description": "True when the record has been soft-deleted" },
-          "active": { "type": "boolean", "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise" }
+          "created_by": {
+            "type": "string",
+            "description": "Username of the user who created this record"
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "Username of the user who last updated this record"
+          },
+          "deleted_by": {
+            "type": "string",
+            "nullable": true,
+            "description": "Username of the user who soft-deleted this record; null if not deleted"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ISO timestamp of soft-deletion; null if not deleted"
+          },
+          "is_deleted": {
+            "type": "boolean",
+            "description": "True when the record has been soft-deleted"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
+          }
         }
       },
       "Affiliate": {
@@ -1468,12 +1565,70 @@
           "status": { "$ref": "#/components/schemas/AffiliateStatus" },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "type": "string", "description": "Username of the user who created this record" },
-          "updated_by": { "type": "string", "description": "Username of the user who last updated this record" },
-          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this record; null if not deleted" },
-          "deleted_at": { "type": "string", "format": "date-time", "nullable": true, "description": "ISO timestamp of soft-deletion; null if not deleted" },
-          "is_deleted": { "type": "boolean", "description": "True when the record has been soft-deleted" },
-          "active": { "type": "boolean", "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise" }
+          "created_by": {
+            "type": "string",
+            "description": "Username of the user who created this record"
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "Username of the user who last updated this record"
+          },
+          "deleted_by": {
+            "type": "string",
+            "nullable": true,
+            "description": "Username of the user who soft-deleted this record; null if not deleted"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ISO timestamp of soft-deletion; null if not deleted"
+          },
+          "is_deleted": {
+            "type": "boolean",
+            "description": "True when the record has been soft-deleted"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
+          }
+        }
+      },
+      "ParticipantHistoryEntry": {
+        "type": "object",
+        "description": "A single audit record describing a change to a campaign participant (affiliate or client).",
+        "required": ["event", "changed_at"],
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": ["linked", "status_changed", "key_rotated"],
+            "description": "Type of change: 'linked' on initial or re-link, 'status_changed' when the participant status is updated, 'key_rotated' when the affiliate campaign_key is regenerated."
+          },
+          "field": {
+            "type": "string",
+            "description": "The name of the field that changed (e.g. 'status', 'campaign_key')."
+          },
+          "from": {
+            "type": "string",
+            "description": "Value before the change. Absent when the field did not previously exist."
+          },
+          "to": {
+            "type": "string",
+            "description": "Value after the change."
+          },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp of when the change occurred."
+          },
+          "changed_by": {
+            "type": "object",
+            "description": "Identity of the actor who made the change.",
+            "properties": {
+              "username": { "type": "string" },
+              "email": { "type": "string" }
+            }
+          }
         }
       },
       "CampaignAffiliate": {
@@ -1482,7 +1637,14 @@
           "affiliate_id": { "type": "string" },
           "campaign_key": { "type": "string" },
           "added_at": { "type": "string", "format": "date-time" },
-          "status": { "$ref": "#/components/schemas/CampaignParticipantStatus" }
+          "status": {
+            "$ref": "#/components/schemas/CampaignParticipantStatus"
+          },
+          "history": {
+            "type": "array",
+            "description": "Chronological log of all changes made to this affiliate's participation (status changes, key rotations, initial link).",
+            "items": { "$ref": "#/components/schemas/ParticipantHistoryEntry" }
+          }
         }
       },
       "CampaignClient": {
@@ -1490,7 +1652,14 @@
         "properties": {
           "client_id": { "type": "string" },
           "added_at": { "type": "string", "format": "date-time" },
-          "status": { "$ref": "#/components/schemas/CampaignParticipantStatus" }
+          "status": {
+            "$ref": "#/components/schemas/CampaignParticipantStatus"
+          },
+          "history": {
+            "type": "array",
+            "description": "Chronological log of all changes made to this client's participation (status changes, initial link).",
+            "items": { "$ref": "#/components/schemas/ParticipantHistoryEntry" }
+          }
         }
       },
       "Campaign": {
@@ -1508,6 +1677,37 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/CampaignAffiliate" }
           },
+          "removed_clients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "client_id": { "type": "string" },
+                "added_at": { "type": "string", "format": "date-time" },
+                "status_at_removal": {
+                  "$ref": "#/components/schemas/CampaignParticipantStatus"
+                },
+                "removed_at": { "type": "string", "format": "date-time" },
+                "removed_by": { "type": "string" }
+              }
+            }
+          },
+          "removed_affiliates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "affiliate_id": { "type": "string" },
+                "campaign_key": { "type": "string" },
+                "added_at": { "type": "string", "format": "date-time" },
+                "status_at_removal": {
+                  "$ref": "#/components/schemas/CampaignParticipantStatus"
+                },
+                "removed_at": { "type": "string", "format": "date-time" },
+                "removed_by": { "type": "string" }
+              }
+            }
+          },
           "status_history": {
             "type": "array",
             "items": {
@@ -1521,12 +1721,35 @@
           },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "type": "string", "description": "Username of the user who created this campaign" },
-          "updated_by": { "type": "string", "description": "Username of the user who last updated this campaign" },
-          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this campaign; null if not deleted" },
-          "deleted_at": { "type": "string", "format": "date-time", "nullable": true, "description": "ISO timestamp of soft-deletion; null if not deleted" },
-          "is_deleted": { "type": "boolean", "description": "True when the campaign has been soft-deleted" },
-          "active": { "type": "boolean", "description": "Convenience inverse of is_deleted" }
+          "ever_linked_participants": { "type": "boolean" },
+          "has_received_leads": { "type": "boolean" },
+          "created_by": {
+            "type": "string",
+            "description": "Username of the user who created this campaign"
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "Username of the user who last updated this campaign"
+          },
+          "deleted_by": {
+            "type": "string",
+            "nullable": true,
+            "description": "Username of the user who soft-deleted this campaign; null if not deleted"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ISO timestamp of soft-deletion; null if not deleted"
+          },
+          "is_deleted": {
+            "type": "boolean",
+            "description": "True when the campaign has been soft-deleted"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Convenience inverse of is_deleted"
+          }
         }
       },
       "Lead": {
@@ -1551,10 +1774,25 @@
           "affiliate_status_at_intake": { "type": "string" },
           "rejected": { "type": "boolean" },
           "rejection_reason": { "type": "string" },
-          "created_by": { "type": "string", "description": "campaign_key of the affiliate that submitted this lead (actor identity at intake)" },
-          "updated_by": { "type": "string", "nullable": true, "description": "Username of the internal user who last updated this lead" },
-          "deleted_by": { "type": "string", "nullable": true, "description": "Username of the user who soft-deleted this lead; null if not deleted" },
-          "deleted_at": { "type": "string", "format": "date-time", "nullable": true },
+          "created_by": {
+            "type": "string",
+            "description": "campaign_key of the affiliate that submitted this lead (actor identity at intake)"
+          },
+          "updated_by": {
+            "type": "string",
+            "nullable": true,
+            "description": "Username of the internal user who last updated this lead"
+          },
+          "deleted_by": {
+            "type": "string",
+            "nullable": true,
+            "description": "Username of the user who soft-deleted this lead; null if not deleted"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "is_deleted": { "type": "boolean" },
           "active": { "type": "boolean" }
         }
@@ -1627,6 +1865,14 @@
         },
         "description": "Campaigns are created as DRAFT by default."
       },
+      "UpdateCampaignRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        },
+        "description": "Allows updating the campaign name."
+      },
       "UpdateCampaignStatusRequest": {
         "type": "object",
         "required": ["status"],
@@ -1680,12 +1926,21 @@
         "description": "Returned by all delete endpoints. `permanent` indicates whether the record was hard-deleted (true) or soft-deleted (false).",
         "properties": {
           "success": { "type": "boolean" },
-          "message": { "type": "string", "example": "Client soft-deleted successfully" },
+          "message": {
+            "type": "string",
+            "example": "Client soft-deleted successfully"
+          },
           "data": {
             "type": "object",
             "properties": {
-              "id": { "type": "string", "description": "ID of the deleted record" },
-              "permanent": { "type": "boolean", "description": "True = hard-deleted (gone); false = soft-deleted (recoverable with includeDeleted=true)" }
+              "id": {
+                "type": "string",
+                "description": "ID of the deleted record"
+              },
+              "permanent": {
+                "type": "boolean",
+                "description": "True = hard-deleted (gone); false = soft-deleted (recoverable with includeDeleted=true)"
+              }
             }
           }
         }

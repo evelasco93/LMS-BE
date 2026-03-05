@@ -5,6 +5,7 @@ import { IdGenerator } from "@shared/generators/id.generator";
 import { AffiliateConstants } from "../constants/affiliate.constants";
 import { IAffiliate } from "../interfaces/IAffiliate.interface";
 import { AffiliateStatus } from "../enums/affiliate-status.enum";
+import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
   CreateAffiliateRequest,
   UpdateAffiliateRequest,
@@ -298,6 +299,44 @@ export class AffiliateService {
         };
       }
 
+      const linkedCampaigns = await this.findCampaignsWithAffiliate(id);
+      const activeCampaignLinks = linkedCampaigns.filter((campaign) =>
+        (campaign.affiliates ?? []).some(
+          (a) =>
+            a.affiliate_id === id &&
+            a.status !== CampaignParticipantStatus.DISABLED,
+        ),
+      );
+
+      const hasCampaignLeads = await this.anyCampaignHasLeads(
+        linkedCampaigns.map((c) => c.id),
+      );
+
+      if (options.permanent) {
+        if (linkedCampaigns.length > 0) {
+          return {
+            result: false,
+            error:
+              "Cannot hard delete affiliate while linked to campaigns; remove or disable in campaigns first",
+          };
+        }
+
+        if (hasCampaignLeads) {
+          return {
+            result: false,
+            error: "Cannot hard delete affiliate that has campaign leads",
+          };
+        }
+      } else {
+        if (activeCampaignLinks.length > 0) {
+          return {
+            result: false,
+            error:
+              "Disable the affiliate in all campaigns before soft deleting the affiliate",
+          };
+        }
+      }
+
       if (options.permanent) {
         await this.dynamoDBUtil.delete({
           TableName: this.constants.AFFILIATES_TABLE_NAME,
@@ -338,5 +377,52 @@ export class AffiliateService {
         error: error.message || "Failed to delete affiliate",
       };
     }
+  }
+
+  private async findCampaignsWithAffiliate(
+    affiliateId: string,
+  ): Promise<
+    {
+      id: string;
+      affiliates?: {
+        affiliate_id: string;
+        status?: CampaignParticipantStatus;
+      }[];
+    }[]
+  > {
+    const scanResult = await this.dynamoDBUtil.scan<{
+      id: string;
+      affiliates?: {
+        affiliate_id: string;
+        status?: CampaignParticipantStatus;
+      }[];
+    }>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+    });
+
+    return (scanResult.items ?? []).filter((campaign) =>
+      (campaign.affiliates ?? []).some((a) => a.affiliate_id === affiliateId),
+    );
+  }
+
+  private async campaignHasLeads(campaignId: string): Promise<boolean> {
+    const scanResult = await this.dynamoDBUtil.scan<{ id: string } | any>({
+      TableName: this.constants.LEADS_TABLE_NAME,
+      Limit: 1,
+      FilterExpression: "#campaign_id = :campaign_id",
+      ExpressionAttributeNames: { "#campaign_id": "campaign_id" },
+      ExpressionAttributeValues: { ":campaign_id": campaignId },
+    });
+
+    return (scanResult.items?.length ?? 0) > 0;
+  }
+
+  private async anyCampaignHasLeads(campaignIds: string[]): Promise<boolean> {
+    for (const campaignId of campaignIds) {
+      if (await this.campaignHasLeads(campaignId)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

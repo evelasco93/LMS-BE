@@ -11,6 +11,8 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 - Optionally flip participant statuses (TEST ↔ LIVE or DISABLED) via participant update endpoints.
 - Move campaign to ACTIVE only when campaign is currently TEST and it has at least one LIVE client and one LIVE affiliate (DISABLED participants are ignored for the LIVE requirement).
 - Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`.
+- Rotate keys if compromised: use the new key rotation endpoints to issue a fresh `campaign_key` for an affiliate or `client_key` for a linked client.
+- Deletion safeguards: campaigns can only be deleted in DRAFT/TEST when empty and without leads; clients/affiliates must be disabled in all campaigns before soft delete and cannot be hard deleted when campaigns have leads.
 - Internal API is protected by Bearer token auth — call `POST /v2/auth/login` to get a token, then send `Authorization: Bearer <id_token>` on all internal API requests. **Use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
 - External lead intake is a separate API Gateway with POST-only routes. No API key required — the `campaign_id` and `campaign_key` in the request body serve as authentication.
 
@@ -25,14 +27,14 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 
 Every entity now carries the following audit and soft-delete fields:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `created_by` | string | Username / identity that created the record |
-| `updated_by` | string \| null | Username that last mutated the record |
-| `deleted_by` | string \| null | Username that soft-deleted the record; `null` when not deleted |
-| `deleted_at` | ISO timestamp \| null | When the soft-delete occurred; `null` when not deleted |
-| `is_deleted` | boolean | `true` when soft-deleted |
-| `active` | boolean | Convenience inverse of `is_deleted` (`false` when deleted) |
+| Field        | Type                  | Description                                                    |
+| ------------ | --------------------- | -------------------------------------------------------------- |
+| `created_by` | string                | Username / identity that created the record                    |
+| `updated_by` | string \| null        | Username that last mutated the record                          |
+| `deleted_by` | string \| null        | Username that soft-deleted the record; `null` when not deleted |
+| `deleted_at` | ISO timestamp \| null | When the soft-delete occurred; `null` when not deleted         |
+| `is_deleted` | boolean               | `true` when soft-deleted                                       |
+| `active`     | boolean               | Convenience inverse of `is_deleted` (`false` when deleted)     |
 
 Use `active` / `is_deleted` in the UI to show/hide deleted records without re-fetching.
 
@@ -116,39 +118,111 @@ Returns `campaign_key` plus updated campaign; affiliate participant also records
 
 Valid values: TEST, LIVE, DISABLED. Use these endpoints to move participants from TEST to LIVE (or disable); links always start in TEST.
 
+**Update campaign name** `PUT /campaigns/{id}`
+
+```json
+{ "name": "Spring Promo (v2)" }
+```
+
+**Rotate affiliate campaign_key** `POST /campaigns/{id}/affiliates/{affiliateId}/rotate-key`
+
+Returns updated campaign plus a new `campaign_key` for that affiliate. Use when a key is compromised or rotated as part of a security review.
+
 **Remove linked participant**
 
 - Client: `DELETE /campaigns/{id}/clients/{clientId}`
 - Affiliate: `DELETE /campaigns/{id}/affiliates/{affiliateId}`
-  Removes participant from campaign (useful for cleanup or replacing participants).
+  Removal is blocked when the campaign has leads; disable the participant instead. Removal writes a history entry (`removed_clients` / `removed_affiliates`) with timestamps and keys.
+
+**Participant change history**
+
+Every linked client and affiliate object contains a `history` array that is appended to automatically by the backend — the frontend never writes to it directly. Each entry records exactly what changed, who changed it, and when.
+
+| `event`          | When it is written                                                          | `field`        |
+| ---------------- | --------------------------------------------------------------------------- | -------------- |
+| `linked`         | Initial link or re-link via `POST /campaigns/{id}/clients` or `/affiliates` | `status`       |
+| `status_changed` | `PUT /campaigns/{id}/clients/{id}` or `/affiliates/{id}`                    | `status`       |
+| `key_rotated`    | `POST /campaigns/{id}/affiliates/{affiliateId}/rotate-key`                  | `campaign_key` |
+
+Example participant object returned from any campaign endpoint:
+
+```json
+{
+  "affiliate_id": "AFABC12345",
+  "campaign_key": "abc123xyz789",
+  "added_at": "2026-03-01T10:00:00.000Z",
+  "status": "LIVE",
+  "history": [
+    {
+      "event": "linked",
+      "field": "status",
+      "from": null,
+      "to": "TEST",
+      "changed_at": "2026-03-01T10:00:00.000Z",
+      "changed_by": { "username": "edgar@example.com" }
+    },
+    {
+      "event": "status_changed",
+      "field": "status",
+      "from": "TEST",
+      "to": "LIVE",
+      "changed_at": "2026-03-02T09:15:00.000Z",
+      "changed_by": { "username": "edgar@example.com" }
+    },
+    {
+      "event": "key_rotated",
+      "field": "campaign_key",
+      "from": "oldkey000001",
+      "to": "abc123xyz789",
+      "changed_at": "2026-03-03T14:30:00.000Z",
+      "changed_by": { "username": "edgar@example.com" }
+    }
+  ]
+}
+```
+
+The same structure applies to `clients[]` entries — they track `linked` and `status_changed` events only (clients have no rotatable key).
 
 **Get campaign by id** `GET /campaigns/{id}`
 
-Returns the full campaign object including participants, plugins, status history, and all audit fields.
+Returns the full campaign object including participants (with `history`), plugins, status history, and all audit fields.
 
 **Delete campaign** `DELETE /campaigns/{id}` (soft) · `DELETE /campaigns/{id}?permanent=true` (hard)
 
-Soft-delete (default): sets `is_deleted=true`, `active=false`, records `deleted_by` + `deleted_at`. Campaign must not currently be ACTIVE.
+Allowed only in DRAFT/TEST and only when the campaign has no linked clients/affiliates and no leads. Hard-delete is allowed only if the campaign never had participants or leads; otherwise, only soft-delete is permitted.
+
+Soft-delete (default): sets `is_deleted=true`, `active=false`, records `deleted_by` + `deleted_at`.
 Hard-delete: permanently removes the record from DynamoDB — irreversible.
 
 Response:
+
 ```json
-{ "success": true, "message": "Campaign soft-deleted successfully", "data": { "id": "CMABC12345", "permanent": false } }
+{
+  "success": true,
+  "message": "Campaign soft-deleted successfully",
+  "data": { "id": "CMABC12345", "permanent": false }
+}
 ```
 
 **Soft-delete and hard-delete** — applies to clients, affiliates, campaigns, and leads
 
 All `DELETE /{resource}/{id}` endpoints support two modes:
 
-| Mode | URL | What happens |
-|------|-----|------|
-| Soft-delete (default) | `DELETE /clients/{id}` | Sets `is_deleted=true`, `active=false`, records `deleted_by` + `deleted_at`. Record is hidden from normal queries but still in the DB. |
-| Hard-delete (permanent) | `DELETE /clients/{id}?permanent=true` | Permanently removes the record from DynamoDB. Irreversible. |
+| Mode                    | URL                                   | What happens                                                                                                                           |
+| ----------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Soft-delete (default)   | `DELETE /clients/{id}`                | Sets `is_deleted=true`, `active=false`, records `deleted_by` + `deleted_at`. Record is hidden from normal queries but still in the DB. |
+| Hard-delete (permanent) | `DELETE /clients/{id}?permanent=true` | Permanently removes the record from DynamoDB. Irreversible.                                                                            |
 
 Response shape for all delete endpoints:
+
 ```json
-{ "success": true, "message": "Client soft-deleted successfully", "data": { "id": "CLABC12345", "permanent": false } }
+{
+  "success": true,
+  "message": "Client soft-deleted successfully",
+  "data": { "id": "CLABC12345", "permanent": false }
+}
 ```
+
 `permanent: true` → hard-deleted (gone). `permanent: false` → soft-deleted (recoverable).
 
 **Listing with soft-deleted records** — add `?includeDeleted=true` to any list endpoint:
@@ -159,8 +233,6 @@ Response shape for all delete endpoints:
 - `GET /leads?includeDeleted=true`
 
 Soft-deleted records have `is_deleted: true` and `active: false`. Use `active` to quickly filter in your frontend state.
-
-
 
 ```json
 { "status": "TEST" } // or "ACTIVE"
@@ -262,6 +334,7 @@ Rejection behavior:
 - Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).- **Soft-delete UI**: use `active` (boolean) to control visibility. Show a "deleted" badge or hide the row when `active=false`. Offer a restore action that calls `PUT /users/{id}/enable` (users) or a future restore endpoint for other entities.
 - **Audit trail**: display `created_by` and `updated_by` in detail views / tooltips. Show `deleted_by` + `deleted_at` in soft-deleted record summaries.
 - **All responses are HTTP 200** — check `success` (boolean) in the body, not the HTTP status, to determine if an operation succeeded. On `success: false`, display the `error` field to the user.
+
 ## Internal login
 
 The internal API uses custom Bearer token auth backed by Cognito. No OAuth redirects or hosted UI needed — your login screen calls the backend directly.

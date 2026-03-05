@@ -1113,6 +1113,25 @@ run_campaigns_leads_tests() {
         print_result 1 "Live lead unexpectedly accepted while TEST (HTTP $LAST_HTTP_STATUS)"
     fi
 
+    # ── SAFEGUARD: Participant removal blocked when campaign has leads ─────────
+    print_section "SAFEGUARD [C1]: Remove affiliate 1 while campaign has leads → must fail"
+    test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID/affiliates/$AFFILIATE_ID" \
+        "Remove affiliate from C1 (has leads — expect rejection)" > /dev/null
+    if was_rejected; then
+        print_result 0 "Affiliate removal correctly blocked — campaign has leads (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "Affiliate removal was NOT blocked (HTTP $LAST_HTTP_STATUS — expected rejection)"
+    fi
+
+    print_section "SAFEGUARD [C1]: Remove client 1 while campaign has leads → must fail"
+    test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID/clients/$CLIENT_ID" \
+        "Remove client from C1 (has leads — expect rejection)" > /dev/null
+    if was_rejected; then
+        print_result 0 "Client removal correctly blocked — campaign has leads (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "Client removal was NOT blocked (HTTP $LAST_HTTP_STATUS — expected rejection)"
+    fi
+
     # ── Campaign 2: ACTIVE attempt prereqs ───────────────────────────────────
     print_section "LEAD INTAKE [C2/TEST]: test lead → success"
     test_endpoint "POST" "/v2/leads/test" "Campaign 2 test lead" \
@@ -1145,6 +1164,25 @@ run_campaigns_leads_tests() {
         print_result 0 "Campaign 2 moved to ACTIVE"
     else
         print_result 1 "Campaign 2 ACTIVE transition failed (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── SAFEGUARD: Cannot delete an ACTIVE campaign ───────────────────────────
+    print_section "SAFEGUARD [C2]: Soft-delete ACTIVE campaign → must be blocked"
+    test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID_2" \
+        "Soft-delete ACTIVE campaign 2 (expect rejection)" > /dev/null
+    if was_rejected; then
+        print_result 0 "Cannot soft-delete ACTIVE campaign (correctly blocked, HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "ACTIVE campaign soft-delete was NOT blocked (HTTP $LAST_HTTP_STATUS — unexpected)"
+    fi
+
+    print_section "SAFEGUARD [C2]: Hard-delete ACTIVE campaign → must be blocked"
+    test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID_2?permanent=true" \
+        "Hard-delete ACTIVE campaign 2 (expect rejection)" > /dev/null
+    if was_rejected; then
+        print_result 0 "Cannot hard-delete ACTIVE campaign (correctly blocked, HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "ACTIVE campaign hard-delete was NOT blocked (HTTP $LAST_HTTP_STATUS — unexpected)"
     fi
 
     print_section "LEAD INTAKE [C2/ACTIVE]: live lead → success"
@@ -1185,6 +1223,225 @@ run_campaigns_leads_tests() {
         print_result 0 "Internal API blocks POST /leads (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Internal API unexpectedly allowed POST /leads (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── SAFEGUARD: Cannot delete campaign with linked participants ────────────
+    print_section "SAFEGUARD [C1]: Soft-delete C1 (has linked participants + leads) → must fail"
+    test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID" \
+        "Soft-delete C1 (has participants — expect rejection)" > /dev/null
+    if was_rejected; then
+        print_result 0 "Cannot soft-delete campaign with linked participants (correctly blocked)"
+    else
+        print_result 1 "Campaign with participants was soft-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+    fi
+
+    print_section "SAFEGUARD [C1]: Hard-delete C1 (has participants + leads) → must fail"
+    test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID?permanent=true" \
+        "Hard-delete C1 (has participants + leads — expect rejection)" > /dev/null
+    if was_rejected; then
+        print_result 0 "Cannot hard-delete campaign with participants and leads (correctly blocked)"
+    else
+        print_result 1 "Campaign with participants/leads was hard-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+    fi
+
+    # ── SAFEGUARD: Participant removal history blocks hard-delete ─────────────
+    print_section "SAFEGUARD [history]: Create campaign + link+remove participant, then hard-delete → must fail"
+    local guard_camp_resp guard_camp_id guard_cl_resp guard_cl_id guard_af_resp guard_af_id
+    guard_camp_resp=$(test_endpoint "POST" "/campaigns" "Create history-guard campaign" \
+        "{\"name\":\"Guard HardDelete Camp $TIMESTAMP\"}")
+    guard_camp_id=$(extract_json_value "$guard_camp_resp" "data.id")
+    guard_cl_resp=$(test_endpoint "POST" "/clients" "Create history-guard client" \
+        "{\"email\":\"guard-cl-$TIMESTAMP@lms-test.local\",\"name\":\"Guard Client\",\"phone\":\"+1777000001\"}")
+    guard_cl_id=$(extract_json_value "$guard_cl_resp" "data.id")
+    guard_af_resp=$(test_endpoint "POST" "/affiliates" "Create history-guard affiliate" \
+        "{\"email\":\"guard-af-$TIMESTAMP@lms-test.local\",\"name\":\"Guard Affiliate\",\"phone\":\"+1777000002\"}")
+    guard_af_id=$(extract_json_value "$guard_af_resp" "data.id")
+
+    if [ -n "$guard_camp_id" ] && [ -n "$guard_cl_id" ] && [ -n "$guard_af_id" ]; then
+        print_result 0 "History-guard entities created: camp=$guard_camp_id client=$guard_cl_id aff=$guard_af_id"
+
+        test_endpoint "POST" "/campaigns/$guard_camp_id/clients" "Link guard client" \
+            "{\"client_id\":\"$guard_cl_id\"}" > /dev/null
+        test_endpoint "POST" "/campaigns/$guard_camp_id/affiliates" "Link guard affiliate" \
+            "{\"affiliate_id\":\"$guard_af_id\"}" > /dev/null
+
+        print_section "SAFEGUARD [history]: Delete campaign with participants → must fail"
+        test_endpoint "DELETE" "/campaigns/$guard_camp_id" \
+            "Delete guard campaign (has participants — expect rejection)" > /dev/null
+        if was_rejected; then
+            print_result 0 "Campaign with participants correctly blocked from deletion"
+        else
+            print_result 1 "Campaign with participants was deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        print_section "SAFEGUARD [history]: Remove participants from guard campaign (no leads → allowed)"
+        test_endpoint "DELETE" "/campaigns/$guard_camp_id/clients/$guard_cl_id" \
+            "Remove guard client (no leads — should succeed)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Guard client removed (no leads — expected)"
+        else
+            print_result 1 "Guard client removal failed (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+        test_endpoint "DELETE" "/campaigns/$guard_camp_id/affiliates/$guard_af_id" \
+            "Remove guard affiliate (no leads — should succeed)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Guard affiliate removed (no leads — expected)"
+        else
+            print_result 1 "Guard affiliate removal failed (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        print_section "SAFEGUARD [history]: Hard-delete guard campaign after participant history → must fail"
+        test_endpoint "DELETE" "/campaigns/$guard_camp_id?permanent=true" \
+            "Hard-delete guard campaign (has history — expect rejection)" > /dev/null
+        if was_rejected; then
+            print_result 0 "Hard-delete correctly blocked for campaign with participant history"
+        else
+            print_result 1 "Campaign with participant history was hard-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        print_section "SAFEGUARD [history]: Soft-delete guard campaign (no participants, has history) → must succeed"
+        test_endpoint "DELETE" "/campaigns/$guard_camp_id" \
+            "Soft-delete guard campaign (no participants, has history — should succeed)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Guard campaign soft-deleted (no participants, history preserved)"
+        else
+            print_result 1 "Guard campaign soft-delete failed (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+    else
+        print_result 1 "Skipped history guard tests — failed to create guard entities"
+    fi
+
+    # ── SAFEGUARD: Lead stored as rejected when affiliate is disabled ──────────
+    print_section "SAFEGUARD [disabled-aff]: Create campaign and disable affiliate, then send lead → stored as rejected"
+    local dis_camp_resp dis_camp_id dis_aff_resp dis_aff_id dis_link_resp dis_aff_key
+    dis_camp_resp=$(test_endpoint "POST" "/campaigns" "Create disabled-aff guard campaign" \
+        "{\"name\":\"Disabled Aff Guard $TIMESTAMP\"}")
+    dis_camp_id=$(extract_json_value "$dis_camp_resp" "data.id")
+    dis_aff_resp=$(test_endpoint "POST" "/affiliates" "Create disabled-aff test affiliate" \
+        "{\"email\":\"dis-aff-$TIMESTAMP@lms-test.local\",\"name\":\"Disabled Aff\",\"phone\":\"+1888000003\"}")
+    dis_aff_id=$(extract_json_value "$dis_aff_resp" "data.id")
+
+    if [ -n "$dis_camp_id" ] && [ -n "$dis_aff_id" ] && [ -n "${guard_cl_id:-}" ]; then
+        test_endpoint "POST" "/campaigns/$dis_camp_id/clients" "Link guard client to dis-aff campaign" \
+            "{\"client_id\":\"$guard_cl_id\"}" > /dev/null
+        dis_link_resp=$(test_endpoint "POST" "/campaigns/$dis_camp_id/affiliates" "Link dis-aff affiliate" \
+            "{\"affiliate_id\":\"$dis_aff_id\"}")
+        dis_aff_key=$(extract_json_value "$dis_link_resp" "data.campaign_key")
+
+        test_endpoint "PUT" "/campaigns/$dis_camp_id/status" "Move dis-aff campaign to TEST" \
+            '{"status":"TEST"}' > /dev/null
+        print_result 0 "Disabled-aff guard campaign set to TEST (campaign_key=$dis_aff_key)"
+
+        print_section "SAFEGUARD [disabled-aff]: Disable affiliate in campaign"
+        test_endpoint "PUT" "/campaigns/$dis_camp_id/affiliates/$dis_aff_id" \
+            "Disable affiliate in campaign" '{"status":"DISABLED"}' > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Affiliate disabled in campaign"
+        else
+            print_result 1 "Affiliate disable failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        if [ -n "$dis_aff_key" ]; then
+            print_section "SAFEGUARD [disabled-aff]: Send test lead → must be stored as rejected"
+            local dis_lead_resp dis_lead_rejected dis_lead_success
+            dis_lead_resp=$(test_endpoint "POST" "/v2/leads/test" "Lead with disabled affiliate (expect rejected=true)" \
+                "{\"campaign_id\":\"$dis_camp_id\",\"campaign_key\":\"$dis_aff_key\",\"payload\":{\"email\":\"dis-lead-$TIMESTAMP@lms-test.local\",\"name\":\"Disabled Lead\"}}" \
+                "external")
+            dis_lead_rejected=$(extract_json_value "$dis_lead_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+            dis_lead_success=$(extract_json_value "$dis_lead_resp" "success" | tr '[:upper:]' '[:lower:]')
+            if [ "$dis_lead_rejected" = "true" ]; then
+                print_result 0 "Lead stored as rejected (affiliate disabled in campaign)"
+            else
+                print_result 1 "Lead was NOT marked rejected (rejected=$dis_lead_rejected success=$dis_lead_success — expected rejected=true)"
+            fi
+        else
+            print_result 1 "Skipped disabled-aff lead test — could not extract campaign_key"
+        fi
+    else
+        print_result 1 "Skipped disabled-aff lead test — failed to create entities"
+    fi
+
+    # ── SAFEGUARD: Client / Affiliate deletion blocked while linked to campaign ─
+    print_section "SAFEGUARD [link-guard]: Create client + affiliate + campaign for deletion guard tests"
+    local lg_cl_resp lg_cl_id lg_af_resp lg_af_id lg_camp_resp lg_camp_id
+    lg_cl_resp=$(test_endpoint "POST" "/clients" "Create link-guard client" \
+        "{\"email\":\"lg-cl-$TIMESTAMP@lms-test.local\",\"name\":\"Link Guard Client\",\"phone\":\"+1999000001\"}")
+    lg_cl_id=$(extract_json_value "$lg_cl_resp" "data.id")
+    lg_af_resp=$(test_endpoint "POST" "/affiliates" "Create link-guard affiliate" \
+        "{\"email\":\"lg-af-$TIMESTAMP@lms-test.local\",\"name\":\"Link Guard Affiliate\",\"phone\":\"+1999000002\"}")
+    lg_af_id=$(extract_json_value "$lg_af_resp" "data.id")
+    lg_camp_resp=$(test_endpoint "POST" "/campaigns" "Create link-guard campaign" \
+        "{\"name\":\"Link Guard Campaign $TIMESTAMP\"}")
+    lg_camp_id=$(extract_json_value "$lg_camp_resp" "data.id")
+
+    if [ -n "$lg_cl_id" ] && [ -n "$lg_af_id" ] && [ -n "$lg_camp_id" ]; then
+        test_endpoint "POST" "/campaigns/$lg_camp_id/clients" "Link lg client" \
+            "{\"client_id\":\"$lg_cl_id\"}" > /dev/null
+        test_endpoint "POST" "/campaigns/$lg_camp_id/affiliates" "Link lg affiliate" \
+            "{\"affiliate_id\":\"$lg_af_id\"}" > /dev/null
+        print_result 0 "Link-guard entities linked: camp=$lg_camp_id client=$lg_cl_id aff=$lg_af_id"
+
+        print_section "SAFEGUARD [link-guard]: Soft-delete client active in campaign → must fail"
+        test_endpoint "DELETE" "/clients/$lg_cl_id" \
+            "Soft-delete client active in campaign (expect rejection)" > /dev/null
+        if was_rejected; then
+            print_result 0 "Cannot soft-delete client active in campaign (correctly blocked)"
+        else
+            print_result 1 "Client active in campaign was soft-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        print_section "SAFEGUARD [link-guard]: Hard-delete client linked to campaign → must fail"
+        test_endpoint "DELETE" "/clients/$lg_cl_id?permanent=true" \
+            "Hard-delete client linked to campaign (expect rejection)" > /dev/null
+        if was_rejected; then
+            print_result 0 "Cannot hard-delete client linked to campaign (correctly blocked)"
+        else
+            print_result 1 "Client linked to campaign was hard-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        print_section "SAFEGUARD [link-guard]: Soft-delete affiliate active in campaign → must fail"
+        test_endpoint "DELETE" "/affiliates/$lg_af_id" \
+            "Soft-delete affiliate active in campaign (expect rejection)" > /dev/null
+        if was_rejected; then
+            print_result 0 "Cannot soft-delete affiliate active in campaign (correctly blocked)"
+        else
+            print_result 1 "Affiliate active in campaign was soft-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        print_section "SAFEGUARD [link-guard]: Hard-delete affiliate linked to campaign → must fail"
+        test_endpoint "DELETE" "/affiliates/$lg_af_id?permanent=true" \
+            "Hard-delete affiliate linked to campaign (expect rejection)" > /dev/null
+        if was_rejected; then
+            print_result 0 "Cannot hard-delete affiliate linked to campaign (correctly blocked)"
+        else
+            print_result 1 "Affiliate linked to campaign was hard-deleted (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        # Disable both in campaign; soft-delete should then succeed
+        print_section "SAFEGUARD [link-guard]: Disable lg client + affiliate in campaign, then soft-delete → must succeed"
+        test_endpoint "PUT" "/campaigns/$lg_camp_id/clients/$lg_cl_id" \
+            "Disable lg client in campaign" '{"status":"DISABLED"}' > /dev/null
+        test_endpoint "PUT" "/campaigns/$lg_camp_id/affiliates/$lg_af_id" \
+            "Disable lg affiliate in campaign" '{"status":"DISABLED"}' > /dev/null
+        print_result 0 "lg client and affiliate disabled in campaign"
+
+        test_endpoint "DELETE" "/clients/$lg_cl_id" \
+            "Soft-delete lg client after disabling in campaign (should succeed)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "lg client soft-deleted after being disabled in all campaigns"
+        else
+            print_result 1 "lg client soft-delete failed (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+
+        test_endpoint "DELETE" "/affiliates/$lg_af_id" \
+            "Soft-delete lg affiliate after disabling in campaign (should succeed)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "lg affiliate soft-deleted after being disabled in all campaigns"
+        else
+            print_result 1 "lg affiliate soft-delete failed (HTTP $LAST_HTTP_STATUS — unexpected)"
+        fi
+    else
+        print_result 1 "Skipped link-guard deletion tests — failed to create entities"
     fi
 
     # ── CAMPAIGN SOFT-DELETE TESTS ────────────────────────────────────────────

@@ -10,6 +10,7 @@ import {
   ICampaignClient,
   ICampaignPlugins,
   ICampaignStatusChange,
+  IParticipantHistoryEntry,
 } from "../interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
@@ -18,6 +19,7 @@ import {
   LinkAffiliateRequest,
   LinkClientRequest,
   ListCampaignsQuery,
+  UpdateCampaignRequest,
   UpdateCampaignStatusRequest,
   UpdateCampaignPluginsRequest,
   UpdateParticipantStatusRequest,
@@ -163,6 +165,55 @@ export class CampaignService {
     }
   }
 
+  async updateCampaign(
+    campaignId: string,
+    request: UpdateCampaignRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    try {
+      const { ok, extras, sanitized } = validateAllowedFields(
+        request as Record<string, unknown>,
+        ["name"],
+      );
+
+      if (!ok) {
+        return { result: false, error: `Invalid fields: ${extras.join(", ")}` };
+      }
+
+      const name = (sanitized.name as string | undefined)?.trim();
+      if (!name) {
+        return { result: false, error: "name is required" };
+      }
+
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const normalized = this.normalizeParticipants(campaign);
+      Object.assign(campaign, normalized);
+
+      campaign.name = name;
+      campaign.updated_at = new Date().toISOString();
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Campaign updated", { campaignId: campaign.id, actor });
+
+      return { result: true, data: campaign };
+    } catch (error: any) {
+      this.logger.error("Failed to update campaign", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update campaign",
+      };
+    }
+  }
+
   async linkClient(
     campaignId: string,
     request: LinkClientRequest,
@@ -184,7 +235,7 @@ export class CampaignService {
       const campaignStatus = CampaignParticipantStatus.TEST;
 
       const campaign = await this.getCampaignById(campaignId);
-      if (!campaign) {
+      if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
       const normalized = this.normalizeParticipants(campaign);
@@ -195,20 +246,37 @@ export class CampaignService {
       );
       const now = new Date().toISOString();
 
+      const linkedEntry: IParticipantHistoryEntry = {
+        event: "linked",
+        field: "status",
+        from: existingClient?.status ?? undefined,
+        to: campaignStatus,
+        changed_at: now,
+        changed_by: actor,
+      };
+
       if (existingClient) {
         existingClient.status = campaignStatus;
         existingClient.added_at = existingClient.added_at ?? now;
+        existingClient.history = [
+          ...(existingClient.history ?? []),
+          linkedEntry,
+        ];
       } else {
         const newClient: ICampaignClient = {
           client_id: clientId,
           added_at: now,
           status: campaignStatus,
+          history: [linkedEntry],
         };
         campaign.clients = [...campaign.clients, newClient];
       }
 
+      campaign.ever_linked_participants = true;
+
       campaign.updated_at = new Date().toISOString();
       campaign.updated_by = actor;
+      campaign.ever_linked_participants = true;
 
       this.logger.info("Client linked to campaign", {
         campaignId,
@@ -253,7 +321,7 @@ export class CampaignService {
       const campaignStatus = CampaignParticipantStatus.TEST;
 
       const campaign = await this.getCampaignById(campaignId);
-      if (!campaign) {
+      if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
       const normalized = this.normalizeParticipants(campaign);
@@ -266,21 +334,33 @@ export class CampaignService {
       const campaign_key =
         existing?.campaign_key ?? IdGenerator.generateCampaignKey(12);
 
+      const affLinkedEntry: IParticipantHistoryEntry = {
+        event: "linked",
+        field: "status",
+        from: existing?.status ?? undefined,
+        to: campaignStatus,
+        changed_at: now,
+        changed_by: actor,
+      };
+
       if (existing) {
         existing.status = campaignStatus;
         existing.added_at = existing.added_at ?? now;
+        existing.history = [...(existing.history ?? []), affLinkedEntry];
       } else {
         const newAffiliate: ICampaignAffiliate = {
           affiliate_id: affiliateId,
           campaign_key,
           added_at: now,
           status: campaignStatus,
+          history: [affLinkedEntry],
         };
         campaign.affiliates = [...campaign.affiliates, newAffiliate];
       }
 
       campaign.updated_at = new Date().toISOString();
       campaign.updated_by = actor;
+      campaign.ever_linked_participants = true;
 
       this.logger.info("Affiliate linked to campaign", {
         campaignId,
@@ -580,15 +660,84 @@ export class CampaignService {
     }
   }
 
+  async rotateAffiliateKey(
+    campaignId: string,
+    affiliateId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ campaign: ICampaign; campaign_key: string }>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const normalized = this.normalizeParticipants(campaign);
+      Object.assign(campaign, normalized);
+
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate) {
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not linked to campaign`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const oldKey = affiliate.campaign_key;
+      const campaign_key = IdGenerator.generateCampaignKey(12);
+      affiliate.campaign_key = campaign_key;
+      affiliate.history = [
+        ...(affiliate.history ?? []),
+        {
+          event: "key_rotated",
+          field: "campaign_key",
+          from: oldKey,
+          to: campaign_key,
+          changed_at: now,
+          changed_by: actor,
+        } satisfies IParticipantHistoryEntry,
+      ];
+
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Affiliate campaign_key rotated", {
+        campaignId,
+        affiliateId,
+      });
+
+      return { result: true, data: { campaign, campaign_key } };
+    } catch (error: any) {
+      this.logger.error("Failed to rotate affiliate key", error);
+      return {
+        result: false,
+        error: error.message || "Failed to rotate affiliate key",
+      };
+    }
+  }
+
   async updateAffiliateStatus(
     campaignId: string,
     affiliateId: string,
     request: UpdateParticipantStatusRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
-    return this.mutateAffiliate(campaignId, affiliateId, (a) => {
-      a.status = request.status;
-    }, actor);
+    return this.mutateAffiliate(
+      campaignId,
+      affiliateId,
+      (a) => {
+        a.status = request.status;
+      },
+      actor,
+      { recordRemoval: false },
+    );
   }
 
   async deleteAffiliate(
@@ -596,11 +745,17 @@ export class CampaignService {
     affiliateId: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
-    return this.mutateAffiliate(campaignId, affiliateId, (a, campaign) => {
-      campaign.affiliates = (campaign.affiliates ?? []).filter(
-        (x) => x.affiliate_id !== affiliateId,
-      );
-    }, actor);
+    return this.mutateAffiliate(
+      campaignId,
+      affiliateId,
+      (a, campaign) => {
+        campaign.affiliates = (campaign.affiliates ?? []).filter(
+          (x) => x.affiliate_id !== affiliateId,
+        );
+      },
+      actor,
+      { recordRemoval: true },
+    );
   }
 
   async updateClientStatus(
@@ -609,9 +764,15 @@ export class CampaignService {
     request: UpdateParticipantStatusRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
-    return this.mutateClient(campaignId, clientId, (c) => {
-      c.status = request.status;
-    }, actor);
+    return this.mutateClient(
+      campaignId,
+      clientId,
+      (c) => {
+        c.status = request.status;
+      },
+      actor,
+      { recordRemoval: false },
+    );
   }
 
   async deleteClient(
@@ -619,11 +780,29 @@ export class CampaignService {
     clientId: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
-    return this.mutateClient(campaignId, clientId, (c, campaign) => {
-      campaign.clients = (campaign.clients ?? []).filter(
-        (x) => x.client_id !== clientId,
-      );
-    }, actor);
+    return this.mutateClient(
+      campaignId,
+      clientId,
+      (c, campaign) => {
+        campaign.clients = (campaign.clients ?? []).filter(
+          (x) => x.client_id !== clientId,
+        );
+      },
+      actor,
+      { recordRemoval: true },
+    );
+  }
+
+  private async campaignHasLeads(campaignId: string): Promise<boolean> {
+    const scanResult = await this.dynamoDBUtil.scan<{ id: string } | any>({
+      TableName: this.constants.LEADS_TABLE_NAME,
+      Limit: 1,
+      FilterExpression: "#campaign_id = :campaign_id",
+      ExpressionAttributeNames: { "#campaign_id": "campaign_id" },
+      ExpressionAttributeValues: { ":campaign_id": campaignId },
+    });
+
+    return (scanResult.items?.length ?? 0) > 0;
   }
 
   private async mutateAffiliate(
@@ -631,8 +810,18 @@ export class CampaignService {
     affiliateId: string,
     mutate: (a: ICampaignAffiliate, campaign: ICampaign) => void,
     actor?: RequestActor,
+    options: { recordRemoval?: boolean } = {},
   ): Promise<ServiceResult<ICampaign>> {
     try {
+      const hasLeads = await this.campaignHasLeads(campaignId);
+      if (hasLeads && options.recordRemoval) {
+        return {
+          result: false,
+          error:
+            "Cannot remove affiliate because the campaign has leads; disable the affiliate instead",
+        };
+      }
+
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign) {
         return { result: false, error: `Campaign ${campaignId} not found` };
@@ -649,8 +838,44 @@ export class CampaignService {
         };
       }
 
+      const now = new Date().toISOString();
+      const prevAffStatus = affiliate.status;
+
+      if (options.recordRemoval) {
+        campaign.removed_affiliates = [
+          ...(campaign.removed_affiliates ?? []),
+          {
+            affiliate_id: affiliate.affiliate_id,
+            campaign_key: affiliate.campaign_key,
+            added_at: affiliate.added_at,
+            status_at_removal: affiliate.status,
+            removed_at: now,
+            removed_by: actor,
+          },
+        ];
+      }
+
       mutate(affiliate, campaign);
-      campaign.updated_at = new Date().toISOString();
+
+      if (!options.recordRemoval) {
+        // The affiliate object was mutated in-place — record what changed
+        const historyEntries: IParticipantHistoryEntry[] = [];
+        if (affiliate.status !== prevAffStatus) {
+          historyEntries.push({
+            event: "status_changed",
+            field: "status",
+            from: prevAffStatus,
+            to: affiliate.status,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+        if (historyEntries.length > 0) {
+          affiliate.history = [...(affiliate.history ?? []), ...historyEntries];
+        }
+      }
+
+      campaign.updated_at = now;
       campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
@@ -680,8 +905,18 @@ export class CampaignService {
     clientId: string,
     mutate: (c: ICampaignClient, campaign: ICampaign) => void,
     actor?: RequestActor,
+    options: { recordRemoval?: boolean } = {},
   ): Promise<ServiceResult<ICampaign>> {
     try {
+      const hasLeads = await this.campaignHasLeads(campaignId);
+      if (hasLeads && options.recordRemoval) {
+        return {
+          result: false,
+          error:
+            "Cannot remove client because the campaign has leads; disable the client instead",
+        };
+      }
+
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign) {
         return { result: false, error: `Campaign ${campaignId} not found` };
@@ -698,8 +933,42 @@ export class CampaignService {
         };
       }
 
+      const now = new Date().toISOString();
+      const prevClientStatus = client.status;
+
+      if (options.recordRemoval) {
+        campaign.removed_clients = [
+          ...(campaign.removed_clients ?? []),
+          {
+            client_id: client.client_id,
+            added_at: client.added_at,
+            status_at_removal: client.status,
+            removed_at: now,
+            removed_by: actor,
+          },
+        ];
+      }
+
       mutate(client, campaign);
-      campaign.updated_at = new Date().toISOString();
+
+      if (!options.recordRemoval) {
+        const historyEntries: IParticipantHistoryEntry[] = [];
+        if (client.status !== prevClientStatus) {
+          historyEntries.push({
+            event: "status_changed",
+            field: "status",
+            from: prevClientStatus,
+            to: client.status,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+        if (historyEntries.length > 0) {
+          client.history = [...(client.history ?? []), ...historyEntries];
+        }
+      }
+
+      campaign.updated_at = now;
       campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
@@ -742,7 +1011,10 @@ export class CampaignService {
       return { result: true, data: this.normalizeParticipants(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to get campaign", error);
-      return { result: false, error: error.message || "Failed to get campaign" };
+      return {
+        result: false,
+        error: error.message || "Failed to get campaign",
+      };
     }
   }
 
@@ -757,12 +1029,61 @@ export class CampaignService {
         return { result: false, error: `Campaign with id ${id} not found` };
       }
 
+      const normalized = this.normalizeParticipants(existing);
+      Object.assign(existing, normalized);
+
+      const hasClients = (existing.clients?.length ?? 0) > 0;
+      const hasAffiliates = (existing.affiliates?.length ?? 0) > 0;
+      const hasLeads = await this.campaignHasLeads(id);
+      const statusAllowsDelete =
+        existing.status === CampaignStatus.DRAFT ||
+        existing.status === CampaignStatus.TEST;
+
+      if (!statusAllowsDelete) {
+        return {
+          result: false,
+          error: "Campaign can be deleted only in DRAFT or TEST status",
+        };
+      }
+
+      if (hasClients || hasAffiliates) {
+        return {
+          result: false,
+          error:
+            "Remove or disable all linked clients and affiliates before deleting the campaign",
+        };
+      }
+
+      if (hasLeads) {
+        return {
+          result: false,
+          error: "Campaign with leads cannot be deleted",
+        };
+      }
+
+      const hasParticipantHistory =
+        existing.ever_linked_participants === true ||
+        (existing.removed_affiliates?.length ?? 0) > 0 ||
+        (existing.removed_clients?.length ?? 0) > 0;
+      const hasLeadHistory = existing.has_received_leads === true;
+
       if (options.permanent) {
+        if (hasParticipantHistory || hasLeadHistory) {
+          return {
+            result: false,
+            error:
+              "Hard delete allowed only for campaigns that never had participants or leads",
+          };
+        }
+
         await this.dynamoDBUtil.delete({
           TableName: this.constants.CAMPAIGNS_TABLE_NAME,
           Key: { id },
         });
-        this.logger.info("Campaign permanently deleted", { campaignId: id, actor });
+        this.logger.info("Campaign permanently deleted", {
+          campaignId: id,
+          actor,
+        });
       } else {
         const now = new Date().toISOString();
         const expression = this.dynamoDBUtil.buildUpdateExpression({
@@ -785,7 +1106,10 @@ export class CampaignService {
       return { result: true, data: { id, permanent: !!options.permanent } };
     } catch (error: any) {
       this.logger.error("Failed to delete campaign", error);
-      return { result: false, error: error.message || "Failed to delete campaign" };
+      return {
+        result: false,
+        error: error.message || "Failed to delete campaign",
+      };
     }
   }
 
@@ -796,11 +1120,13 @@ export class CampaignService {
             client_id: c,
             status: CampaignParticipantStatus.LIVE,
             added_at: new Date().toISOString(),
+            history: [] as IParticipantHistoryEntry[],
           }
         : {
             client_id: c.client_id,
             added_at: c.added_at ?? new Date().toISOString(),
             status: c.status ?? CampaignParticipantStatus.LIVE,
+            history: (c.history ?? []) as IParticipantHistoryEntry[],
           },
     );
 
@@ -811,12 +1137,14 @@ export class CampaignService {
             campaign_key: IdGenerator.generateCampaignKey(12),
             added_at: new Date().toISOString(),
             status: CampaignParticipantStatus.LIVE,
+            history: [] as IParticipantHistoryEntry[],
           }
         : {
             affiliate_id: a.affiliate_id,
             campaign_key: a.campaign_key,
             added_at: a.added_at ?? new Date().toISOString(),
             status: a.status ?? CampaignParticipantStatus.LIVE,
+            history: (a.history ?? []) as IParticipantHistoryEntry[],
           },
     );
 
@@ -825,6 +1153,13 @@ export class CampaignService {
       clients: normalizeClients,
       affiliates: normalizeAffiliates,
       plugins: this.normalizePlugins(campaign.plugins),
+      removed_clients: campaign.removed_clients ?? [],
+      removed_affiliates: campaign.removed_affiliates ?? [],
+      ever_linked_participants:
+        campaign.ever_linked_participants === true ||
+        normalizeClients.length > 0 ||
+        normalizeAffiliates.length > 0,
+      has_received_leads: campaign.has_received_leads ?? false,
     };
   }
 

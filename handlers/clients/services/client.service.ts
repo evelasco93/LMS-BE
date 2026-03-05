@@ -5,6 +5,7 @@ import { IdGenerator } from "@shared/generators/id.generator";
 import { ClientConstants } from "../constants/client.constants";
 import { IClient } from "../interfaces/IClient.interface";
 import { ClientStatus } from "../enums/client-status.enum";
+import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
   CreateClientRequest,
   UpdateClientRequest,
@@ -295,6 +296,44 @@ export class ClientService {
         };
       }
 
+      const linkedCampaigns = await this.findCampaignsWithClient(id);
+      const activeCampaignLinks = linkedCampaigns.filter((campaign) =>
+        (campaign.clients ?? []).some(
+          (c) =>
+            c.client_id === id &&
+            c.status !== CampaignParticipantStatus.DISABLED,
+        ),
+      );
+
+      const hasCampaignLeads = await this.anyCampaignHasLeads(
+        linkedCampaigns.map((c) => c.id),
+      );
+
+      if (options.permanent) {
+        if (linkedCampaigns.length > 0) {
+          return {
+            result: false,
+            error:
+              "Cannot hard delete client while linked to campaigns; remove or disable in campaigns first",
+          };
+        }
+
+        if (hasCampaignLeads) {
+          return {
+            result: false,
+            error: "Cannot hard delete client that has campaign leads",
+          };
+        }
+      } else {
+        if (activeCampaignLinks.length > 0) {
+          return {
+            result: false,
+            error:
+              "Disable the client in all campaigns before soft deleting the client",
+          };
+        }
+      }
+
       if (options.permanent) {
         await this.dynamoDBUtil.delete({
           TableName: this.constants.CLIENTS_TABLE_NAME,
@@ -335,5 +374,46 @@ export class ClientService {
         error: error.message || "Failed to delete client",
       };
     }
+  }
+
+  private async findCampaignsWithClient(
+    clientId: string,
+  ): Promise<
+    {
+      id: string;
+      clients?: { client_id: string; status?: CampaignParticipantStatus }[];
+    }[]
+  > {
+    const scanResult = await this.dynamoDBUtil.scan<{
+      id: string;
+      clients?: { client_id: string; status?: CampaignParticipantStatus }[];
+    }>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+    });
+
+    return (scanResult.items ?? []).filter((campaign) =>
+      (campaign.clients ?? []).some((c) => c.client_id === clientId),
+    );
+  }
+
+  private async campaignHasLeads(campaignId: string): Promise<boolean> {
+    const scanResult = await this.dynamoDBUtil.scan<{ id: string } | any>({
+      TableName: this.constants.LEADS_TABLE_NAME,
+      Limit: 1,
+      FilterExpression: "#campaign_id = :campaign_id",
+      ExpressionAttributeNames: { "#campaign_id": "campaign_id" },
+      ExpressionAttributeValues: { ":campaign_id": campaignId },
+    });
+
+    return (scanResult.items?.length ?? 0) > 0;
+  }
+
+  private async anyCampaignHasLeads(campaignIds: string[]): Promise<boolean> {
+    for (const campaignId of campaignIds) {
+      if (await this.campaignHasLeads(campaignId)) {
+        return true;
+      }
+    }
+    return false;
   }
 }

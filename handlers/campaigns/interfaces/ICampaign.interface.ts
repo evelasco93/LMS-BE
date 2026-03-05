@@ -2,17 +2,50 @@ import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
 
+export type ParticipantHistoryEvent =
+  | "linked"
+  | "status_changed"
+  | "key_rotated";
+
+export interface IParticipantHistoryEntry {
+  event: ParticipantHistoryEvent;
+  field?: string;
+  from?: string;
+  to?: string;
+  changed_at: string;
+  changed_by?: RequestActor;
+}
+
 export interface ICampaignAffiliate {
   affiliate_id: string;
   campaign_key: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
+  history?: IParticipantHistoryEntry[];
 }
 
 export interface ICampaignClient {
   client_id: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
+  history?: IParticipantHistoryEntry[];
+}
+
+export interface IRemovedAffiliate {
+  affiliate_id: string;
+  campaign_key?: string;
+  added_at?: string;
+  status_at_removal?: CampaignParticipantStatus;
+  removed_at: string;
+  removed_by?: RequestActor;
+}
+
+export interface IRemovedClient {
+  client_id: string;
+  added_at?: string;
+  status_at_removal?: CampaignParticipantStatus;
+  removed_at: string;
+  removed_by?: RequestActor;
 }
 
 export interface ICampaignStatusChange {
@@ -38,8 +71,12 @@ export interface ICampaign {
   status: CampaignStatus;
   clients: ICampaignClient[];
   affiliates: ICampaignAffiliate[];
+  removed_clients?: IRemovedClient[];
+  removed_affiliates?: IRemovedAffiliate[];
   plugins: ICampaignPlugins;
   status_history: ICampaignStatusChange[];
+  ever_linked_participants?: boolean;
+  has_received_leads?: boolean;
   created_at: string;
   updated_at: string;
   created_by?: RequestActor;

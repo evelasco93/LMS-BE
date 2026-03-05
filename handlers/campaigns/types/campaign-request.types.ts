@@ -25,6 +25,10 @@ export type UpdateCampaignStatusRequest = {
   status: CampaignStatus;
 };
 
+export type UpdateCampaignRequest = {
+  name: string;
+};
+
 export type UpdateCampaignPluginsRequest = {
   duplicate_check?: Partial<IDuplicateCheckPluginConfig> & {
     criteria?: DuplicateCheckCriteriaField[];
