@@ -3,6 +3,7 @@ import { CampaignParticipantStatus } from "../enums/campaign-participant-status.
 import {
   DuplicateCheckCriteriaField,
   IDuplicateCheckPluginConfig,
+  ITrustedFormPluginConfig,
 } from "../interfaces/ICampaign.interface";
 
 export type CreateCampaignRequest = {
@@ -33,6 +34,7 @@ export type UpdateCampaignPluginsRequest = {
   duplicate_check?: Partial<IDuplicateCheckPluginConfig> & {
     criteria?: DuplicateCheckCriteriaField[];
   };
+  trusted_form?: Partial<ITrustedFormPluginConfig>;
 };
 
 export type ListCampaignsQuery = {

@@ -96,20 +96,15 @@ export const servicesConfig: IServicesStackConfig = {
       memorySize: 512,
       timeout: 30,
       environment: {
-        TENANT_CONFIG_IPQS_SECRET_NAME: nameBuilder.secret("ipqs-credentials"),
-        TENANT_CONFIG_TRUSTED_FORMS_SECRET_NAME: nameBuilder.secret(
-          "trusted-forms-credentials",
-        ),
-        TENANT_CONFIG_SECRET_PREFIX: nameBuilder.secret("tenant-config"),
-        INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
-          "internal-api-auth-token",
-        ),
+        CREDENTIALS_TABLE_NAME: nameBuilder.table("credentials"),
+        CREDENTIALS_ENCRYPTION_KEY: process.env.CREDENTIALS_ENCRYPTION_KEY ?? "",
+        PLUGIN_SCHEMAS_TABLE_NAME: nameBuilder.table("plugin-schemas"),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("tenant-config-lambda"),
     },
-    tableName: nameBuilder.table("leads"),
-    tableArn: arnBuilder.dynamoTable(nameBuilder.table("leads")),
+    tableName: nameBuilder.table("credentials"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("credentials")),
   },
   qaOrchestrator: {
     lambda: {
@@ -123,6 +118,7 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         DUPLICATE_CHECK_LAMBDA_NAME: nameBuilder.lambda("qa-duplicate-check"),
+        TRUSTED_FORM_LAMBDA_NAME: nameBuilder.lambda("qa-trusted-form"),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-orchestrator-lambda"),
@@ -148,5 +144,25 @@ export const servicesConfig: IServicesStackConfig = {
     },
     tableName: nameBuilder.table("leads"),
     tableArn: arnBuilder.dynamoTable(nameBuilder.table("leads")),
+  },
+  qaTrustedForm: {
+    lambda: {
+      functionName: nameBuilder.lambda("qa-trusted-form"),
+      entry: path.join(
+        __dirname,
+        "../../../../handlers/qa/modules/trusted-form/main.ts",
+      ),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        CREDENTIALS_TABLE_NAME: nameBuilder.table("credentials"),
+        CREDENTIALS_ENCRYPTION_KEY: process.env.CREDENTIALS_ENCRYPTION_KEY ?? "",
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("qa-trusted-form-lambda"),
+    },
+    tableName: nameBuilder.table("credentials"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("credentials")),
   },
 };

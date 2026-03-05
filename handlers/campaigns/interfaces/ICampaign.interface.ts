@@ -69,8 +69,14 @@ export interface IDuplicateCheckPluginConfig {
   criteria: DuplicateCheckCriteriaField[];
 }
 
+export interface ITrustedFormPluginConfig {
+  enabled: boolean;
+  credentials_id?: string;
+}
+
 export interface ICampaignPlugins {
   duplicate_check: IDuplicateCheckPluginConfig;
+  trusted_form: ITrustedFormPluginConfig;
 }
 
 export interface ICampaign {

@@ -26,10 +26,15 @@ interface CampaignRecord {
   id: string;
   status: CampaignStatus;
   affiliates: CampaignAffiliate[];
+  has_received_leads?: boolean;
   plugins?: {
     duplicate_check?: {
       enabled?: boolean;
       criteria?: string[];
+    };
+    trusted_form?: {
+      enabled?: boolean;
+      credentials_id?: string;
     };
   };
 }
@@ -41,6 +46,17 @@ interface QaOrchestratorResult {
   duplicate?: boolean;
   duplicate_matches?: {
     lead_ids?: string[];
+  };
+  trusted_form_result?: {
+    success: boolean;
+    cert_id: string;
+    outcome?: string;
+    error?: string;
+    phone?: string;
+    phone_match?: boolean;
+    vendor?: string;
+    previously_retained?: boolean;
+    expires_at?: string;
   };
 }
 
@@ -164,6 +180,9 @@ export class LeadsService {
         duplicate_matches: {
           lead_ids: duplicateMatchIds,
         },
+        ...(qaResult.trusted_form_result
+          ? { trusted_form_result: qaResult.trusted_form_result }
+          : {}),
         created_at: now,
         affiliate_status_at_intake: affiliateStatus,
         rejected,
@@ -486,12 +505,24 @@ export class LeadsService {
     }
 
     try {
+      const leadPayload = request.payload ?? {};
+      // Extract TrustedForm cert ID and phone from the lead payload.
+      // Affiliates submit these as `trusted_form_cert_id` and `phone`.
+      const certId =
+        typeof leadPayload.trusted_form_cert_id === "string"
+          ? leadPayload.trusted_form_cert_id
+          : undefined;
+      const phone =
+        typeof leadPayload.phone === "string" ? leadPayload.phone : undefined;
+
       return await this.lambdaInvokeUtil.invokeJson<QaOrchestratorResult>({
         functionName: this.constants.QA_ORCHESTRATOR_LAMBDA_NAME,
         payload: {
           campaign_id: request.campaign_id,
-          payload: request.payload ?? {},
+          payload: leadPayload,
           plugins: campaign.plugins,
+          ...(certId ? { cert_id: certId } : {}),
+          ...(phone ? { phone } : {}),
         },
       });
     } catch (error) {

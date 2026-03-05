@@ -52,6 +52,13 @@ export const iamConfig: IIamStackConfig = {
       managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
       inlinePolicies: [],
     },
+    qaTrustedForm: {
+      name: nameBuilder.role("qa-trusted-form-lambda"),
+      description: "Execution role for QA TrustedForm Lambda",
+      servicePrincipal: "lambda.amazonaws.com",
+      managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
+      inlinePolicies: [],
+    },
     auth: {
       name: nameBuilder.role("auth-lambda"),
       description: "Execution role for Auth Lambda",

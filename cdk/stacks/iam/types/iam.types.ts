@@ -37,6 +37,7 @@ export interface IIamStackConfig {
     tenantConfig: IRoleConfig;
     qaOrchestrator: IRoleConfig;
     qaDuplicateCheck: IRoleConfig;
+    qaTrustedForm: IRoleConfig;
     auth: IRoleConfig;
     users: IRoleConfig;
   };

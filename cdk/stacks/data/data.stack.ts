@@ -1,12 +1,13 @@
 import { Stack, CfnOutput } from "aws-cdk-lib";
 import { Table } from "aws-cdk-lib/aws-dynamodb";
-import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import { IDataStackProps } from "./types/data.types";
 import { ClientsDataStack } from "./clients-data.stack";
 import { AffiliatesDataStack } from "./affiliates-data.stack";
 import { CampaignsDataStack } from "./campaigns-data.stack";
 import { LeadsDataStack } from "./leads-data.stack";
+import { CredentialsDataStack } from "./credentials-data.stack";
+import { PluginSchemasDataStack } from "./plugin-schemas-data.stack";
 
 /**
  * Main Data Stack
@@ -16,9 +17,8 @@ export class DataStack extends Stack {
   public readonly affiliatesTable: Table;
   public readonly campaignsTable: Table;
   public readonly leadsTable: Table;
-  public readonly ipqsCredentialsSecret: Secret;
-  public readonly trustedFormsCredentialsSecret: Secret;
-  public readonly internalApiAuthTokenSecret: Secret;
+  public readonly credentialsTable: Table;
+  public readonly pluginSchemasTable: Table;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -61,73 +61,41 @@ export class DataStack extends Stack {
       },
     );
 
+    const credentialsDataStack = new CredentialsDataStack(
+      this,
+      `${config.appPrefix}-CredentialsData`,
+      {
+        tableConfig: dataConfig.tables.credentials,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+
+    const pluginSchemasDataStack = new PluginSchemasDataStack(
+      this,
+      `${config.appPrefix}-PluginSchemasData`,
+      {
+        tableConfig: dataConfig.tables.pluginSchemas,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+
     this.clientsTable = clientsDataStack.table;
     this.affiliatesTable = affiliatesDataStack.table;
     this.campaignsTable = campaignsDataStack.table;
     this.leadsTable = leadsDataStack.table;
+    this.credentialsTable = credentialsDataStack.table;
+    this.pluginSchemasTable = pluginSchemasDataStack.table;
 
-    this.ipqsCredentialsSecret = new Secret(
-      this,
-      `${config.appPrefix}-IpqsCredentialsSecret`,
-      {
-        secretName: dataConfig.secrets.ipqsCredentials.secretName,
-        description: dataConfig.secrets.ipqsCredentials.description,
-        generateSecretString: {
-          secretStringTemplate: JSON.stringify({ provider: "ipqs" }),
-          generateStringKey: "apiKey",
-          excludePunctuation: true,
-          passwordLength: 48,
-        },
-      },
-    );
-
-    this.trustedFormsCredentialsSecret = new Secret(
-      this,
-      `${config.appPrefix}-TrustedFormsCredentialsSecret`,
-      {
-        secretName: dataConfig.secrets.trustedFormsCredentials.secretName,
-        description: dataConfig.secrets.trustedFormsCredentials.description,
-        generateSecretString: {
-          secretStringTemplate: JSON.stringify({ provider: "trusted_forms" }),
-          generateStringKey: "password",
-          excludePunctuation: true,
-          passwordLength: 48,
-        },
-      },
-    );
-
-    this.internalApiAuthTokenSecret = new Secret(
-      this,
-      `${config.appPrefix}-InternalApiAuthTokenSecret`,
-      {
-        secretName: dataConfig.secrets.internalApiAuthToken.secretName,
-        description: dataConfig.secrets.internalApiAuthToken.description,
-        generateSecretString: {
-          secretStringTemplate: JSON.stringify({ tokenType: "bearer" }),
-          generateStringKey: "token",
-          passwordLength: 64,
-          excludePunctuation: true,
-        },
-      },
-    );
-
-    new CfnOutput(this, `${config.appPrefix}-IpqsCredentialsSecretName`, {
-      value: this.ipqsCredentialsSecret.secretName,
-      description: "IPQS credentials secret name",
+    new CfnOutput(this, `${config.appPrefix}-CredentialsTableName`, {
+      value: this.credentialsTable.tableName,
+      description: "Credentials DynamoDB table name",
+      exportName: `${config.appPrefix}-credentials-table-name`,
     });
 
-    new CfnOutput(
-      this,
-      `${config.appPrefix}-TrustedFormsCredentialsSecretName`,
-      {
-        value: this.trustedFormsCredentialsSecret.secretName,
-        description: "Trusted Forms credentials secret name",
-      },
-    );
-
-    new CfnOutput(this, `${config.appPrefix}-InternalApiAuthTokenSecretName`, {
-      value: this.internalApiAuthTokenSecret.secretName,
-      description: "Internal API auth token secret name",
+    new CfnOutput(this, `${config.appPrefix}-PluginSchemasTableName`, {
+      value: this.pluginSchemasTable.tableName,
+      description: "Plugin Schemas DynamoDB table name",
+      exportName: `${config.appPrefix}-plugin-schemas-table-name`,
     });
 
     if (config.tags) {

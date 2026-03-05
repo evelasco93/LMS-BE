@@ -8,6 +8,18 @@ export interface IEditHistoryEntry {
   changed_by?: RequestActor;
 }
 
+export interface ITrustedFormResult {
+  success: boolean;
+  cert_id: string;
+  outcome?: string;
+  error?: string;
+  phone?: string;
+  phone_match?: boolean;
+  vendor?: string;
+  previously_retained?: boolean;
+  expires_at?: string;
+}
+
 export interface ILead {
   id: string;
   campaign_id: string;
@@ -18,6 +30,7 @@ export interface ILead {
   duplicate_matches?: {
     lead_ids: string[];
   };
+  trusted_form_result?: ITrustedFormResult;
   created_at: string;
   affiliate_status_at_intake?: string;
   rejected?: boolean;

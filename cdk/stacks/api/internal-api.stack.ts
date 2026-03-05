@@ -641,50 +641,109 @@ export class InternalApiStack extends NestedStack {
     );
 
     const tenantConfigResource = v2Resource.addResource("tenant-config");
+
+    // ── Credentials ──────────────────────────────────────────────────────────
     const credentialsResource = tenantConfigResource.addResource("credentials");
 
+    // POST /v2/tenant-config/credentials — create credential
+    addProtectedMethod(
+      credentialsResource,
+      "POST",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+    // GET /v2/tenant-config/credentials — list credentials
     addProtectedMethod(
       credentialsResource,
       "GET",
       tenantConfigLambdaIntegration,
       [readScope],
     );
+
+    // /v2/tenant-config/credentials/{provider}  (reuses the already-deployed variable resource)
+    const credentialByIdResource =
+      credentialsResource.addResource("{provider}");
+    // GET /v2/tenant-config/credentials/{provider} — get credential by id
     addProtectedMethod(
-      credentialsResource,
+      credentialByIdResource,
+      "GET",
+      tenantConfigLambdaIntegration,
+      [readScope],
+    );
+    // PUT /v2/tenant-config/credentials/{provider} — update credential
+    addProtectedMethod(
+      credentialByIdResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+    // DELETE /v2/tenant-config/credentials/{provider} — delete credential
+    addProtectedMethod(
+      credentialByIdResource,
+      "DELETE",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    // PUT /v2/tenant-config/credentials/{provider}/disable
+    const credentialDisableResource =
+      credentialByIdResource.addResource("disable");
+    addProtectedMethod(
+      credentialDisableResource,
       "PUT",
       tenantConfigLambdaIntegration,
       [writeScope],
     );
 
-    const credentialByProviderResource =
-      credentialsResource.addResource("{provider}");
-    credentialByProviderResource.addMethod(
+    // PUT /v2/tenant-config/credentials/{provider}/enable
+    const credentialEnableResource =
+      credentialByIdResource.addResource("enable");
+    addProtectedMethod(
+      credentialEnableResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    // ── TrustedForm ───────────────────────────────────────────────────────────
+    const trustedFormResource = tenantConfigResource.addResource("trusted-form");
+
+    // POST /v2/tenant-config/trusted-form/check-cert — validate cert via stored credentials
+    const checkCertResource = trustedFormResource.addResource("check-cert");
+    addProtectedMethod(
+      checkCertResource,
+      "POST",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    // ── Plugin Schemas ────────────────────────────────────────────────────────
+    const pluginSchemasResource =
+      tenantConfigResource.addResource("plugin-schemas");
+
+    // POST /v2/tenant-config/plugin-schemas — create plugin schema
+    addProtectedMethod(
+      pluginSchemasResource,
+      "POST",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+    // GET /v2/tenant-config/plugin-schemas — list plugin schemas
+    addProtectedMethod(
+      pluginSchemasResource,
       "GET",
       tenantConfigLambdaIntegration,
-      requireScopeChecks
-        ? {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-            authorizationScopes: [readScope],
-          }
-        : {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-          },
+      [readScope],
     );
-    credentialByProviderResource.addMethod(
-      "DELETE",
+
+    // GET /v2/tenant-config/plugin-schemas/{id} — get plugin schema by id
+    const pluginSchemaByIdResource =
+      pluginSchemasResource.addResource("{id}");
+    addProtectedMethod(
+      pluginSchemaByIdResource,
+      "GET",
       tenantConfigLambdaIntegration,
-      requireScopeChecks
-        ? {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-            authorizationScopes: [writeScope],
-          }
-        : {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-          },
+      [readScope],
     );
 
     new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolId`, {

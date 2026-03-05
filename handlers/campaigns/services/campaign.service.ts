@@ -546,7 +546,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["duplicate_check"],
+        ["duplicate_check", "trusted_form"],
       );
 
       if (!ok) {
@@ -628,6 +628,42 @@ export class CampaignService {
         }
       }
 
+      const trustedFormRequest =
+        (sanitized.trusted_form as Record<string, unknown> | undefined) ??
+        undefined;
+
+      if (trustedFormRequest) {
+        const tfFields = Object.keys(trustedFormRequest);
+        const invalidTfFields = tfFields.filter(
+          (f) => !["enabled", "credentials_id"].includes(f),
+        );
+        if (invalidTfFields.length > 0) {
+          return {
+            result: false,
+            error: `Invalid trusted_form fields: ${invalidTfFields.join(", ")}`,
+          };
+        }
+        if (
+          trustedFormRequest.enabled !== undefined &&
+          typeof trustedFormRequest.enabled !== "boolean"
+        ) {
+          return {
+            result: false,
+            error: "trusted_form.enabled must be a boolean",
+          };
+        }
+        if (
+          trustedFormRequest.credentials_id !== undefined &&
+          (typeof trustedFormRequest.credentials_id !== "string" ||
+            !(trustedFormRequest.credentials_id as string).trim())
+        ) {
+          return {
+            result: false,
+            error: "trusted_form.credentials_id must be a non-empty string",
+          };
+        }
+      }
+
       const nextPlugins: ICampaignPlugins = {
         duplicate_check: {
           enabled:
@@ -639,6 +675,17 @@ export class CampaignService {
             normalizedRequestedCriteria.length > 0
               ? normalizedRequestedCriteria
               : currentPlugins.duplicate_check.criteria,
+        },
+        trusted_form: {
+          enabled:
+            trustedFormRequest?.enabled !== undefined
+              ? (trustedFormRequest.enabled as boolean)
+              : currentPlugins.trusted_form.enabled,
+          ...(trustedFormRequest?.credentials_id !== undefined
+            ? { credentials_id: trustedFormRequest.credentials_id as string }
+            : currentPlugins.trusted_form.credentials_id
+              ? { credentials_id: currentPlugins.trusted_form.credentials_id }
+              : {}),
         },
       };
 
@@ -1208,6 +1255,15 @@ export class CampaignService {
             ? normalizedCriteria
             : defaults.duplicate_check.criteria,
       },
+      trusted_form: {
+        enabled:
+          typeof plugins?.trusted_form?.enabled === "boolean"
+            ? plugins.trusted_form.enabled
+            : defaults.trusted_form.enabled,
+        ...(plugins?.trusted_form?.credentials_id
+          ? { credentials_id: plugins.trusted_form.credentials_id }
+          : {}),
+      },
     };
   }
 
@@ -1216,6 +1272,9 @@ export class CampaignService {
       duplicate_check: {
         enabled: true,
         criteria: ["phone", "email"],
+      },
+      trusted_form: {
+        enabled: true,
       },
     };
   }

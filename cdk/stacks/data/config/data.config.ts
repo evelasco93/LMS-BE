@@ -60,23 +60,27 @@ export const dataConfig: IDataStackConfig = {
     leads: {
       tableName: nameBuilder.table("leads"),
       partitionKey: { name: "id", type: "S" },
-      // TODO: add GSIs for campaign_id/status lookups when needed
       pointInTimeRecovery: true,
       deletionProtection: false,
     },
-  },
-  secrets: {
-    ipqsCredentials: {
-      secretName: nameBuilder.secret("ipqs-credentials"),
-      description: "IPQS credentials secret",
+    credentials: {
+      tableName: nameBuilder.table("credentials"),
+      partitionKey: { name: "id", type: "S" },
+      gsi: [
+        {
+          indexName: nameBuilder.index("credentials", "provider"),
+          partitionKey: { name: "provider", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: true,
+      deletionProtection: false,
     },
-    trustedFormsCredentials: {
-      secretName: nameBuilder.secret("trusted-forms-credentials"),
-      description: "Trusted Forms credentials secret",
-    },
-    internalApiAuthToken: {
-      secretName: nameBuilder.secret("internal-api-auth-token"),
-      description: "Bearer token for internal API authentication",
+    pluginSchemas: {
+      tableName: nameBuilder.table("plugin-schemas"),
+      partitionKey: { name: "id", type: "S" },
+      pointInTimeRecovery: true,
+      deletionProtection: false,
     },
   },
 };

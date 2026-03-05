@@ -45,8 +45,8 @@ load_dotenv_file() {
 load_dotenv_file ".frontend-auth.env"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-DEFAULT_INTERNAL_API_BASE_URL="https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/"
-DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_INTERNAL_API_BASE_URL="https://9jeq3wzyxf.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://oyvtl04a9c.execute-api.us-east-1.amazonaws.com/dev/"
 
 INTERNAL_API_BASE_URL="${INTERNAL_API_BASE_URL:-${NEXT_INTERNAL_API_BASE_URL:-$DEFAULT_INTERNAL_API_BASE_URL}}"
 EXTERNAL_LEADS_API_BASE_URL="${EXTERNAL_LEADS_API_BASE_URL:-${NEXT_EXTERNAL_LEADS_API_BASE_URL:-$DEFAULT_EXTERNAL_LEADS_API_BASE_URL}}"
@@ -86,6 +86,12 @@ AFFILIATE_ID_HARD=""
 CAMPAIGN_ID_SOFT=""
 CAMPAIGN_ID_HARD=""
 LEAD_ID_SOFT=""
+
+# Tenant-config state
+CREDENTIAL_ID=""
+PLUGIN_SCHEMA_ID=""
+TC_CAMPAIGN_ID=""
+TC_CAMPAIGN_KEY=""
 
 # Test data
 CLIENT_EMAIL="jason@summitedgelegal.com"
@@ -1630,6 +1636,345 @@ except: print(0)
 }
 
 # ─── Optional cleanup ─────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUITE: TENANT CONFIG
+# Tests: plugin schemas, credential CRUD + disable/enable, TrustedForm check-cert,
+#        campaign plugin toggle scenarios (TrustedForm on/off, dup check on/off).
+# ═══════════════════════════════════════════════════════════════════════════════
+run_tenant_config_tests() {
+    reset_suite_log
+    echo -e "\n${MAGENTA}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║  TENANT CONFIG SUITE                          ║${NC}"
+    echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
+
+    # ── 1. Plugin Schema: create TrustedForm schema ──────────────────────────
+    print_section "PLUGIN SCHEMA: POST /tenant-config/plugin-schemas (TrustedForm)"
+    local ps_resp
+    ps_resp=$(test_endpoint "POST" "/tenant-config/plugin-schemas" \
+        "Create TrustedForm plugin schema" \
+        '{"provider":"trusted_form","name":"TrustedForm","credential_type":"basic_auth","description":"TrustedForm certificate verification integration","fields":[{"name":"username","label":"Username","type":"text","required":true,"placeholder":"Enter your TrustedForm username"},{"name":"password","label":"Password","type":"password","required":true,"placeholder":"Enter your TrustedForm password"}]}')
+    PLUGIN_SCHEMA_ID=$(extract_json_value "$ps_resp" "data.id")
+    if [ -n "$PLUGIN_SCHEMA_ID" ]; then
+        print_result 0 "Plugin schema created: $PLUGIN_SCHEMA_ID"
+    else
+        print_result 1 "Failed to create plugin schema"
+        print_json "$ps_resp"
+    fi
+
+    # ── 2. List plugin schemas ───────────────────────────────────────────────
+    print_section "PLUGIN SCHEMA: GET /tenant-config/plugin-schemas"
+    local ps_list_resp
+    ps_list_resp=$(test_endpoint "GET" "/tenant-config/plugin-schemas" "List all plugin schemas")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "List plugin schemas returned HTTP $LAST_HTTP_STATUS"
+    else
+        print_result 1 "List plugin schemas failed (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    if [ -n "$PLUGIN_SCHEMA_ID" ]; then
+        print_section "PLUGIN SCHEMA: GET /tenant-config/plugin-schemas/$PLUGIN_SCHEMA_ID"
+        local ps_get_resp
+        ps_get_resp=$(test_endpoint "GET" "/tenant-config/plugin-schemas/$PLUGIN_SCHEMA_ID" "Get plugin schema by ID")
+        local ps_provider
+        ps_provider=$(extract_json_value "$ps_get_resp" "data.provider")
+        if [ "$ps_provider" = "trusted_form" ]; then
+            print_result 0 "Plugin schema retrieved correctly (provider=$ps_provider)"
+        else
+            print_result 1 "Plugin schema mismatch (provider=$ps_provider expected trusted_form)"
+        fi
+    fi
+
+    # ── 3. Create TrustedForm credential ────────────────────────────────────
+    print_section "CREDENTIAL: POST /tenant-config/credentials (TrustedForm — API / de3b2f39...)"
+    local cred_resp
+    cred_resp=$(test_endpoint "POST" "/tenant-config/credentials" \
+        "Create TrustedForm basic_auth credential" \
+        '{"provider":"trusted_form","name":"TrustedForm Prod","type":"basic_auth","credentials":{"username":"API","password":"de3b2f39055939221023f0325f33d25a"},"vendor":"SummitEdgeLegal"}')
+    CREDENTIAL_ID=$(extract_json_value "$cred_resp" "data.id")
+    if [ -n "$CREDENTIAL_ID" ]; then
+        print_result 0 "Credential created: $CREDENTIAL_ID"
+    else
+        print_result 1 "Failed to create credential"
+        print_json "$cred_resp"
+        echo -e "  ${RED}Cannot continue tenant-config suite without a credential.${NC}"
+        return 1
+    fi
+
+    # ── 4. List credentials ──────────────────────────────────────────────────
+    print_section "CREDENTIAL: GET /tenant-config/credentials"
+    local cred_list_resp
+    cred_list_resp=$(test_endpoint "GET" "/tenant-config/credentials" "List all credentials")
+    if echo "$cred_list_resp" | grep -q "$CREDENTIAL_ID"; then
+        print_result 0 "Credential appears in list"
+    else
+        print_result 1 "Credential missing from list"
+    fi
+
+    print_section "CREDENTIAL: GET /tenant-config/credentials?provider=trusted_form"
+    local cred_prov_resp
+    cred_prov_resp=$(test_endpoint "GET" "/tenant-config/credentials?provider=trusted_form" "Filter credentials by provider")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "Provider filter returned HTTP $LAST_HTTP_STATUS"
+    else
+        print_result 1 "Provider filter failed (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── 5. Edit (update) credential ──────────────────────────────────────────
+    print_section "CREDENTIAL: PUT /tenant-config/credentials/$CREDENTIAL_ID (rename)"
+    local cred_upd_resp
+    cred_upd_resp=$(test_endpoint "PUT" "/tenant-config/credentials/$CREDENTIAL_ID" \
+        "Rename TrustedForm credential" \
+        '{"name":"TrustedForm Prod (updated)"}')
+    local upd_name
+    upd_name=$(extract_json_value "$cred_upd_resp" "data.name")
+    if [ "$upd_name" = "TrustedForm Prod (updated)" ]; then
+        print_result 0 "Credential renamed to '$upd_name'"
+    else
+        print_result 1 "Credential rename failed (name=$upd_name)"
+    fi
+
+    # ── 6. Disable credential ────────────────────────────────────────────────
+    print_section "CREDENTIAL: PUT /tenant-config/credentials/$CREDENTIAL_ID/disable"
+    local cred_dis_resp
+    cred_dis_resp=$(test_endpoint "PUT" "/tenant-config/credentials/$CREDENTIAL_ID/disable" \
+        "Disable TrustedForm credential")
+    local dis_enabled
+    dis_enabled=$(extract_json_value "$cred_dis_resp" "data.enabled" | tr '[:upper:]' '[:lower:]')
+    if [ "$dis_enabled" = "false" ]; then
+        print_result 0 "Credential disabled (enabled=false)"
+    else
+        print_result 1 "Credential disable may have failed (enabled=$dis_enabled expected false)"
+    fi
+
+    # ── 7. Verify check-cert skips disabled credential (auto-resolve) ────────
+    print_section "CHECK-CERT: POST /trusted-form/check-cert with no credentials_id → expects no active cred error"
+    local cc_nodis_resp
+    cc_nodis_resp=$(test_endpoint "POST" "/tenant-config/trusted-form/check-cert" \
+        "Check cert while only TF credential is disabled — expects error" \
+        '{"cert_id":"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"}')
+    local cc_nodis_success
+    cc_nodis_success=$(extract_json_value "$cc_nodis_resp" "success" | tr '[:upper:]' '[:lower:]')
+    if [ "$cc_nodis_success" = "false" ]; then
+        print_result 0 "Correctly returned error when no active TrustedForm credential exists"
+    else
+        print_result 1 "Expected error when all TF credentials disabled (success=$cc_nodis_success)"
+    fi
+
+    # ── 8. Re-enable credential ──────────────────────────────────────────────
+    print_section "CREDENTIAL: PUT /tenant-config/credentials/$CREDENTIAL_ID/enable"
+    local cred_enb_resp
+    cred_enb_resp=$(test_endpoint "PUT" "/tenant-config/credentials/$CREDENTIAL_ID/enable" \
+        "Re-enable TrustedForm credential")
+    local enb_enabled
+    enb_enabled=$(extract_json_value "$cred_enb_resp" "data.enabled" | tr '[:upper:]' '[:lower:]')
+    if [ "$enb_enabled" = "true" ]; then
+        print_result 0 "Credential re-enabled (enabled=true)"
+    else
+        print_result 1 "Credential re-enable may have failed (enabled=$enb_enabled expected true)"
+    fi
+
+    # ── 9. Check-cert with active credential (auto-resolve) ──────────────────
+    print_section "CHECK-CERT: POST /tenant-config/trusted-form/check-cert (auto-resolve, cert: 6e573ab8...)"
+    local cc_auto_resp
+    cc_auto_resp=$(test_endpoint "POST" "/tenant-config/trusted-form/check-cert" \
+        "Check TrustedForm cert using auto-resolved active credential" \
+        '{"cert_id":"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"}')
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "check-cert endpoint reached TrustedForm API (HTTP $LAST_HTTP_STATUS) — full response:"
+        print_json "$cc_auto_resp"
+    else
+        print_result 1 "check-cert endpoint failed (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── 10. Check-cert with explicit credentials_id ──────────────────────────
+    print_section "CHECK-CERT: POST /tenant-config/trusted-form/check-cert (explicit credentials_id)"
+    local cc_exp_resp
+    cc_exp_resp=$(test_endpoint "POST" "/tenant-config/trusted-form/check-cert" \
+        "Check cert with explicit credentials_id" \
+        "{\"cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\",\"credentials_id\":\"$CREDENTIAL_ID\"}")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "check-cert with explicit credential reached TF API (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "check-cert with explicit credential failed (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── 11. Campaign + plugin toggle tests ───────────────────────────────────
+    # We need a campaign with a client+affiliate linked to send test leads.
+    # Re-use CLIENT_ID/AFFILIATE_ID if already set (running after campaigns suite),
+    # otherwise create fresh ones.
+    local tc_client_id="$CLIENT_ID"
+    local tc_affiliate_id="$AFFILIATE_ID"
+
+    if [ -z "$tc_client_id" ] || [ -z "$tc_affiliate_id" ]; then
+        print_section "TC DEPS: Creating client + affiliate for plugin toggle tests"
+        local tc_cl_resp tc_af_resp
+        tc_cl_resp=$(test_endpoint "POST" "/clients" "Create TC test client" \
+            "{\"email\":\"tc-cl-$TIMESTAMP@lms-test.local\",\"name\":\"TC Client\",\"phone\":\"+1555100001\"}")
+        tc_client_id=$(extract_json_value "$tc_cl_resp" "data.id")
+        tc_af_resp=$(test_endpoint "POST" "/affiliates" "Create TC test affiliate" \
+            "{\"email\":\"tc-af-$TIMESTAMP@lms-test.local\",\"name\":\"TC Affiliate\",\"phone\":\"+1555100002\"}")
+        tc_affiliate_id=$(extract_json_value "$tc_af_resp" "data.id")
+        if [ -z "$tc_client_id" ] || [ -z "$tc_affiliate_id" ]; then
+            print_result 1 "Failed to create TC client/affiliate — skipping campaign plugin tests"
+            echo -e "  ${MAGENTA}Tenant Config suite done (partial).${NC}"
+            print_suite_summary "TENANT CONFIG SUITE"
+            return 0
+        fi
+        print_result 0 "TC client=$tc_client_id affiliate=$tc_affiliate_id"
+    fi
+
+    print_section "TC CAMPAIGN: POST /campaigns (TrustedForm plugin test campaign)"
+    local tc_camp_resp
+    tc_camp_resp=$(test_endpoint "POST" "/campaigns" "Create TrustedForm test campaign" \
+        "{\"name\":\"TrustedForm Plugin Test $TIMESTAMP\"}")
+    TC_CAMPAIGN_ID=$(extract_json_value "$tc_camp_resp" "data.id")
+    if [ -z "$TC_CAMPAIGN_ID" ]; then
+        print_result 1 "Failed to create TC test campaign"
+        echo -e "  ${MAGENTA}Tenant Config suite done (partial).${NC}"
+        print_suite_summary "TENANT CONFIG SUITE"
+        return 0
+    fi
+    print_result 0 "TC campaign created: $TC_CAMPAIGN_ID"
+
+    test_endpoint "POST" "/campaigns/$TC_CAMPAIGN_ID/clients" "Link TC client" \
+        "{\"client_id\":\"$tc_client_id\"}" > /dev/null
+    local tc_link_resp
+    tc_link_resp=$(test_endpoint "POST" "/campaigns/$TC_CAMPAIGN_ID/affiliates" "Link TC affiliate" \
+        "{\"affiliate_id\":\"$tc_affiliate_id\"}")
+    TC_CAMPAIGN_KEY=$(extract_json_value "$tc_link_resp" "data.campaign_key")
+    if [ -z "$TC_CAMPAIGN_KEY" ]; then
+        print_result 1 "Failed to extract TC campaign_key"
+    else
+        print_result 0 "TC campaign_key: $TC_CAMPAIGN_KEY"
+    fi
+
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/status" "TC campaign → TEST" \
+        '{"status":"TEST"}' > /dev/null
+    print_result 0 "TC campaign set to TEST status"
+
+    # ── 12. Enable TrustedForm plugin on campaign + link credential ──────────
+    print_section "PLUGINS: Enable TrustedForm on TC campaign + link credential"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Enable trusted_form plugin with credential" \
+        "{\"trusted_form\":{\"enabled\":true,\"credentials_id\":\"$CREDENTIAL_ID\"}}" > /dev/null
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "TrustedForm plugin enabled on TC campaign"
+    else
+        print_result 1 "Failed to enable TrustedForm plugin (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── 13. Send lead WITH cert — TrustedForm should run ────────────────────
+    print_section "LEAD [TF enabled]: Send test lead WITH trusted_form_cert_id"
+    if [ -n "$TC_CAMPAIGN_KEY" ]; then
+        local tf_lead_resp
+        tf_lead_resp=$(test_endpoint "POST" "/v2/leads/test" \
+            "Test lead with TrustedForm cert (TF enabled)" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "external")
+        # Lead should be accepted (trusted_form result may be success or failure depending on cert status)
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            local tf_result
+            tf_result=$(extract_json_value "$tf_lead_resp" "data.trusted_form_result")
+            print_result 0 "Lead accepted with TrustedForm enabled (HTTP $LAST_HTTP_STATUS) trusted_form_result=$(echo "$tf_result" | head -c 80)"
+        else
+            print_result 1 "Lead rejected unexpectedly (HTTP $LAST_HTTP_STATUS)"
+        fi
+    else
+        print_result 1 "Skipped TF lead test — no campaign_key"
+    fi
+
+    # ── 14. Disable TrustedForm plugin — send lead — should skip TF ──────────
+    print_section "PLUGINS: Disable TrustedForm on TC campaign"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Disable trusted_form plugin" \
+        '{"trusted_form":{"enabled":false}}' > /dev/null
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "TrustedForm plugin disabled on TC campaign"
+    else
+        print_result 1 "Failed to disable TrustedForm plugin (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    print_section "LEAD [TF disabled]: Send test lead WITH cert_id — TF should be skipped"
+    if [ -n "$TC_CAMPAIGN_KEY" ]; then
+        local tf_dis_resp
+        tf_dis_resp=$(test_endpoint "POST" "/v2/leads/test" \
+            "Test lead with TF cert (TF disabled — should skip TF, trusted_form_result absent/null)" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-2@lms-test.local\",\"phone\":\"+15559990002\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "external")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            local tf_dis_result
+            tf_dis_result=$(extract_json_value "$tf_dis_resp" "data.trusted_form_result")
+            if [ -z "$tf_dis_result" ]; then
+                print_result 0 "Lead accepted + trusted_form_result is absent (TF correctly skipped)"
+            else
+                print_result 1 "trusted_form_result present even though TF is disabled (result=$tf_dis_result)"
+            fi
+        else
+            print_result 1 "Lead rejected unexpectedly (HTTP $LAST_HTTP_STATUS)"
+        fi
+    else
+        print_result 1 "Skipped TF-disabled lead test — no campaign_key"
+    fi
+
+    # ── 15. Re-enable TrustedForm — verify it runs again ────────────────────
+    print_section "PLUGINS: Re-enable TrustedForm on TC campaign"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Re-enable trusted_form plugin" \
+        "{\"trusted_form\":{\"enabled\":true,\"credentials_id\":\"$CREDENTIAL_ID\"}}" > /dev/null
+    print_result 0 "TrustedForm plugin re-enabled"
+
+    print_section "LEAD [TF re-enabled]: Send test lead — TF should run again"
+    if [ -n "$TC_CAMPAIGN_KEY" ]; then
+        local tf_reenb_resp
+        tf_reenb_resp=$(test_endpoint "POST" "/v2/leads/test" \
+            "Test lead with TF cert (TF re-enabled)" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-3@lms-test.local\",\"phone\":\"+15559990003\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "external")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Lead accepted with TF re-enabled (HTTP $LAST_HTTP_STATUS)"
+            print_json "$tf_reenb_resp"
+        else
+            print_result 1 "Lead rejected unexpectedly (HTTP $LAST_HTTP_STATUS)"
+        fi
+    else
+        print_result 1 "Skipped TF re-enable lead test — no campaign_key"
+    fi
+
+    # ── 16. Disable dup check, keep TF enabled ───────────────────────────────
+    print_section "PLUGINS: Disable duplicate_check, keep TrustedForm enabled"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Disable dup check, keep TF" \
+        "{\"duplicate_check\":{\"enabled\":false},\"trusted_form\":{\"enabled\":true,\"credentials_id\":\"$CREDENTIAL_ID\"}}" > /dev/null
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "duplicate_check disabled, TrustedForm still enabled (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "Plugin update failed (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # Same email+phone as lead #1 above — dup check disabled so it should be accepted
+    print_section "LEAD [dup-check disabled + TF enabled]: Resend duplicate lead — should be accepted"
+    if [ -n "$TC_CAMPAIGN_KEY" ]; then
+        local nodup_resp
+        nodup_resp=$(test_endpoint "POST" "/v2/leads/test" \
+            "Duplicate lead with dup check disabled (should be accepted, TF runs)" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "external")
+        local nodup_dup nodup_rejected
+        nodup_dup=$(extract_json_value "$nodup_resp" "data.duplicate" | tr '[:upper:]' '[:lower:]')
+        nodup_rejected=$(extract_json_value "$nodup_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+        if [ "$nodup_dup" != "true" ] && [ "$nodup_rejected" != "true" ]; then
+            print_result 0 "Duplicate lead accepted (dup check disabled) — duplicate=$nodup_dup rejected=$nodup_rejected"
+        else
+            print_result 1 "Lead flagged as duplicate even though dup check is disabled (duplicate=$nodup_dup rejected=$nodup_rejected)"
+        fi
+    else
+        print_result 1 "Skipped dup-disabled lead test — no campaign_key"
+    fi
+
+    echo -e "\n  ${MAGENTA}Tenant Config suite done.${NC}"
+    print_suite_summary "TENANT CONFIG SUITE"
+}
+
 run_cleanup() {
     print_section "CLEANUP (DynamoDB tables)"
     purge_table "$CLIENTS_TABLE_NAME"
@@ -1728,11 +2073,12 @@ run_suite() {
     local before=$TEST_FAILURES
 
     case "$suite" in
-        auth)       run_auth_tests ;;
-        clients)    ensure_auth_token; run_clients_tests ;;
-        affiliates) ensure_auth_token; run_affiliates_tests ;;
-        campaigns)  ensure_auth_token; run_campaigns_leads_tests ;;
-        setup)      run_setup_user ;;
+        auth)          run_auth_tests ;;
+        clients)       ensure_auth_token; run_clients_tests ;;
+        affiliates)    ensure_auth_token; run_affiliates_tests ;;
+        campaigns)     ensure_auth_token; run_campaigns_leads_tests ;;
+        tenant-config) ensure_auth_token; run_tenant_config_tests ;;
+        setup)         run_setup_user ;;
         all)
             run_cleanup
             run_auth_tests
@@ -1740,6 +2086,7 @@ run_suite() {
             run_clients_tests
             run_affiliates_tests
             run_campaigns_leads_tests
+            run_tenant_config_tests
             ;;
         *) echo -e "  ${RED}Unknown suite: $suite${NC}"; return 1 ;;
     esac
@@ -1783,11 +2130,12 @@ show_menu() {
     echo -e "  ${GREEN}2)${NC} Clients       — create / validate"
     echo -e "  ${GREEN}3)${NC} Affiliates    — create / validate"
     echo -e "  ${GREEN}4)${NC} Campaigns & Leads — full lifecycle + lead intake"
-    echo -e "  ${GREEN}5)${NC} All           — cleanup → auth → clients → affiliates → campaigns"
-    echo -e "  ${GREEN}6)${NC} Setup         — create / reset test Cognito user"
+    echo -e "  ${GREEN}5)${NC} Tenant Config — credentials, plugin schemas, TrustedForm check-cert"
+    echo -e "  ${GREEN}6)${NC} All           — cleanup → auth → clients → affiliates → campaigns → tenant-config"
+    echo -e "  ${GREEN}7)${NC} Setup         — create / reset test Cognito user"
     echo -e "  ${GREEN}0)${NC} Exit"
     echo ""
-    printf "  ${CYAN}Choice [0-6]:${NC} "
+    printf "  ${CYAN}Choice [0-7]:${NC} "
     read -r choice
     echo ""
 
@@ -1796,8 +2144,9 @@ show_menu() {
         2) run_suite "clients" ;;
         3) run_suite "affiliates" ;;
         4) run_suite "campaigns" ;;
-        5) run_suite "all" ;;
-        6) run_suite "setup" ;;
+        5) run_suite "tenant-config" ;;
+        6) run_suite "all" ;;
+        7) run_suite "setup" ;;
         0) echo -e "  ${YELLOW}Bye.${NC}"; exit 0 ;;
         *) echo -e "  ${RED}Invalid choice '$choice'.${NC}"; exit 1 ;;
     esac

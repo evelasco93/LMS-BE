@@ -570,52 +570,254 @@ There is no permanent user delete endpoint; `DELETE /v2/users/{id}` is always a 
 
 > **Navbar tip:** Use `firstName` + `lastName` for the welcome message and derive initials from their first characters (`firstName[0] + lastName[0]`). Both fields are optional — fall back to the `email` prefix if either is absent.
 
-## Tenant settings (Secrets Manager-backed)
+## Tenant credentials (DynamoDB-backed)
 
-Settings endpoints for managing provider credentials are available under `tenant-config`.
+Credentials are stored in a DynamoDB table with sensitive fields encrypted at rest (AES-256-GCM). Each record has an auto-generated `CR-…` ID that is used to reference the credential in campaign plugin configs.
 
-- `GET /tenant-config/credentials` → list configured provider credentials
-- `GET /tenant-config/credentials/{provider}` → get one provider config
-- `PUT /tenant-config/credentials` → create/update provider config
-- `DELETE /tenant-config/credentials/{provider}` → remove provider config
+### Endpoints
 
-Supported credential types:
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/tenant-config/credentials` | Create a credential |
+| `GET` | `/tenant-config/credentials` | List all credentials (optional `?provider=` filter) |
+| `GET` | `/tenant-config/credentials/{id}` | Get credential by ID |
+| `PUT` | `/tenant-config/credentials/{id}` | Update credential |
+| `PUT` | `/tenant-config/credentials/{id}/disable` | Soft-disable a credential |
+| `PUT` | `/tenant-config/credentials/{id}/enable` | Re-enable a disabled credential |
+| `DELETE` | `/tenant-config/credentials/{id}` | Delete credential |
+| `POST` | `/tenant-config/trusted-form/check-cert` | Validate a cert using stored credentials |
+| `POST` | `/tenant-config/trusted-form/validate` | Ad-hoc validate a TrustedForm cert |
 
-- `api_key`: `credentials.apiKey`
-- `basic_auth`: `credentials.username` + `credentials.password`
-- `bearer_token`: `credentials.token`
-
-Recommended providers to store:
-
-- `ipqs` (`api_key`) for duplicate check integrations
-- `trusted_forms` (`basic_auth`) for Trusted Forms auth
-
-Example: IPQS
+### Credential record shape
 
 ```json
 {
-  "provider": "ipqs",
-  "type": "api_key",
-  "credentials": {
-    "apiKey": "YOUR_IPQS_API_KEY"
-  }
-}
-```
-
-Example: Trusted Forms
-
-```json
-{
-  "provider": "trusted_forms",
+  "id": "CR-a1b2c3d4",
+  "provider": "trusted_form",
+  "name": "TrustedForm Prod",
   "type": "basic_auth",
   "credentials": {
-    "username": "YOUR_USERNAME",
-    "password": "YOUR_PASSWORD"
+    "username": "API",
+    "password": "de3b2f39..."
+  },
+  "vendor": "MyVendor",
+  "created_at": "2024-01-01T00:00:00.000Z",
+  "updated_at": "2024-01-01T00:00:00.000Z"
+}
+```
+
+Supported `type` values: `api_key`, `basic_auth`, `bearer_token`
+
+Sensitive field per type:
+- `api_key` → `credentials.apiKey` (encrypted)
+- `basic_auth` → `credentials.password` (encrypted); `credentials.username` (plaintext)
+- `bearer_token` → `credentials.token` (encrypted)
+
+### Creating a TrustedForm credential
+
+```json
+POST /v2/tenant-config/credentials
+{
+  "provider": "trusted_form",
+  "name": "TrustedForm Prod",
+  "type": "basic_auth",
+  "credentials": {
+    "username": "API",
+    "password": "de3b2f39055939221023f0325f33d25a"
+  },
+  "vendor": "SummitEdgeLegal"
+}
+```
+
+Response includes the new record with `id: "CR-XXXXXXXX"`. Store this ID to use in campaign plugin configs.
+
+### Linking a credential to a campaign
+
+Once you have a credential `id`, set it on the campaign's `trusted_form` plugin:
+
+```json
+PUT /v2/campaigns/{id}/plugins
+{
+  "trusted_form": {
+    "enabled": true,
+    "credentials_id": "CR-a1b2c3d4"
   }
 }
 ```
 
-Security note:
+### TrustedForm is enabled by default
 
-- Internal API uses Cognito-backed JWT Bearer auth. Obtain a token via `POST /v2/auth/login` and include it as `Authorization: Bearer <token>` on all internal API requests.
+When a campaign is created, `trusted_form.enabled = true` is set automatically. A credential must be linked via `credentials_id` for actual validation/claiming to occur. Without it, the plugin is silently skipped.
+
+### Disable / enable a credential
+
+Credentials can be soft-disabled (keeps the record, marks it inactive) and re-enabled later:
+
+```
+PUT /v2/tenant-config/credentials/{id}/disable
+PUT /v2/tenant-config/credentials/{id}/enable
+```
+
+A disabled credential returns `enabled: false` in its record. The `check-cert` endpoint will not use a disabled credential when auto-resolving.
+
+### TrustedForm check-cert (uses stored credentials)
+
+Use this endpoint when you want to validate a certificate without specifying credentials manually — the Lambda resolves the first active `trusted_form` credential automatically:
+
+```json
+POST /v2/tenant-config/trusted-form/check-cert
+{
+  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"
+}
+```
+
+You can also pin a specific credential:
+
+```json
+{
+  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
+  "credentials_id": "CRa1b2c3d4"
+}
+```
+
+`cert_id` accepts either a bare 40-char hex ID or a full `https://cert.trustedform.com/…` URL.
+
+This is different from `/trusted-form/validate` which requires the caller to always supply `credentials_id`.
+
+### Ad-hoc validate (frontend cert checker)
+
+Use this endpoint to test a certificate without claiming it:
+
+```json
+POST /v2/tenant-config/trusted-form/validate
+{
+  "credentials_id": "CR-a1b2c3d4",
+  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"
+}
+```
+
+`cert_id` accepts either a bare 40-char hex ID or a full `https://cert.trustedform.com/…` URL.
+
+### Lead intake with TrustedForm
+
+The lead payload should include `trusted_form_cert_id` and optionally `phone`:
+
+```json
+POST /v2/leads
+{
+  "campaign_id": "CM...",
+  "campaign_key": "...",
+  "payload": {
+    "phone": "5551234567",
+    "email": "lead@example.com",
+    "trusted_form_cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"
+  }
+}
+```
+
+If `trusted_form.enabled = true` and `credentials_id` is set on the campaign, the orchestrator will validate + claim the cert and store the result on the lead as `trusted_form_result`:
+
+```json
+{
+  "success": true,
+  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
+  "outcome": "success",
+  "phone": "5551234567",
+  "phone_match": true,
+  "vendor": "SummitEdgeLegal",
+  "previously_retained": false,
+  "expires_at": "2024-02-01T00:00:00.000Z"
+}
+```
 - External leads API is isolated to POST-only intake routes. No API key required.
+
+---
+
+## Plugin schemas (dynamic credential form generation)
+
+Plugin schemas describe the credential fields that each plugin integration requires. The frontend reads these records to **dynamically render the credential creation form** — instead of hard-coding a form per plugin, it renders the fields defined in the schema.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/tenant-config/plugin-schemas` | Create a plugin schema |
+| `GET` | `/tenant-config/plugin-schemas` | List all plugin schemas |
+| `GET` | `/tenant-config/plugin-schemas/{id}` | Get a plugin schema by ID |
+
+### Plugin schema record shape
+
+```json
+{
+  "id": "PSa1b2c3d4",
+  "provider": "trusted_form",
+  "name": "TrustedForm",
+  "credential_type": "basic_auth",
+  "description": "TrustedForm certificate verification integration",
+  "fields": [
+    {
+      "name": "username",
+      "label": "Username",
+      "type": "text",
+      "required": true,
+      "placeholder": "Enter your TrustedForm username"
+    },
+    {
+      "name": "password",
+      "label": "Password",
+      "type": "password",
+      "required": true,
+      "placeholder": "Enter your TrustedForm password"
+    }
+  ],
+  "created_at": "2024-01-01T00:00:00.000Z",
+  "updated_at": "2024-01-01T00:00:00.000Z"
+}
+```
+
+### Field types
+
+| `type` | Rendered as |
+|--------|-------------|
+| `text` | Plain text input (username, API key label, etc.) |
+| `password` | Password input — value masked in the browser |
+| `select` | Dropdown — must include `options: string[]` |
+
+### Creating a plugin schema
+
+```json
+POST /v2/tenant-config/plugin-schemas
+{
+  "provider": "trusted_form",
+  "name": "TrustedForm",
+  "credential_type": "basic_auth",
+  "description": "TrustedForm certificate verification integration",
+  "fields": [
+    { "name": "username", "label": "Username",  "type": "text",     "required": true  },
+    { "name": "password", "label": "Password",  "type": "password", "required": true  }
+  ]
+}
+```
+
+### Frontend usage pattern
+
+1. On the **credential creation page**, call `GET /v2/tenant-config/plugin-schemas` to retrieve all schemas.
+2. When the user selects a plugin (e.g. "TrustedForm"), look up the matching schema by `provider`.
+3. Render each entry in `fields` as a form input using the field's `type`, `label`, `placeholder`, and `required` attributes.
+4. On submit, build the `credentials` object using `field.name` as the key and the user's input as the value.
+5. `POST /v2/tenant-config/credentials` with `credential_type` taken from `schema.credential_type`.
+
+```typescript
+// Example: building the credentials payload from schema fields
+const schema = schemas.find(s => s.provider === selectedProvider);
+const credentials = Object.fromEntries(
+  schema.fields.map(field => [field.name, formValues[field.name]])
+);
+
+await api.post('/tenant-config/credentials', {
+  provider: schema.provider,
+  name: credentialLabel,
+  type: schema.credential_type,
+  credentials,
+});
+```

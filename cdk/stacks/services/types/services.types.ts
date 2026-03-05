@@ -46,6 +46,7 @@ export interface IServicesStackConfig {
   tenantConfig: IServiceConfig;
   qaOrchestrator: IServiceConfig;
   qaDuplicateCheck: IServiceConfig;
+  qaTrustedForm: IServiceConfig;
 }
 
 /**

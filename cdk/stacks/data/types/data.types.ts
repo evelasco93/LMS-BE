@@ -31,11 +31,6 @@ export interface ITableConfig {
   deletionProtection?: boolean;
 }
 
-export interface ISecretConfig {
-  secretName: string;
-  description: string;
-}
-
 /**
  * Data Stack Configuration
  */
@@ -45,11 +40,8 @@ export interface IDataStackConfig {
     affiliates: ITableConfig;
     campaigns: ITableConfig;
     leads: ITableConfig;
-  };
-  secrets: {
-    ipqsCredentials: ISecretConfig;
-    trustedFormsCredentials: ISecretConfig;
-    internalApiAuthToken: ISecretConfig;
+    credentials: ITableConfig;
+    pluginSchemas: ITableConfig;
   };
 }
 
@@ -59,3 +51,4 @@ export interface IDataStackConfig {
 export interface IDataStackProps extends IBaseStackProps {
   dataConfig: IDataStackConfig;
 }
+

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "outDir": "../../../../dist/handlers/qa/modules/trusted-form"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.spec.ts"]
+}

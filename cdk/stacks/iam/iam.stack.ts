@@ -21,6 +21,7 @@ export class IamStack extends Stack {
   public readonly tenantConfigLambdaRole: Role;
   public readonly qaOrchestratorLambdaRole: Role;
   public readonly qaDuplicateCheckLambdaRole: Role;
+  public readonly qaTrustedFormLambdaRole: Role;
   public readonly authLambdaRole: Role;
   public readonly usersLambdaRole: Role;
 
@@ -68,6 +69,12 @@ export class IamStack extends Stack {
     this.qaDuplicateCheckLambdaRole = this.createRole(
       `${config.appPrefix}-QaDuplicateCheckLambdaRole`,
       iamConfig.lambdaRoles.qaDuplicateCheck,
+    );
+
+    // Create QA TrustedForm Lambda Role
+    this.qaTrustedFormLambdaRole = this.createRole(
+      `${config.appPrefix}-QaTrustedFormLambdaRole`,
+      iamConfig.lambdaRoles.qaTrustedForm,
     );
 
     // Create Auth Lambda Role

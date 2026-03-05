@@ -35,7 +35,7 @@ const dataStack = new DataStack(app, `${baseConfig.appPrefix}-DataStack`, {
   description: `${baseConfig.system.toUpperCase()} - Data Layer (DynamoDB)`,
 });
 
-// Add DynamoDB permissions to IAM roles
+// ── Clients ───────────────────────────────────────────────────────────────────
 iamStack.clientsLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -54,7 +54,6 @@ iamStack.clientsLambdaRole.addToPolicy(
   }),
 );
 
-// Read-only access to campaigns + leads for deletion safeguard checks
 iamStack.clientsLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -68,14 +67,7 @@ iamStack.clientsLambdaRole.addToPolicy(
   }),
 );
 
-iamStack.clientsLambdaRole.addToPolicy(
-  new PolicyStatement({
-    effect: Effect.ALLOW,
-    actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-    resources: [dataStack.internalApiAuthTokenSecret.secretArn],
-  }),
-);
-
+// ── Affiliates ────────────────────────────────────────────────────────────────
 iamStack.affiliatesLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -94,7 +86,6 @@ iamStack.affiliatesLambdaRole.addToPolicy(
   }),
 );
 
-// Read-only access to campaigns + leads for deletion safeguard checks
 iamStack.affiliatesLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -108,14 +99,7 @@ iamStack.affiliatesLambdaRole.addToPolicy(
   }),
 );
 
-iamStack.affiliatesLambdaRole.addToPolicy(
-  new PolicyStatement({
-    effect: Effect.ALLOW,
-    actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-    resources: [dataStack.internalApiAuthTokenSecret.secretArn],
-  }),
-);
-
+// ── Campaigns ─────────────────────────────────────────────────────────────────
 iamStack.campaignsLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -140,14 +124,7 @@ iamStack.campaignsLambdaRole.addToPolicy(
   }),
 );
 
-iamStack.campaignsLambdaRole.addToPolicy(
-  new PolicyStatement({
-    effect: Effect.ALLOW,
-    actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-    resources: [dataStack.internalApiAuthTokenSecret.secretArn],
-  }),
-);
-
+// ── Leads ─────────────────────────────────────────────────────────────────────
 iamStack.leadsLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -176,13 +153,22 @@ iamStack.leadsLambdaRole.addToPolicy(
   }),
 );
 
-iamStack.leadsLambdaRole.addToPolicy(
+// ── Tenant Config ─────────────────────────────────────────────────────────────
+// Full CRUD on credentials DynamoDB table
+iamStack.tenantConfigLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
-    actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+    actions: [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+    ],
     resources: [
-      dataStack.ipqsCredentialsSecret.secretArn,
-      dataStack.trustedFormsCredentialsSecret.secretArn,
+      dataStack.credentialsTable.tableArn,
+      `${dataStack.credentialsTable.tableArn}/index/*`,
     ],
   }),
 );
@@ -190,32 +176,24 @@ iamStack.leadsLambdaRole.addToPolicy(
 iamStack.tenantConfigLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
-    actions: [
-      "secretsmanager:CreateSecret",
-      "secretsmanager:PutSecretValue",
-      "secretsmanager:UpdateSecret",
-      "secretsmanager:GetSecretValue",
-      "secretsmanager:DescribeSecret",
-      "secretsmanager:DeleteSecret",
-      "secretsmanager:RestoreSecret",
-    ],
-    resources: [
-      dataStack.ipqsCredentialsSecret.secretArn,
-      dataStack.trustedFormsCredentialsSecret.secretArn,
-      dataStack.internalApiAuthTokenSecret.secretArn,
-      arnBuilder.secret(nameBuilder.secret("tenant-config")),
-    ],
+    actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Scan"],
+    resources: [dataStack.pluginSchemasTable.tableArn],
   }),
 );
 
+// ── QA Orchestrator ───────────────────────────────────────────────────────────
 iamStack.qaOrchestratorLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
     actions: ["lambda:InvokeFunction"],
-    resources: [arnBuilder.lambda(nameBuilder.lambda("qa-duplicate-check"))],
+    resources: [
+      arnBuilder.lambda(nameBuilder.lambda("qa-duplicate-check")),
+      arnBuilder.lambda(nameBuilder.lambda("qa-trusted-form")),
+    ],
   }),
 );
 
+// ── QA Duplicate Check ────────────────────────────────────────────────────────
 iamStack.qaDuplicateCheckLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -224,6 +202,15 @@ iamStack.qaDuplicateCheckLambdaRole.addToPolicy(
       dataStack.leadsTable.tableArn,
       `${dataStack.leadsTable.tableArn}/index/*`,
     ],
+  }),
+);
+
+// ── QA TrustedForm ────────────────────────────────────────────────────────────
+iamStack.qaTrustedFormLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:GetItem"],
+    resources: [dataStack.credentialsTable.tableArn],
   }),
 );
 

@@ -26,6 +26,9 @@ export const mockCampaign: ICampaign = {
       enabled: true,
       criteria: ["phone", "email"],
     },
+    trusted_form: {
+      enabled: true,
+    },
   },
   created_at: now,
   updated_at: now,
@@ -42,6 +45,9 @@ export const emptyCampaign: ICampaign = {
     duplicate_check: {
       enabled: true,
       criteria: ["phone", "email"],
+    },
+    trusted_form: {
+      enabled: true,
     },
   },
   created_at: now,
@@ -69,6 +75,9 @@ export const campaignWithAffiliate: ICampaign = {
     duplicate_check: {
       enabled: true,
       criteria: ["phone", "email"],
+    },
+    trusted_form: {
+      enabled: true,
     },
   },
   created_at: now,

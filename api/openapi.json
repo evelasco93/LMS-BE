@@ -12,7 +12,7 @@
     },
     {
       "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
-      "description": "Development - External Leads API (open — campaign_id + campaign_key auth)"
+      "description": "Development - External Leads API (open \u2014 campaign_id + campaign_key auth)"
     }
   ],
   "tags": [
@@ -20,7 +20,10 @@
       "name": "auth",
       "description": "Obtain and refresh Bearer tokens for internal API access"
     },
-    { "name": "clients", "description": "Manage clients lifecycle" },
+    {
+      "name": "clients",
+      "description": "Manage clients lifecycle"
+    },
     {
       "name": "affiliates",
       "description": "Manage affiliates and their status"
@@ -29,7 +32,10 @@
       "name": "campaigns",
       "description": "Configure campaigns, participants, and status transitions"
     },
-    { "name": "leads", "description": "Submit test and live leads" },
+    {
+      "name": "leads",
+      "description": "Submit test and live leads"
+    },
     {
       "name": "tenant-config",
       "description": "Manage provider credentials for tenant integrations"
@@ -42,14 +48,18 @@
   "paths": {
     "/auth/login": {
       "post": {
-        "summary": "Login — exchange email + password for tokens",
-        "description": "Wraps Cognito USER_PASSWORD_AUTH. Returns id_token, access_token, and refresh_token. Use the id_token as the Bearer token on all internal API calls — the API Gateway Cognito authorizer validates ID tokens.",
-        "tags": ["auth"],
+        "summary": "Login \u2014 exchange email + password for tokens",
+        "description": "Wraps Cognito USER_PASSWORD_AUTH. Returns id_token, access_token, and refresh_token. Use the id_token as the Bearer token on all internal API calls \u2014 the API Gateway Cognito authorizer validates ID tokens.",
+        "tags": [
+          "auth"
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LoginRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
               "examples": {
                 "default": {
                   "value": {
@@ -66,26 +76,36 @@
             "description": "Tokens issued",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AuthTokenResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
               }
             }
           },
-          "401": { "description": "Invalid credentials" }
+          "401": {
+            "description": "Invalid credentials"
+          }
         }
       }
     },
     "/auth/refresh": {
       "post": {
-        "summary": "Refresh — exchange refresh_token for new access/id tokens",
-        "tags": ["auth"],
+        "summary": "Refresh \u2014 exchange refresh_token for new access/id tokens",
+        "tags": [
+          "auth"
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/RefreshRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              },
               "examples": {
                 "default": {
-                  "value": { "refresh_token": "<refresh_token from login>" }
+                  "value": {
+                    "refresh_token": "<refresh_token from login>"
+                  }
                 }
               }
             }
@@ -96,11 +116,15 @@
             "description": "New tokens issued",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AuthTokenResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
               }
             }
           },
-          "401": { "description": "Invalid or expired refresh token" }
+          "401": {
+            "description": "Invalid or expired refresh token"
+          }
         }
       }
     },
@@ -108,13 +132,21 @@
       "post": {
         "summary": "Create user (admin only)",
         "description": "Creates a new Cognito user with a permanent password. Assigns the user to the specified role group (admin or staff). Requires an admin Bearer token.",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateUserRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              },
               "examples": {
                 "default": {
                   "value": {
@@ -134,70 +166,129 @@
             "description": "User created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "401": {
-            "description": "Unauthorized — valid Bearer token required"
+          "400": {
+            "description": "Validation error"
           },
-          "403": { "description": "Forbidden — admin role required" }
+          "401": {
+            "description": "Unauthorized \u2014 valid Bearer token required"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          }
         }
       },
       "get": {
         "summary": "List users (admin only)",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of users",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserListResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden — admin role required" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          }
         }
       }
     },
     "/users/{id}": {
       "get": {
         "summary": "Get user by username/email (admin only)",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "User found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden — admin role required" },
-          "404": { "description": "User not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
         }
       },
       "put": {
         "summary": "Update user role (admin only)",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateUserRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              },
               "examples": {
-                "promoteToAdmin": { "value": { "role": "admin" } },
-                "setStaff": { "value": { "role": "staff" } },
+                "promoteToAdmin": {
+                  "value": {
+                    "role": "admin"
+                  }
+                },
+                "setStaff": {
+                  "value": {
+                    "role": "staff"
+                  }
+                },
                 "updateName": {
-                  "value": { "firstName": "Edgar", "lastName": "Velasco" }
+                  "value": {
+                    "firstName": "Edgar",
+                    "lastName": "Velasco"
+                  }
                 },
                 "updateRoleAndName": {
                   "value": {
@@ -215,34 +306,62 @@
             "description": "Role updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden — admin role required" },
-          "404": { "description": "User not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
         }
       },
       "delete": {
-        "summary": "Disable user (soft-delete — admin only)",
+        "summary": "Disable user (soft-delete \u2014 admin only)",
         "description": "Disables the Cognito user account (AdminDisableUser). The user can no longer log in but the account is preserved. Use `PUT /users/{id}/enable` to re-enable.",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "User disabled",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden — admin role required" },
-          "404": { "description": "User not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
         }
       }
     },
@@ -250,21 +369,39 @@
       "put": {
         "summary": "Re-enable a disabled user (admin only)",
         "description": "Re-enables a previously disabled Cognito user account (AdminEnableUser). The user can log in again immediately.",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "User re-enabled",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden — admin role required" },
-          "404": { "description": "User not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
         }
       }
     },
@@ -272,38 +409,68 @@
       "put": {
         "summary": "Reset user password (admin only)",
         "description": "Sets a new permanent password for the specified user. Does not require the user's current password.",
-        "tags": ["users"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ResetPasswordRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordRequest"
+              },
               "examples": {
-                "default": { "value": { "password": "NewPass1!" } }
+                "default": {
+                  "value": {
+                    "password": "NewPass1!"
+                  }
+                }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Password updated successfully" },
-          "400": { "description": "Validation error" },
-          "401": { "description": "Unauthorized" },
-          "403": { "description": "Forbidden — admin role required" },
-          "404": { "description": "User not found" }
+          "200": {
+            "description": "Password updated successfully"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden \u2014 admin role required"
+          },
+          "404": {
+            "description": "User not found"
+          }
         }
       }
     },
     "/clients": {
       "post": {
         "summary": "Create client",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateClientRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/CreateClientRequest"
+              },
               "examples": {
                 "default": {
                   "value": {
@@ -322,26 +489,37 @@
             "description": "Client created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ClientResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" }
+          "400": {
+            "description": "Validation error"
+          }
         }
       },
       "get": {
         "summary": "List clients",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "parameters": [
           {
             "name": "status",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/ClientStatus" }
+            "schema": {
+              "$ref": "#/components/schemas/ClientStatus"
+            }
           },
           {
             "name": "includeDeleted",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, soft-deleted records are included in the response"
           },
           {
@@ -371,17 +549,27 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
                     "data": {
                       "type": "object",
                       "properties": {
                         "items": {
                           "type": "array",
-                          "items": { "$ref": "#/components/schemas/Client" }
+                          "items": {
+                            "$ref": "#/components/schemas/Client"
+                          }
                         },
-                        "count": { "type": "integer" },
-                        "lastEvaluatedKey": { "type": "string" }
+                        "count": {
+                          "type": "integer"
+                        },
+                        "lastEvaluatedKey": {
+                          "type": "string"
+                        }
                       }
                     }
                   }
@@ -395,29 +583,47 @@
     "/clients/{id}": {
       "get": {
         "summary": "Get client by id",
-        "tags": ["clients"],
-        "parameters": [{ "$ref": "#/components/parameters/ClientId" }],
+        "tags": [
+          "clients"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ClientId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Client found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ClientResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "put": {
         "summary": "Update client",
-        "tags": ["clients"],
-        "parameters": [{ "$ref": "#/components/parameters/ClientId" }],
+        "tags": [
+          "clients"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ClientId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateClientRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/UpdateClientRequest"
+              },
               "examples": {
                 "default": {
                   "value": {
@@ -434,25 +640,42 @@
             "description": "Updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ClientResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
         "summary": "Delete client (soft by default; ?permanent=true for hard delete)",
         "description": "Soft delete requires the client to be disabled in all campaigns. Hard delete is allowed only when the client is not linked to any campaign and has no campaign leads. Without `?permanent=true`: sets `is_deleted=true`, `active=false`, `deleted_by`, and `deleted_at`. With `?permanent=true`: permanently removes the record from DynamoDB.",
-        "tags": ["clients"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "clients"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/ClientId" },
+          {
+            "$ref": "#/components/parameters/ClientId"
+          },
           {
             "name": "permanent",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, permanently removes the record. Omit or pass false for soft-delete."
           }
         ],
@@ -461,19 +684,27 @@
             "description": "Deleted (soft or permanent)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
     "/affiliates": {
       "post": {
         "summary": "Create affiliate",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -499,26 +730,37 @@
             "description": "Affiliate created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AffiliateResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AffiliateResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" }
+          "400": {
+            "description": "Validation error"
+          }
         }
       },
       "get": {
         "summary": "List affiliates",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "parameters": [
           {
             "name": "status",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/AffiliateStatus" }
+            "schema": {
+              "$ref": "#/components/schemas/AffiliateStatus"
+            }
           },
           {
             "name": "includeDeleted",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, soft-deleted records are included in the response"
           },
           {
@@ -557,24 +799,40 @@
     "/affiliates/{id}": {
       "get": {
         "summary": "Get affiliate by id",
-        "tags": ["affiliates"],
-        "parameters": [{ "$ref": "#/components/parameters/AffiliateId" }],
+        "tags": [
+          "affiliates"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AffiliateId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Affiliate found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AffiliateResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AffiliateResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "put": {
         "summary": "Update affiliate",
-        "tags": ["affiliates"],
-        "parameters": [{ "$ref": "#/components/parameters/AffiliateId" }],
+        "tags": [
+          "affiliates"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AffiliateId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -584,7 +842,10 @@
               },
               "examples": {
                 "default": {
-                  "value": { "phone": "+15550001111", "status": "ACTIVE" }
+                  "value": {
+                    "phone": "+15550001111",
+                    "status": "ACTIVE"
+                  }
                 }
               }
             }
@@ -595,25 +856,42 @@
             "description": "Updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AffiliateResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AffiliateResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
         "summary": "Delete affiliate (soft by default; ?permanent=true for hard delete)",
         "description": "Soft delete requires the affiliate to be disabled in all campaigns. Hard delete is allowed only when the affiliate is not linked to any campaign and has no campaign leads. Without `?permanent=true`: soft-deletes the record (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). With `?permanent=true`: permanently removes the record.",
-        "tags": ["affiliates"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "affiliates"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/AffiliateId" },
+          {
+            "$ref": "#/components/parameters/AffiliateId"
+          },
           {
             "name": "permanent",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, permanently removes the record."
           }
         ],
@@ -622,19 +900,27 @@
             "description": "Deleted (soft or permanent)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
     "/campaigns": {
       "post": {
         "summary": "Create campaign (starts as DRAFT)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -643,7 +929,11 @@
                 "$ref": "#/components/schemas/CreateCampaignRequest"
               },
               "examples": {
-                "default": { "value": { "name": "Spring Promo" } }
+                "default": {
+                  "value": {
+                    "name": "Spring Promo"
+                  }
+                }
               }
             }
           }
@@ -653,26 +943,37 @@
             "description": "Campaign created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" }
+          "400": {
+            "description": "Validation error"
+          }
         }
       },
       "get": {
         "summary": "List campaigns",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "name": "status",
             "in": "query",
-            "schema": { "$ref": "#/components/schemas/CampaignStatus" }
+            "schema": {
+              "$ref": "#/components/schemas/CampaignStatus"
+            }
           },
           {
             "name": "includeDeleted",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, soft-deleted campaigns are included in the response"
           },
           {
@@ -711,27 +1012,53 @@
     "/campaigns/{id}": {
       "get": {
         "summary": "Get campaign by id",
-        "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Campaign found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "put": {
         "summary": "Update campaign (name only)",
-        "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -740,7 +1067,11 @@
                 "$ref": "#/components/schemas/UpdateCampaignRequest"
               },
               "examples": {
-                "default": { "value": { "name": "Spring Promo (v2)" } }
+                "default": {
+                  "value": {
+                    "name": "Spring Promo (v2)"
+                  }
+                }
               }
             }
           }
@@ -750,26 +1081,45 @@
             "description": "Campaign updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
         "summary": "Delete campaign (soft by default; ?permanent=true for hard delete)",
         "description": "Deletion allowed only when status is DRAFT or TEST, with no linked clients, affiliates, or leads. Hard delete is allowed only if the campaign has never had participants or leads. Without `?permanent=true`: soft-deletes the campaign (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`).",
-        "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
           {
             "name": "permanent",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, permanently removes the campaign and all participant links."
           }
         ],
@@ -778,28 +1128,44 @@
             "description": "Deleted (soft or permanent)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
     "/campaigns/{id}/clients": {
       "post": {
         "summary": "Link client to campaign (always linked as TEST; update status via participant endpoint)",
-        "tags": ["campaigns"],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "tags": [
+          "campaigns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LinkClientRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/LinkClientRequest"
+              },
               "examples": {
                 "default": {
-                  "value": { "client_id": "CLABCDEFG" }
+                  "value": {
+                    "client_id": "CLABCDEFG"
+                  }
                 }
               }
             }
@@ -810,25 +1176,35 @@
             "description": "Linked",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "404": { "description": "Campaign not found" }
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
     "/campaigns/{id}/clients/{clientId}": {
       "put": {
         "summary": "Update linked client campaign_status (TEST/LIVE/DISABLED)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
           {
             "name": "clientId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -846,24 +1222,34 @@
             "description": "Client status updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
         "summary": "Remove linked client from campaign",
         "description": "Removal is blocked if the campaign has leads; disable the client instead.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
           {
             "name": "clientId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -871,27 +1257,41 @@
             "description": "Client removed",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
     "/campaigns/{id}/affiliates": {
       "post": {
         "summary": "Link affiliate to campaign (always linked as TEST; update status via participant endpoint; returns campaign_key)",
-        "tags": ["campaigns"],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "tags": [
+          "campaigns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LinkAffiliateRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/LinkAffiliateRequest"
+              },
               "examples": {
                 "default": {
-                  "value": { "affiliate_id": "AFABCDEFG" }
+                  "value": {
+                    "affiliate_id": "AFABCDEFG"
+                  }
                 }
               }
             }
@@ -905,13 +1305,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
                     "data": {
                       "type": "object",
                       "properties": {
-                        "campaign": { "$ref": "#/components/schemas/Campaign" },
-                        "campaign_key": { "type": "string" }
+                        "campaign": {
+                          "$ref": "#/components/schemas/Campaign"
+                        },
+                        "campaign_key": {
+                          "type": "string"
+                        }
                       }
                     }
                   }
@@ -919,21 +1327,29 @@
               }
             }
           },
-          "404": { "description": "Campaign not found" }
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
     "/campaigns/{id}/affiliates/{affiliateId}": {
       "put": {
         "summary": "Update linked affiliate campaign_status (TEST/LIVE/DISABLED)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
           {
             "name": "affiliateId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -951,24 +1367,34 @@
             "description": "Affiliate status updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
         "summary": "Remove linked affiliate from campaign",
         "description": "Removal is blocked if the campaign has leads; disable the affiliate instead.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
           {
             "name": "affiliateId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -976,26 +1402,40 @@
             "description": "Affiliate removed",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
     "/campaigns/{id}/affiliates/{affiliateId}/rotate-key": {
       "post": {
         "summary": "Rotate linked affiliate campaign_key",
-        "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "campaigns"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
           {
             "name": "affiliateId",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1006,13 +1446,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
                     "data": {
                       "type": "object",
                       "properties": {
-                        "campaign": { "$ref": "#/components/schemas/Campaign" },
-                        "campaign_key": { "type": "string" }
+                        "campaign": {
+                          "$ref": "#/components/schemas/Campaign"
+                        },
+                        "campaign_key": {
+                          "type": "string"
+                        }
                       }
                     }
                   }
@@ -1020,8 +1468,12 @@
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -1029,8 +1481,14 @@
       "put": {
         "summary": "Update campaign status (DRAFT -> TEST -> ACTIVE)",
         "description": "Requires at least one client and one affiliate before moving to TEST. ACTIVE requires current TEST and all linked clients/affiliates set to LIVE.",
-        "tags": ["campaigns"],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "tags": [
+          "campaigns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1039,8 +1497,16 @@
                 "$ref": "#/components/schemas/UpdateCampaignStatusRequest"
               },
               "examples": {
-                "toTest": { "value": { "status": "TEST" } },
-                "toActive": { "value": { "status": "ACTIVE" } }
+                "toTest": {
+                  "value": {
+                    "status": "TEST"
+                  }
+                },
+                "toActive": {
+                  "value": {
+                    "status": "ACTIVE"
+                  }
+                }
               }
             }
           }
@@ -1050,12 +1516,18 @@
             "description": "Status updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation or transition error" },
-          "404": { "description": "Not found" }
+          "400": {
+            "description": "Validation or transition error"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
@@ -1063,8 +1535,14 @@
       "put": {
         "summary": "Update campaign plugins configuration",
         "description": "Updates QA plugin settings for a campaign. Currently supports duplicate_check plugin with configurable enabled flag and criteria fields.",
-        "tags": ["campaigns"],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "tags": [
+          "campaigns"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1074,13 +1552,19 @@
               },
               "examples": {
                 "disableDuplicate": {
-                  "value": { "duplicate_check": { "enabled": false } }
+                  "value": {
+                    "duplicate_check": {
+                      "enabled": false
+                    }
+                  }
                 },
                 "emailOnly": {
                   "value": {
                     "duplicate_check": {
                       "enabled": true,
-                      "criteria": ["email"]
+                      "criteria": [
+                        "email"
+                      ]
                     }
                   }
                 }
@@ -1093,19 +1577,27 @@
             "description": "Plugins updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CampaignResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
     "/leads": {
       "post": {
         "summary": "Submit live lead (EXTERNAL API; campaign must be ACTIVE; affiliate campaign_status must be LIVE)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -1116,7 +1608,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateLeadRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeadRequest"
+              },
               "examples": {
                 "default": {
                   "value": {
@@ -1137,35 +1631,58 @@
             "description": "Lead processed (accepted or stored as rejected based on affiliate status / duplicate_check policy)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LeadResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/LeadResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation or status error" },
-          "404": { "description": "Campaign not found" }
+          "400": {
+            "description": "Validation or status error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       },
       "get": {
         "summary": "List leads (INTERNAL API)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "campaign_id",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
-          { "name": "test", "in": "query", "schema": { "type": "boolean" } },
+          {
+            "name": "test",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
           {
             "name": "includeDeleted",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, soft-deleted leads are included in the response"
           },
           {
@@ -1192,7 +1709,9 @@
             "description": "Lead list",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LeadListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/LeadListResponse"
+                }
               }
             }
           }
@@ -1202,20 +1721,28 @@
     "/leads/{id}": {
       "get": {
         "summary": "Get lead by id (INTERNAL API)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1223,39 +1750,57 @@
             "description": "Lead found",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LeadResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/LeadResponse"
+                }
               }
             }
           },
-          "404": { "description": "Not found" }
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "put": {
         "summary": "Update lead payload (INTERNAL API)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateLeadRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLeadRequest"
+              },
               "examples": {
                 "default": {
-                  "value": { "payload": { "note": "corrected email" } }
+                  "value": {
+                    "payload": {
+                      "note": "corrected email"
+                    }
+                  }
                 }
               }
             }
@@ -1266,36 +1811,53 @@
             "description": "Updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LeadResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/LeadResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "delete": {
-        "summary": "Delete lead (INTERNAL API — soft by default; ?permanent=true for hard delete)",
+        "summary": "Delete lead (INTERNAL API \u2014 soft by default; ?permanent=true for hard delete)",
         "description": "Without `?permanent=true`: soft-deletes the lead. With `?permanent=true`: permanently removes the record.",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
             "description": "Development - Internal API"
           }
         ],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "permanent",
             "in": "query",
-            "schema": { "type": "boolean", "default": false },
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
             "description": "When true, permanently removes the record."
           }
         ],
@@ -1304,19 +1866,27 @@
             "description": "Deleted (soft or permanent)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeleteResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
               }
             }
           },
-          "401": { "description": "Unauthorized" },
-          "404": { "description": "Not found" }
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       }
     },
     "/leads/test": {
       "post": {
         "summary": "Submit test lead (EXTERNAL API; campaign must be TEST; affiliate campaign_status must be TEST)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -1327,13 +1897,18 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateLeadRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/CreateLeadRequest"
+              },
               "examples": {
                 "default": {
                   "value": {
                     "campaign_id": "CMABCDEFG",
                     "campaign_key": "123456789012",
-                    "payload": { "email": "lead@test.com", "name": "Test Lead" }
+                    "payload": {
+                      "email": "lead@test.com",
+                      "name": "Test Lead"
+                    }
                   }
                 }
               }
@@ -1345,28 +1920,130 @@
             "description": "Test lead processed (accepted or stored as rejected based on affiliate status / duplicate_check policy)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LeadResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/LeadResponse"
+                }
               }
             }
           },
-          "400": { "description": "Validation or status error" },
-          "404": { "description": "Campaign not found" }
+          "400": {
+            "description": "Validation or status error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
     "/tenant-config/credentials": {
-      "get": {
-        "summary": "List provider credentials (INTERNAL API)",
-        "description": "Returns configured credential providers.",
-        "tags": ["tenant-config"],
-        "security": [{ "BearerAuth": [] }],
+      "post": {
+        "tags": [
+          "Tenant Config"
+        ],
+        "summary": "Create a credential",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredentialRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Credential records",
+            "description": "Credential created",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TenantCredentialListResponse"
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CredentialRecord"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Tenant Config"
+        ],
+        "summary": "List credentials",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by provider (e.g. trusted_form, ipqs)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CredentialRecord"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/credentials/{id}": {
+      "get": {
+        "tags": [
+          "Tenant Config"
+        ],
+        "summary": "Get a credential by ID",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CredentialRecord"
+                    }
+                  }
                 }
               }
             }
@@ -1374,63 +2051,307 @@
         }
       },
       "put": {
-        "summary": "Create or update provider credentials (INTERNAL API)",
-        "description": "Create or update a named provider credential entry.",
-        "tags": ["tenant-config"],
-        "security": [{ "BearerAuth": [] }],
+        "tags": [
+          "Tenant Config"
+        ],
+        "summary": "Update a credential",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpsertTenantCredentialRequest"
+                "$ref": "#/components/schemas/UpdateCredentialRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Credential upserted",
+            "description": "Credential updated",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TenantCredentialResponse"
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CredentialRecord"
+                    }
+                  }
                 }
               }
             }
-          },
-          "400": { "description": "Validation error" }
-        }
-      }
-    },
-    "/tenant-config/credentials/{provider}": {
-      "get": {
-        "summary": "Get provider credentials (INTERNAL API)",
-        "tags": ["tenant-config"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/Provider" }],
-        "responses": {
-          "200": {
-            "description": "Credential record",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TenantCredentialResponse"
-                }
-              }
-            }
-          },
-          "404": { "description": "Not found" }
+          }
         }
       },
       "delete": {
-        "summary": "Delete provider credentials (INTERNAL API)",
-        "tags": ["tenant-config"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/Provider" }],
+        "tags": [
+          "Tenant Config"
+        ],
+        "summary": "Delete a credential",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "200": { "description": "Deleted" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "Credential deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/credentials/{id}/disable": {
+      "put": {
+        "tags": ["Tenant Config"],
+        "summary": "Disable a credential (soft-disable, does not delete)",
+        "security": [{"BearerAuth": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/CredentialId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "data": {"$ref": "#/components/schemas/CredentialRecord"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/credentials/{id}/enable": {
+      "put": {
+        "tags": ["Tenant Config"],
+        "summary": "Re-enable a previously disabled credential",
+        "security": [{"BearerAuth": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/CredentialId"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "data": {"$ref": "#/components/schemas/CredentialRecord"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/plugin-schemas": {
+      "post": {
+        "tags": ["Tenant Config"],
+        "summary": "Create a plugin schema definition",
+        "description": "Defines the credential fields a plugin integration requires. The frontend reads these to dynamically render credential creation forms.",
+        "security": [{"BearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreatePluginSchemaRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plugin schema created",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/PluginSchemaResponse"}
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Tenant Config"],
+        "summary": "List all plugin schema definitions",
+        "description": "Returns all stored plugin schema records. Frontend uses this list to render dynamic credential forms per plugin.",
+        "security": [{"BearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "List of plugin schemas",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/PluginSchemaListResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/plugin-schemas/{id}": {
+      "get": {
+        "tags": ["Tenant Config"],
+        "summary": "Get a plugin schema by ID",
+        "security": [{"BearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"},
+            "example": "PSa1b2c3d4"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plugin schema record",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/PluginSchemaResponse"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/trusted-form/check-cert": {
+      "post": {
+        "tags": ["Tenant Config"],
+        "summary": "Validate a TrustedForm certificate using stored credentials",
+        "description": "Validates a TrustedForm certificate using the first active stored TrustedForm credential (or a specific one via credentials_id). Unlike /validate, no credentials need to be passed by the caller — they are resolved from the credentials store.",
+        "security": [{"BearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["cert_id"],
+                "properties": {
+                  "cert_id": {
+                    "type": "string",
+                    "description": "Bare 40-char hex cert ID or full https://cert.trustedform.com/... URL",
+                    "example": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"
+                  },
+                  "credentials_id": {
+                    "type": "string",
+                    "description": "Optional — specific credential to use. If omitted, the first active trusted_form credential is used.",
+                    "example": "CRa1b2c3d4"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TrustedForm validate response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "data": {"type": "object"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tenant-config/trusted-form/validate": {
+      "post": {
+        "tags": [
+          "Tenant Config"
+        ],
+        "summary": "Validate a TrustedForm certificate (ad-hoc, no claim)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "credentials_id",
+                  "cert_id"
+                ],
+                "properties": {
+                  "credentials_id": {
+                    "type": "string",
+                    "description": "ID of a basic_auth credential for TrustedForm"
+                  },
+                  "cert_id": {
+                    "type": "string",
+                    "description": "Bare cert ID or full cert URL"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TrustedForm validate response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -1447,19 +2368,27 @@
     "schemas": {
       "LoginRequest": {
         "type": "object",
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "properties": {
           "email": {
             "type": "string",
             "format": "email",
             "example": "admin@example.com"
           },
-          "password": { "type": "string", "example": "YourPassword1!" }
+          "password": {
+            "type": "string",
+            "example": "YourPassword1!"
+          }
         }
       },
       "RefreshRequest": {
         "type": "object",
-        "required": ["refresh_token"],
+        "required": [
+          "refresh_token"
+        ],
         "properties": {
           "refresh_token": {
             "type": "string",
@@ -1472,62 +2401,112 @@
         "properties": {
           "access_token": {
             "type": "string",
-            "description": "JWT access token. Note: use id_token (not access_token) as the Bearer token on internal API calls — the API Gateway Cognito authorizer validates ID tokens."
+            "description": "JWT access token. Note: use id_token (not access_token) as the Bearer token on internal API calls \u2014 the API Gateway Cognito authorizer validates ID tokens."
           },
           "id_token": {
             "type": "string",
-            "description": "JWT ID token — use as Bearer token: Authorization: Bearer <id_token>"
+            "description": "JWT ID token \u2014 use as Bearer token: Authorization: Bearer <id_token>"
           },
           "refresh_token": {
             "type": "string",
             "description": "Long-lived token; use to obtain new access/id tokens without re-entering password"
           },
-          "expires_in": { "type": "integer", "example": 3600 },
-          "token_type": { "type": "string", "example": "Bearer" }
+          "expires_in": {
+            "type": "integer",
+            "example": 3600
+          },
+          "token_type": {
+            "type": "string",
+            "example": "Bearer"
+          }
         }
       },
       "AuthTokenResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/AuthTokenData" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AuthTokenData"
+          }
         }
       },
       "ClientStatus": {
         "type": "string",
-        "enum": ["ACTIVE", "INACTIVE", "SUSPENDED"],
+        "enum": [
+          "ACTIVE",
+          "INACTIVE",
+          "SUSPENDED"
+        ],
         "description": "INACTIVE is set automatically when a client is soft-deleted.",
         "example": "ACTIVE"
       },
       "AffiliateStatus": {
         "type": "string",
-        "enum": ["ACTIVE", "INACTIVE"],
+        "enum": [
+          "ACTIVE",
+          "INACTIVE"
+        ],
         "description": "INACTIVE is set automatically when an affiliate is soft-deleted.",
         "example": "ACTIVE"
       },
       "CampaignParticipantStatus": {
         "type": "string",
-        "enum": ["TEST", "LIVE", "DISABLED"],
+        "enum": [
+          "TEST",
+          "LIVE",
+          "DISABLED"
+        ],
         "example": "TEST"
       },
       "CampaignStatus": {
         "type": "string",
-        "enum": ["DRAFT", "TEST", "ACTIVE", "INACTIVE"],
+        "enum": [
+          "DRAFT",
+          "TEST",
+          "ACTIVE",
+          "INACTIVE"
+        ],
         "example": "TEST"
       },
       "Client": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "example": "CLABC12345" },
-          "name": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "phone": { "type": "string" },
-          "client_code": { "type": "string" },
-          "status": { "$ref": "#/components/schemas/ClientStatus" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "$ref": "#/components/schemas/RequestActor" },
+          "id": {
+            "type": "string",
+            "example": "CLABC12345"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "client_code": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ClientStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          },
           "updated_by": {
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
@@ -1568,8 +2547,13 @@
                 "new_value": {
                   "description": "Value after the change"
                 },
-                "changed_at": { "type": "string", "format": "date-time" },
-                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by": {
+                  "$ref": "#/components/schemas/RequestActor"
+                }
               }
             }
           }
@@ -1578,16 +2562,40 @@
       "Affiliate": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "example": "AFABC12345" },
-          "name": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "phone": { "type": "string" },
-          "company": { "type": "string" },
-          "affiliate_code": { "type": "string" },
-          "status": { "$ref": "#/components/schemas/AffiliateStatus" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "$ref": "#/components/schemas/RequestActor" },
+          "id": {
+            "type": "string",
+            "example": "AFABC12345"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "affiliate_code": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AffiliateStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          },
           "updated_by": {
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
@@ -1628,8 +2636,13 @@
                 "new_value": {
                   "description": "Value after the change"
                 },
-                "changed_at": { "type": "string", "format": "date-time" },
-                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by": {
+                  "$ref": "#/components/schemas/RequestActor"
+                }
               }
             }
           }
@@ -1638,11 +2651,18 @@
       "ParticipantHistoryEntry": {
         "type": "object",
         "description": "A single audit record describing a change to a campaign participant (affiliate or client).",
-        "required": ["event", "changed_at"],
+        "required": [
+          "event",
+          "changed_at"
+        ],
         "properties": {
           "event": {
             "type": "string",
-            "enum": ["linked", "status_changed", "key_rotated"],
+            "enum": [
+              "linked",
+              "status_changed",
+              "key_rotated"
+            ],
             "description": "Type of change: 'linked' on initial or re-link, 'status_changed' when the participant status is updated, 'key_rotated' when the affiliate campaign_key is regenerated."
           },
           "field": {
@@ -1666,8 +2686,12 @@
             "type": "object",
             "description": "Identity of the actor who made the change.",
             "properties": {
-              "username": { "type": "string" },
-              "email": { "type": "string" }
+              "username": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
             }
           }
         }
@@ -1675,61 +2699,100 @@
       "CampaignAffiliate": {
         "type": "object",
         "properties": {
-          "affiliate_id": { "type": "string" },
-          "campaign_key": { "type": "string" },
-          "added_at": { "type": "string", "format": "date-time" },
+          "affiliate_id": {
+            "type": "string"
+          },
+          "campaign_key": {
+            "type": "string"
+          },
+          "added_at": {
+            "type": "string",
+            "format": "date-time"
+          },
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
           },
           "history": {
             "type": "array",
             "description": "Chronological log of all changes made to this affiliate's participation (status changes, key rotations, initial link).",
-            "items": { "$ref": "#/components/schemas/ParticipantHistoryEntry" }
+            "items": {
+              "$ref": "#/components/schemas/ParticipantHistoryEntry"
+            }
           }
         }
       },
       "CampaignClient": {
         "type": "object",
         "properties": {
-          "client_id": { "type": "string" },
-          "added_at": { "type": "string", "format": "date-time" },
+          "client_id": {
+            "type": "string"
+          },
+          "added_at": {
+            "type": "string",
+            "format": "date-time"
+          },
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
           },
           "history": {
             "type": "array",
             "description": "Chronological log of all changes made to this client's participation (status changes, initial link).",
-            "items": { "$ref": "#/components/schemas/ParticipantHistoryEntry" }
+            "items": {
+              "$ref": "#/components/schemas/ParticipantHistoryEntry"
+            }
           }
         }
       },
       "Campaign": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "example": "CMABC12345" },
-          "name": { "type": "string" },
-          "status": { "$ref": "#/components/schemas/CampaignStatus" },
-          "plugins": { "$ref": "#/components/schemas/CampaignPlugins" },
+          "id": {
+            "type": "string",
+            "example": "CMABC12345"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CampaignStatus"
+          },
+          "plugins": {
+            "$ref": "#/components/schemas/CampaignPlugins"
+          },
           "clients": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/CampaignClient" }
+            "items": {
+              "$ref": "#/components/schemas/CampaignClient"
+            }
           },
           "affiliates": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/CampaignAffiliate" }
+            "items": {
+              "$ref": "#/components/schemas/CampaignAffiliate"
+            }
           },
           "removed_clients": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "client_id": { "type": "string" },
-                "added_at": { "type": "string", "format": "date-time" },
+                "client_id": {
+                  "type": "string"
+                },
+                "added_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
                 "status_at_removal": {
                   "$ref": "#/components/schemas/CampaignParticipantStatus"
                 },
-                "removed_at": { "type": "string", "format": "date-time" },
-                "removed_by": { "$ref": "#/components/schemas/RequestActor" }
+                "removed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "removed_by": {
+                  "$ref": "#/components/schemas/RequestActor"
+                }
               }
             }
           },
@@ -1738,14 +2801,26 @@
             "items": {
               "type": "object",
               "properties": {
-                "affiliate_id": { "type": "string" },
-                "campaign_key": { "type": "string" },
-                "added_at": { "type": "string", "format": "date-time" },
+                "affiliate_id": {
+                  "type": "string"
+                },
+                "campaign_key": {
+                  "type": "string"
+                },
+                "added_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
                 "status_at_removal": {
                   "$ref": "#/components/schemas/CampaignParticipantStatus"
                 },
-                "removed_at": { "type": "string", "format": "date-time" },
-                "removed_by": { "$ref": "#/components/schemas/RequestActor" }
+                "removed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "removed_by": {
+                  "$ref": "#/components/schemas/RequestActor"
+                }
               }
             }
           },
@@ -1754,17 +2829,36 @@
             "items": {
               "type": "object",
               "properties": {
-                "from": { "$ref": "#/components/schemas/CampaignStatus" },
-                "to": { "$ref": "#/components/schemas/CampaignStatus" },
-                "changed_at": { "type": "string", "format": "date-time" }
+                "from": {
+                  "$ref": "#/components/schemas/CampaignStatus"
+                },
+                "to": {
+                  "$ref": "#/components/schemas/CampaignStatus"
+                },
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
               }
             }
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" },
-          "ever_linked_participants": { "type": "boolean" },
-          "has_received_leads": { "type": "boolean" },
-          "created_by": { "$ref": "#/components/schemas/RequestActor" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ever_linked_participants": {
+            "type": "boolean"
+          },
+          "has_received_leads": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          },
           "updated_by": {
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
@@ -1799,10 +2893,19 @@
                   "description": "Name of the field that changed (e.g. name)",
                   "example": "name"
                 },
-                "previous_value": { "description": "Value before the change" },
-                "new_value": { "description": "Value after the change" },
-                "changed_at": { "type": "string", "format": "date-time" },
-                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+                "previous_value": {
+                  "description": "Value before the change"
+                },
+                "new_value": {
+                  "description": "Value after the change"
+                },
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by": {
+                  "$ref": "#/components/schemas/RequestActor"
+                }
               }
             }
           }
@@ -1811,25 +2914,50 @@
       "Lead": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "example": "LDABC12345" },
-          "campaign_id": { "type": "string" },
-          "campaign_key": { "type": "string" },
-          "test": { "type": "boolean" },
-          "payload": { "type": "object", "additionalProperties": true },
-          "duplicate": { "type": "boolean" },
+          "id": {
+            "type": "string",
+            "example": "LDABC12345"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "campaign_key": {
+            "type": "string"
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
           "duplicate_matches": {
             "type": "object",
             "properties": {
               "lead_ids": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               }
             }
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "affiliate_status_at_intake": { "type": "string" },
-          "rejected": { "type": "boolean" },
-          "rejection_reason": { "type": "string" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "affiliate_status_at_intake": {
+            "type": "string"
+          },
+          "rejected": {
+            "type": "boolean"
+          },
+          "rejection_reason": {
+            "type": "string"
+          },
           "edit_history": {
             "type": "array",
             "description": "Ordered log of all field changes. Each entry records what changed, the before/after values, when it happened, and who made the change.",
@@ -1847,8 +2975,13 @@
                 "new_value": {
                   "description": "Value after the change (null if the field was removed)"
                 },
-                "changed_at": { "type": "string", "format": "date-time" },
-                "changed_by": { "$ref": "#/components/schemas/RequestActor" }
+                "changed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "changed_by": {
+                  "$ref": "#/components/schemas/RequestActor"
+                }
               }
             }
           },
@@ -1871,19 +3004,68 @@
             "format": "date-time",
             "nullable": true
           },
-          "is_deleted": { "type": "boolean" },
-          "active": { "type": "boolean" }
+          "is_deleted": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "trusted_form_result": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "cert_id": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "phone_match": {
+                "type": "boolean"
+              },
+              "vendor": {
+                "type": "string"
+              },
+              "previously_retained": {
+                "type": "boolean"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
         }
       },
       "DuplicateCheckPluginConfig": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean", "default": true },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
           "criteria": {
             "type": "array",
-            "items": { "type": "string", "enum": ["phone", "email"] },
+            "items": {
+              "type": "string",
+              "enum": [
+                "phone",
+                "email"
+              ]
+            },
             "minItems": 1,
-            "default": ["phone", "email"]
+            "default": [
+              "phone",
+              "email"
+            ]
           }
         }
       },
@@ -1897,68 +3079,129 @@
       },
       "CreateClientRequest": {
         "type": "object",
-        "required": ["name", "email"],
+        "required": [
+          "name",
+          "email"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "phone": { "type": "string" },
-          "client_code": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "client_code": {
+            "type": "string"
+          }
         }
       },
       "UpdateClientRequest": {
         "type": "object",
         "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
         "properties": {
-          "name": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "phone": { "type": "string" },
-          "client_code": { "type": "string" },
-          "status": { "$ref": "#/components/schemas/ClientStatus" }
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "client_code": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ClientStatus"
+          }
         }
       },
       "CreateAffiliateRequest": {
         "type": "object",
-        "required": ["name", "email", "phone"],
+        "required": [
+          "name",
+          "email",
+          "phone"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "phone": { "type": "string" },
-          "affiliate_code": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "affiliate_code": {
+            "type": "string"
+          }
         }
       },
       "UpdateAffiliateRequest": {
         "type": "object",
         "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
         "properties": {
-          "name": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "phone": { "type": "string" },
-          "company": { "type": "string" },
-          "affiliate_code": { "type": "string" },
-          "status": { "$ref": "#/components/schemas/AffiliateStatus" }
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "affiliate_code": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AffiliateStatus"
+          }
         }
       },
       "CreateCampaignRequest": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
-          "name": { "type": "string" }
+          "name": {
+            "type": "string"
+          }
         },
         "description": "Campaigns are created as DRAFT by default."
       },
       "UpdateCampaignRequest": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
-          "name": { "type": "string" }
+          "name": {
+            "type": "string"
+          }
         },
         "description": "Allows updating the campaign name."
       },
       "UpdateCampaignStatusRequest": {
         "type": "object",
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "properties": {
-          "status": { "$ref": "#/components/schemas/CampaignStatus" }
+          "status": {
+            "$ref": "#/components/schemas/CampaignStatus"
+          }
         },
         "description": "Allowed flow: DRAFT -> TEST -> ACTIVE. Requires at least one linked client and affiliate before moving to TEST. ACTIVE requires current TEST, at least one LIVE client and one LIVE affiliate, and no participants remaining in TEST (DISABLED participants are allowed but do not count as LIVE)."
       },
@@ -1969,11 +3212,19 @@
           "duplicate_check": {
             "type": "object",
             "properties": {
-              "enabled": { "type": "boolean" },
+              "enabled": {
+                "type": "boolean"
+              },
               "criteria": {
                 "type": "array",
                 "minItems": 1,
-                "items": { "type": "string", "enum": ["phone", "email"] }
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "phone",
+                    "email"
+                  ]
+                }
               }
             }
           }
@@ -1981,32 +3232,52 @@
       },
       "LinkClientRequest": {
         "type": "object",
-        "required": ["client_id"],
+        "required": [
+          "client_id"
+        ],
         "properties": {
-          "client_id": { "type": "string" }
+          "client_id": {
+            "type": "string"
+          }
         }
       },
       "LinkAffiliateRequest": {
         "type": "object",
-        "required": ["affiliate_id"],
+        "required": [
+          "affiliate_id"
+        ],
         "properties": {
-          "affiliate_id": { "type": "string" }
+          "affiliate_id": {
+            "type": "string"
+          }
         }
       },
       "CreateLeadRequest": {
         "type": "object",
-        "required": ["campaign_id", "campaign_key"],
+        "required": [
+          "campaign_id",
+          "campaign_key"
+        ],
         "properties": {
-          "campaign_id": { "type": "string" },
-          "campaign_key": { "type": "string" },
-          "payload": { "type": "object", "additionalProperties": true }
+          "campaign_id": {
+            "type": "string"
+          },
+          "campaign_key": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       },
       "DeleteResponse": {
         "type": "object",
         "description": "Returned by all delete endpoints. `permanent` indicates whether the record was hard-deleted (true) or soft-deleted (false).",
         "properties": {
-          "success": { "type": "boolean" },
+          "success": {
+            "type": "boolean"
+          },
           "message": {
             "type": "string",
             "example": "Client soft-deleted successfully"
@@ -2029,33 +3300,55 @@
       "ClientResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/Client" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Client"
+          }
         }
       },
       "AffiliateResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/Affiliate" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Affiliate"
+          }
         }
       },
       "AffiliateListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "object",
             "properties": {
               "items": {
                 "type": "array",
-                "items": { "$ref": "#/components/schemas/Affiliate" }
+                "items": {
+                  "$ref": "#/components/schemas/Affiliate"
+                }
               },
-              "count": { "type": "integer" },
-              "lastEvaluatedKey": { "type": "string" }
+              "count": {
+                "type": "integer"
+              },
+              "lastEvaluatedKey": {
+                "type": "string"
+              }
             }
           }
         }
@@ -2063,140 +3356,275 @@
       "CampaignResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/Campaign" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Campaign"
+          }
         }
       },
       "CampaignListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "count": { "type": "integer" },
-          "lastEvaluatedKey": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "lastEvaluatedKey": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Campaign" }
+            "items": {
+              "$ref": "#/components/schemas/Campaign"
+            }
           }
         }
       },
       "LeadResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/Lead" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Lead"
+          }
         }
       },
       "LeadListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "count": { "type": "integer" },
-          "lastEvaluatedKey": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "lastEvaluatedKey": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Lead" }
+            "items": {
+              "$ref": "#/components/schemas/Lead"
+            }
           }
         }
       },
       "UpdateLeadRequest": {
         "type": "object",
         "properties": {
-          "payload": { "type": "object", "additionalProperties": true }
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          }
         },
         "description": "Only payload can be updated; campaign linkage is immutable."
       },
       "CredentialType": {
         "type": "string",
-        "enum": ["api_key", "basic_auth", "bearer_token"],
+        "enum": [
+          "api_key",
+          "basic_auth",
+          "bearer_token"
+        ],
         "example": "api_key"
       },
       "TenantCredential": {
         "type": "object",
         "properties": {
-          "provider": { "type": "string", "example": "ipqs" },
-          "type": { "$ref": "#/components/schemas/CredentialType" },
-          "credentials": { "type": "object", "additionalProperties": true },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "provider": {
+            "type": "string",
+            "example": "ipqs"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CredentialType"
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "UpsertTenantCredentialRequest": {
         "type": "object",
-        "required": ["provider", "type", "credentials"],
+        "required": [
+          "provider",
+          "type",
+          "credentials"
+        ],
         "properties": {
-          "provider": { "type": "string", "example": "trusted_forms" },
-          "type": { "$ref": "#/components/schemas/CredentialType" },
-          "credentials": { "type": "object", "additionalProperties": true }
+          "provider": {
+            "type": "string",
+            "example": "trusted_forms"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CredentialType"
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       },
       "TenantCredentialResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/TenantCredential" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TenantCredential"
+          }
         }
       },
       "TenantCredentialListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/TenantCredential" }
+            "items": {
+              "$ref": "#/components/schemas/TenantCredential"
+            }
           }
         }
       },
       "UpdateParticipantStatusRequest": {
         "type": "object",
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "properties": {
-          "status": { "$ref": "#/components/schemas/CampaignParticipantStatus" }
+          "status": {
+            "$ref": "#/components/schemas/CampaignParticipantStatus"
+          }
         }
       },
       "RequestActor": {
         "type": "object",
         "description": "Identity of the user who performed an action.",
         "properties": {
-          "sub": { "type": "string", "description": "Cognito subject (UUID)" },
-          "username": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "first_name": { "type": "string" },
-          "last_name": { "type": "string" },
-          "full_name": { "type": "string" }
+          "sub": {
+            "type": "string",
+            "description": "Cognito subject (UUID)"
+          },
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          }
         }
       },
       "UserRole": {
         "type": "string",
-        "enum": ["admin", "staff"],
+        "enum": [
+          "admin",
+          "staff"
+        ],
         "example": "staff"
       },
       "CognitoUser": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "example": "jane@example.com" },
-          "email": { "type": "string", "format": "email" },
-          "firstName": { "type": "string", "example": "Jane" },
-          "lastName": { "type": "string", "example": "Doe" },
-          "status": { "type": "string", "example": "CONFIRMED" },
-          "enabled": { "type": "boolean" },
-          "role": { "$ref": "#/components/schemas/UserRole" },
-          "createdAt": { "type": "string", "format": "date-time" },
-          "updatedAt": { "type": "string", "format": "date-time" }
+          "username": {
+            "type": "string",
+            "example": "jane@example.com"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "firstName": {
+            "type": "string",
+            "example": "Jane"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Doe"
+          },
+          "status": {
+            "type": "string",
+            "example": "CONFIRMED"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "CreateUserRequest": {
         "type": "object",
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "password": { "type": "string", "example": "TempPass1!" },
-          "firstName": { "type": "string", "example": "Jane" },
-          "lastName": { "type": "string", "example": "Doe" },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "example": "TempPass1!"
+          },
+          "firstName": {
+            "type": "string",
+            "example": "Jane"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Doe"
+          },
           "role": {
             "$ref": "#/components/schemas/UserRole",
             "description": "Optional; allowed values are 'admin' or 'staff'. Defaults to 'staff' if omitted."
@@ -2208,67 +3636,340 @@
         "properties": {
           "role": {
             "$ref": "#/components/schemas/UserRole",
-            "description": "Optional — omit to leave role unchanged."
+            "description": "Optional \u2014 omit to leave role unchanged."
           },
-          "firstName": { "type": "string", "example": "Jane" },
-          "lastName": { "type": "string", "example": "Doe" }
+          "firstName": {
+            "type": "string",
+            "example": "Jane"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Doe"
+          }
         },
         "description": "At least one field required. Provide role to change the user's group, firstName/lastName to update display name. Fields not included are left unchanged."
       },
       "ResetPasswordRequest": {
         "type": "object",
-        "required": ["password"],
+        "required": [
+          "password"
+        ],
         "properties": {
-          "password": { "type": "string", "example": "NewPass1!" }
+          "password": {
+            "type": "string",
+            "example": "NewPass1!"
+          }
         }
       },
       "UserResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/CognitoUser" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CognitoUser"
+          }
         }
       },
       "UserListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/CognitoUser" }
+            "items": {
+              "$ref": "#/components/schemas/CognitoUser"
+            }
+          }
+        }
+      },
+      "CreateCredentialRequest": {
+        "type": "object",
+        "required": [
+          "provider",
+          "name",
+          "type",
+          "credentials"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "example": "trusted_form"
+          },
+          "name": {
+            "type": "string",
+            "example": "TrustedForm Prod"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ],
+            "example": "basic_auth"
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "username": "API",
+              "password": "secret"
+            }
+          },
+          "vendor": {
+            "type": "string",
+            "example": "MyVendor"
+          }
+        }
+      },
+      "UpdateCredentialRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ]
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "vendor": {
+            "type": "string"
+          }
+        }
+      },
+      "PluginSchemaFieldType": {
+        "type": "string",
+        "enum": ["text", "password", "select"],
+        "description": "HTML input type used to render the field in the frontend form"
+      },
+      "PluginSchemaField": {
+        "type": "object",
+        "required": ["name", "label", "type", "required"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Internal key that maps to the credential object, e.g. apiKey, username",
+            "example": "apiKey"
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label shown above the form input",
+            "example": "API Key"
+          },
+          "type": {
+            "$ref": "#/components/schemas/PluginSchemaFieldType"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether the field must be provided"
+          },
+          "placeholder": {
+            "type": "string",
+            "description": "Hint shown inside the input",
+            "example": "Enter your API key"
+          },
+          "options": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Choices for select-type fields"
+          }
+        }
+      },
+      "PluginSchemaRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "PS-prefixed auto-generated ID",
+            "example": "PSa1b2c3d4"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Machine-readable provider identifier",
+            "example": "trusted_form"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable plugin name",
+            "example": "TrustedForm"
+          },
+          "credential_type": {
+            "$ref": "#/components/schemas/CredentialType"
+          },
+          "fields": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PluginSchemaField"}
+          },
+          "description": {
+            "type": "string",
+            "example": "TrustedForm certificate verification integration"
+          },
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "CreatePluginSchemaRequest": {
+        "type": "object",
+        "required": ["provider", "name", "credential_type", "fields"],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Machine-readable provider identifier (lowercased)",
+            "example": "trusted_form"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable plugin name",
+            "example": "TrustedForm"
+          },
+          "credential_type": {
+            "$ref": "#/components/schemas/CredentialType"
+          },
+          "fields": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/components/schemas/PluginSchemaField"},
+            "description": "Ordered list of credential fields the frontend should render"
+          },
+          "description": {
+            "type": "string",
+            "example": "TrustedForm certificate verification integration"
+          }
+        }
+      },
+      "PluginSchemaResponse": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean"},
+          "message": {"type": "string"},
+          "data": {"$ref": "#/components/schemas/PluginSchemaRecord"}
+        }
+      },
+      "PluginSchemaListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean"},
+          "message": {"type": "string"},
+          "data": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/PluginSchemaRecord"}
+          }
+        }
+      },
+      "CredentialRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "CR-a1b2c3d4"
+          },
+          "provider": {
+            "type": "string",
+            "example": "trusted_form"
+          },
+          "name": {
+            "type": "string",
+            "example": "TrustedForm Prod"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ]
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this credential is active. Defaults to true.",
+            "example": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }
     },
     "parameters": {
+      "CredentialId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "CRa1b2c3d4"
+      },
       "ClientId": {
         "name": "id",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "CLABC12345"
       },
       "AffiliateId": {
         "name": "id",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "AFABC12345"
       },
       "CampaignId": {
         "name": "id",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "CMABC12345"
       },
       "Provider": {
         "name": "provider",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "ipqs"
       },
       "UserId": {
@@ -2276,7 +3977,9 @@
         "in": "path",
         "required": true,
         "description": "URL-encoded Cognito username (typically the user's email address). E.g. jane%40example.com",
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "jane%40example.com"
       }
     }

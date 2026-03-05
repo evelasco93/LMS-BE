@@ -8,6 +8,7 @@ import { LeadsServiceStack } from "./leads-service.stack";
 import { TenantConfigServiceStack } from "./tenant-config-service.stack";
 import { QaOrchestratorServiceStack } from "./qa-orchestrator-service.stack";
 import { QaDuplicateCheckServiceStack } from "./qa-duplicate-check-service.stack";
+import { QaTrustedFormServiceStack } from "./qa-trusted-form-service.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 
 export class ServicesStack extends Stack {
@@ -18,6 +19,7 @@ export class ServicesStack extends Stack {
   public readonly tenantConfigLambda: IFunction;
   public readonly qaOrchestratorLambda: IFunction;
   public readonly qaDuplicateCheckLambda: IFunction;
+  public readonly qaTrustedFormLambda: IFunction;
 
   constructor(scope: Construct, id: string, props: IServicesStackProps) {
     super(scope, id, props);
@@ -78,6 +80,17 @@ export class ServicesStack extends Stack {
       },
     );
     this.qaDuplicateCheckLambda = qaDuplicateCheckServiceStack.lambda;
+
+    const qaTrustedFormServiceStack = new QaTrustedFormServiceStack(
+      this,
+      `${config.appPrefix}-QaTrustedFormService`,
+      {
+        lambdaConfig: servicesConfig.qaTrustedForm.lambda,
+        roleName: servicesConfig.qaTrustedForm.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.qaTrustedFormLambda = qaTrustedFormServiceStack.lambda;
 
     const clientsServiceStack = new ClientsServiceStack(
       this,
@@ -141,6 +154,12 @@ export class ServicesStack extends Stack {
       value: this.qaDuplicateCheckLambda.functionArn,
       description: "QA Duplicate Check Lambda Function ARN",
       exportName: `${config.appPrefix}-qa-duplicate-check-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-QaTrustedFormLambdaArn`, {
+      value: this.qaTrustedFormLambda.functionArn,
+      description: "QA TrustedForm Lambda Function ARN",
+      exportName: `${config.appPrefix}-qa-trusted-form-lambda-arn`,
     });
 
     if (config.tags) {

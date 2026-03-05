@@ -3,4 +3,6 @@ export enum EntityPrefix {
   AFFILIATE = 'AF',
   CAMPAIGN = 'CM',
   LEAD = 'LD',
+  CREDENTIAL = 'CR',
+  PLUGIN_SCHEMA = 'PS',
 }

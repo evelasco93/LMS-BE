@@ -96,4 +96,26 @@ export class IdGenerator {
   static generateLeadId(length: number = IdGenerator.DEFAULT_LENGTH): string {
     return IdGenerator.generate(EntityPrefix.LEAD, length);
   }
+
+  /**
+   * Generate a credential ID
+   * @param length - Length of random part (default: 8)
+   * @returns Credential ID (e.g., 'CRA1B2C3D4')
+   */
+  static generateCredentialId(
+    length: number = IdGenerator.DEFAULT_LENGTH,
+  ): string {
+    return IdGenerator.generate(EntityPrefix.CREDENTIAL, length);
+  }
+
+  /**
+   * Generate a plugin schema ID
+   * @param length - Length of random part (default: 8)
+   * @returns Plugin schema ID (e.g., 'PSA1B2C3D4')
+   */
+  static generatePluginSchemaId(
+    length: number = IdGenerator.DEFAULT_LENGTH,
+  ): string {
+    return IdGenerator.generate(EntityPrefix.PLUGIN_SCHEMA, length);
+  }
 }
