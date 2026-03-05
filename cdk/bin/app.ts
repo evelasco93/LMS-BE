@@ -54,6 +54,20 @@ iamStack.clientsLambdaRole.addToPolicy(
   }),
 );
 
+// Read-only access to campaigns + leads for deletion safeguard checks
+iamStack.clientsLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:Scan", "dynamodb:Query"],
+    resources: [
+      dataStack.campaignsTable.tableArn,
+      `${dataStack.campaignsTable.tableArn}/index/*`,
+      dataStack.leadsTable.tableArn,
+      `${dataStack.leadsTable.tableArn}/index/*`,
+    ],
+  }),
+);
+
 iamStack.clientsLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -76,6 +90,20 @@ iamStack.affiliatesLambdaRole.addToPolicy(
     resources: [
       dataStack.affiliatesTable.tableArn,
       `${dataStack.affiliatesTable.tableArn}/index/*`,
+    ],
+  }),
+);
+
+// Read-only access to campaigns + leads for deletion safeguard checks
+iamStack.affiliatesLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:Scan", "dynamodb:Query"],
+    resources: [
+      dataStack.campaignsTable.tableArn,
+      `${dataStack.campaignsTable.tableArn}/index/*`,
+      dataStack.leadsTable.tableArn,
+      `${dataStack.leadsTable.tableArn}/index/*`,
     ],
   }),
 );
@@ -106,6 +134,8 @@ iamStack.campaignsLambdaRole.addToPolicy(
       `${dataStack.clientsTable.tableArn}/index/*`,
       dataStack.affiliatesTable.tableArn,
       `${dataStack.affiliatesTable.tableArn}/index/*`,
+      dataStack.leadsTable.tableArn,
+      `${dataStack.leadsTable.tableArn}/index/*`,
     ],
   }),
 );

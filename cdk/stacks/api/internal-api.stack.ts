@@ -108,22 +108,26 @@ export class InternalApiStack extends NestedStack {
       scopeDescription: "Write access for internal API",
     });
 
-    this.userPool = new UserPool(this, `${logicalIdPrefix}-InternalApiUserPool`, {
-      userPoolName: `${apiConfig.name}-users`,
-      selfSignUpEnabled: false,
-      signInAliases: {
-        email: true,
+    this.userPool = new UserPool(
+      this,
+      `${logicalIdPrefix}-InternalApiUserPool`,
+      {
+        userPoolName: `${apiConfig.name}-users`,
+        selfSignUpEnabled: false,
+        signInAliases: {
+          email: true,
+        },
+        autoVerify: {
+          email: true,
+        },
+        accountRecovery: AccountRecovery.EMAIL_ONLY,
+        userVerification: {
+          emailSubject: "Verify your internal API account",
+          emailBody: "Thanks for signing in. Your verification code is {####}.",
+          emailStyle: VerificationEmailStyle.CODE,
+        },
       },
-      autoVerify: {
-        email: true,
-      },
-      accountRecovery: AccountRecovery.EMAIL_ONLY,
-      userVerification: {
-        emailSubject: "Verify your internal API account",
-        emailBody: "Thanks for signing in. Your verification code is {####}.",
-        emailStyle: VerificationEmailStyle.CODE,
-      },
-    });
+    );
 
     const resourceServer = this.userPool.addResourceServer(
       `${logicalIdPrefix}-InternalApiResourceServer`,
@@ -133,38 +137,44 @@ export class InternalApiStack extends NestedStack {
       },
     );
 
-    this.userPoolClient = this.userPool.addClient(`${logicalIdPrefix}-InternalApiAppClient`, {
-      userPoolClientName: `${apiConfig.name}-app-client`,
-      authFlows: {
-        userPassword: true,
-        userSrp: true,
-      },
-      generateSecret: false,
-      preventUserExistenceErrors: true,
-      oAuth: {
-        callbackUrls: apiConfig.callbackUrls,
-        logoutUrls: apiConfig.logoutUrls,
-        flows: {
-          authorizationCodeGrant: true,
+    this.userPoolClient = this.userPool.addClient(
+      `${logicalIdPrefix}-InternalApiAppClient`,
+      {
+        userPoolClientName: `${apiConfig.name}-app-client`,
+        authFlows: {
+          userPassword: true,
+          userSrp: true,
         },
-        scopes: [
-          OAuthScope.OPENID,
-          OAuthScope.EMAIL,
-          OAuthScope.PROFILE,
-          OAuthScope.resourceServer(resourceServer, readResourceScope),
-          OAuthScope.resourceServer(resourceServer, writeResourceScope),
-        ],
+        generateSecret: false,
+        preventUserExistenceErrors: true,
+        oAuth: {
+          callbackUrls: apiConfig.callbackUrls,
+          logoutUrls: apiConfig.logoutUrls,
+          flows: {
+            authorizationCodeGrant: true,
+          },
+          scopes: [
+            OAuthScope.OPENID,
+            OAuthScope.EMAIL,
+            OAuthScope.PROFILE,
+            OAuthScope.resourceServer(resourceServer, readResourceScope),
+            OAuthScope.resourceServer(resourceServer, writeResourceScope),
+          ],
+        },
+        supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
       },
-      supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
-    });
+    );
 
-    const userPoolDomain = this.userPool.addDomain(`${logicalIdPrefix}-InternalApiDomain`, {
-      cognitoDomain: {
-        domainPrefix:
-          apiConfig.cognitoDomainPrefix ??
-          `${apiConfig.name.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase()}-${this.account.slice(-6).toLowerCase()}`,
+    const userPoolDomain = this.userPool.addDomain(
+      `${logicalIdPrefix}-InternalApiDomain`,
+      {
+        cognitoDomain: {
+          domainPrefix:
+            apiConfig.cognitoDomainPrefix ??
+            `${apiConfig.name.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase()}-${this.account.slice(-6).toLowerCase()}`,
+        },
       },
-    });
+    );
     this.cognitoDomainName = userPoolDomain.domainName;
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -202,32 +212,36 @@ export class InternalApiStack extends NestedStack {
       `${logicalIdPrefix}-AuthLambdaRole`,
       authLambdaRoleName,
     );
-    this.authLambda = new NodejsFunction(this, `${logicalIdPrefix}-AuthFunction`, {
-      functionName: nameBuilder.lambda("auth"),
-      entry: path.join(__dirname, "../../../handlers/auth/main.ts"),
-      handler: "handler",
-      runtime: Runtime.NODEJS_22_X,
-      role: authRole,
-      memorySize: 256,
-      timeout: Duration.seconds(10),
-      environment: {
-        COGNITO_USER_POOL_ID: this.userPool.userPoolId,
-        COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
-        NODE_ENV: "production",
+    this.authLambda = new NodejsFunction(
+      this,
+      `${logicalIdPrefix}-AuthFunction`,
+      {
+        functionName: nameBuilder.lambda("auth"),
+        entry: path.join(__dirname, "../../../handlers/auth/main.ts"),
+        handler: "handler",
+        runtime: Runtime.NODEJS_22_X,
+        role: authRole,
+        memorySize: 256,
+        timeout: Duration.seconds(10),
+        environment: {
+          COGNITO_USER_POOL_ID: this.userPool.userPoolId,
+          COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
+          NODE_ENV: "production",
+        },
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          target: "node20",
+          keepNames: true,
+          sourcesContent: false,
+          tsconfig: path.join(
+            __dirname,
+            "../../../handlers/auth/tsconfig.build.json",
+          ),
+          externalModules: ["@aws-sdk/*", "js-yaml"],
+        },
       },
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        target: "node20",
-        keepNames: true,
-        sourcesContent: false,
-        tsconfig: path.join(
-          __dirname,
-          "../../../handlers/auth/tsconfig.build.json",
-        ),
-        externalModules: ["@aws-sdk/*", "js-yaml"],
-      },
-    });
+    );
 
     // ============================================================================
     // USERS LAMBDA (admin user-management endpoint — protected by Cognito authorizer)
@@ -237,31 +251,35 @@ export class InternalApiStack extends NestedStack {
       `${logicalIdPrefix}-UsersLambdaRole`,
       usersLambdaRoleName,
     );
-    this.usersLambda = new NodejsFunction(this, `${logicalIdPrefix}-UsersFunction`, {
-      functionName: nameBuilder.lambda("users"),
-      entry: path.join(__dirname, "../../../handlers/users/main.ts"),
-      handler: "handler",
-      runtime: Runtime.NODEJS_22_X,
-      role: usersRole,
-      memorySize: 256,
-      timeout: Duration.seconds(15),
-      environment: {
-        COGNITO_USER_POOL_ID: this.userPool.userPoolId,
-        NODE_ENV: "production",
+    this.usersLambda = new NodejsFunction(
+      this,
+      `${logicalIdPrefix}-UsersFunction`,
+      {
+        functionName: nameBuilder.lambda("users"),
+        entry: path.join(__dirname, "../../../handlers/users/main.ts"),
+        handler: "handler",
+        runtime: Runtime.NODEJS_22_X,
+        role: usersRole,
+        memorySize: 256,
+        timeout: Duration.seconds(15),
+        environment: {
+          COGNITO_USER_POOL_ID: this.userPool.userPoolId,
+          NODE_ENV: "production",
+        },
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          target: "node20",
+          keepNames: true,
+          sourcesContent: false,
+          tsconfig: path.join(
+            __dirname,
+            "../../../handlers/users/tsconfig.build.json",
+          ),
+          externalModules: ["@aws-sdk/*", "js-yaml"],
+        },
       },
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        target: "node20",
-        keepNames: true,
-        sourcesContent: false,
-        tsconfig: path.join(
-          __dirname,
-          "../../../handlers/users/tsconfig.build.json",
-        ),
-        externalModules: ["@aws-sdk/*", "js-yaml"],
-      },
-    });
+    );
 
     // Grant the users Lambda admin permissions on the User Pool.
     // Both the imported role and the user pool are in this nested stack,
@@ -482,12 +500,9 @@ export class InternalApiStack extends NestedStack {
       readScope,
     ]);
     // DELETE /v2/campaigns/{id} - soft/hard delete campaign
-    addProtectedMethod(
-      campaignResource,
-      "DELETE",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
+    addProtectedMethod(campaignResource, "DELETE", campaignsLambdaIntegration, [
+      writeScope,
+    ]);
 
     // clients under campaign
     const campaignClientsResource = campaignResource.addResource("clients");
@@ -536,6 +551,16 @@ export class InternalApiStack extends NestedStack {
     addProtectedMethod(
       campaignAffiliateResource,
       "DELETE",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    // rotate affiliate campaign_key
+    const rotateAffiliateKeyResource =
+      campaignAffiliateResource.addResource("rotate-key");
+    addProtectedMethod(
+      rotateAffiliateKeyResource,
+      "POST",
       campaignsLambdaIntegration,
       [writeScope],
     );
@@ -663,10 +688,14 @@ export class InternalApiStack extends NestedStack {
       description: "Cognito User Pool ID for internal API OAuth",
     });
 
-    new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolClientId`, {
-      value: this.userPoolClient.userPoolClientId,
-      description: "Cognito App Client ID for custom login screen",
-    });
+    new CfnOutput(
+      this,
+      `${logicalIdPrefix}-InternalApiCognitoUserPoolClientId`,
+      {
+        value: this.userPoolClient.userPoolClientId,
+        description: "Cognito App Client ID for custom login screen",
+      },
+    );
 
     new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoDomainName`, {
       value: userPoolDomain.domainName,

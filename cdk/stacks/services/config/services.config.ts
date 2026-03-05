@@ -12,6 +12,8 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        LEADS_TABLE_NAME: nameBuilder.table("leads"),
         INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
           "internal-api-auth-token",
         ),
@@ -31,6 +33,8 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        LEADS_TABLE_NAME: nameBuilder.table("leads"),
         INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
           "internal-api-auth-token",
         ),
@@ -52,6 +56,7 @@ export const servicesConfig: IServicesStackConfig = {
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
+        LEADS_TABLE_NAME: nameBuilder.table("leads"),
         INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
           "internal-api-auth-token",
         ),
