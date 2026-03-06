@@ -1,0 +1,26 @@
+{
+  "name": "@lms/qa-ipqs-handler",
+  "version": "1.0.0",
+  "description": "QA IPQS (IPQualityScore) Lambda Handler",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest watch",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "inversify": "^6.0.2",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.8.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.6.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^2.1.0"
+  }
+}

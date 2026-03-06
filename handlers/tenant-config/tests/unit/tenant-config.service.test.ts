@@ -1,88 +1,131 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { TenantConfigService } from "../../services/tenant-config.service";
-import { getMockSecretsManagerUtil, getTestContainer } from "../setup";
+import { getMockDynamoDBUtil, getTestContainer } from "../setup";
 
 describe("TenantConfigService", () => {
   let service: TenantConfigService;
-  let mockSecretsManagerUtil: any;
+  let mockDynamoDBUtil: any;
 
   beforeEach(() => {
     const container = getTestContainer();
     container.bind("TenantConfigService").to(TenantConfigService);
     service = container.get<TenantConfigService>("TenantConfigService");
-    mockSecretsManagerUtil = getMockSecretsManagerUtil();
+    mockDynamoDBUtil = getMockDynamoDBUtil();
   });
 
-  it("upserts ipqs api key credential", async () => {
-    mockSecretsManagerUtil.upsertJsonSecret.mockResolvedValueOnce(undefined);
+  it("creates an api_key credential and returns decrypted data", async () => {
+    mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-    const result = await service.upsertCredential({
+    const result = await service.createCredential({
       provider: "ipqs",
+      name: "IPQS API Key",
       type: "api_key",
-      credentials: {
-        apiKey: "abc123",
-      },
+      credentials: { apiKey: "abc123" },
     });
 
     expect(result.result).toBe(true);
-    expect(mockSecretsManagerUtil.upsertJsonSecret).toHaveBeenCalledTimes(1);
+    expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     expect(result.data?.provider).toBe("ipqs");
+    expect(result.data?.credentials.apiKey).toBe("abc123");
   });
 
-  it("fails when required credentials are missing", async () => {
-    const result = await service.upsertCredential({
-      provider: "trusted_forms",
+  it("fails when provider is missing", async () => {
+    const result = await service.createCredential({
+      provider: "",
+      name: "Test",
+      type: "api_key",
+      credentials: { apiKey: "abc123" },
+    });
+
+    expect(result.result).toBe(false);
+    expect(result.error).toContain("provider is required");
+    expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
+  });
+
+  it("fails when basic_auth password is missing", async () => {
+    const result = await service.createCredential({
+      provider: "trusted_form",
+      name: "TF Creds",
       type: "basic_auth",
-      credentials: {
-        username: "trusted-user",
-      },
-    } as any);
+      credentials: { username: "user" } as any,
+    });
 
     expect(result.result).toBe(false);
     expect(result.error).toContain(
       "credentials.username and credentials.password",
     );
-    expect(mockSecretsManagerUtil.upsertJsonSecret).not.toHaveBeenCalled();
+    expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
   });
 
-  it("gets credential by provider", async () => {
-    mockSecretsManagerUtil.getJsonSecret.mockResolvedValueOnce({
-      provider: "ipqs",
-      type: "api_key",
-      credentials: {
-        apiKey: "abc123",
-      },
-      updated_at: "2026-02-19T00:00:00.000Z",
-    });
+  it("gets a credential by id and returns decrypted data", async () => {
+    // Simulate a stored record with an encrypted apiKey
+    // We pre-encrypt using the test key from constants mock so decrypt works
+    const { encrypt } = await import("@shared/utils/crypto.util");
+    const TEST_KEY =
+      "0000000000000000000000000000000000000000000000000000000000000000";
+    const encryptedApiKey = encrypt("secret-key-999", TEST_KEY);
 
-    const result = await service.getCredential("ipqs");
-
-    expect(result.result).toBe(true);
-    expect(result.data?.provider).toBe("ipqs");
-  });
-
-  it("upserts external leads api key credential", async () => {
-    mockSecretsManagerUtil.upsertJsonSecret.mockResolvedValueOnce(undefined);
-
-    const result = await service.upsertCredential({
+    mockDynamoDBUtil.get.mockResolvedValueOnce({
+      id: "crd-001",
       provider: "external_leads_api",
+      name: "External API",
       type: "api_key",
-      credentials: {
-        apiKey: "external-key-123",
-      },
+      credentials: { apiKey: encryptedApiKey },
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
     });
+
+    const result = await service.getCredential("crd-001");
 
     expect(result.result).toBe(true);
     expect(result.data?.provider).toBe("external_leads_api");
-    expect(mockSecretsManagerUtil.upsertJsonSecret).toHaveBeenCalledTimes(1);
+    expect(result.data?.credentials.apiKey).toBe("secret-key-999");
   });
 
-  it("deletes credential by provider", async () => {
-    mockSecretsManagerUtil.deleteSecret.mockResolvedValueOnce(undefined);
+  it("returns error when credential is not found", async () => {
+    mockDynamoDBUtil.get.mockResolvedValueOnce(null);
 
-    const result = await service.deleteCredential("trusted_forms");
+    const result = await service.getCredential("nonexistent-id");
+
+    expect(result.result).toBe(false);
+    expect(result.error).toContain("not found");
+  });
+
+  it("lists credentials from DynamoDB", async () => {
+    mockDynamoDBUtil.scanAll.mockResolvedValueOnce([
+      {
+        id: "crd-002",
+        provider: "ipqs",
+        name: "IPQS",
+        type: "api_key",
+        credentials: {},
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await service.listCredentials();
 
     expect(result.result).toBe(true);
-    expect(mockSecretsManagerUtil.deleteSecret).toHaveBeenCalledTimes(1);
+    expect(result.data).toHaveLength(1);
+    expect(result.data?.[0].provider).toBe("ipqs");
+  });
+
+  it("deletes a credential by id", async () => {
+    mockDynamoDBUtil.get.mockResolvedValueOnce({
+      id: "crd-003",
+      provider: "ipqs",
+      name: "IPQS",
+      type: "api_key",
+      credentials: {},
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    mockDynamoDBUtil.delete.mockResolvedValueOnce(undefined);
+
+    const result = await service.deleteCredential("crd-003");
+
+    expect(result.result).toBe(true);
+    expect(mockDynamoDBUtil.delete).toHaveBeenCalledTimes(1);
   });
 });

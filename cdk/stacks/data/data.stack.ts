@@ -6,8 +6,7 @@ import { ClientsDataStack } from "./clients-data.stack";
 import { AffiliatesDataStack } from "./affiliates-data.stack";
 import { CampaignsDataStack } from "./campaigns-data.stack";
 import { LeadsDataStack } from "./leads-data.stack";
-import { CredentialsDataStack } from "./credentials-data.stack";
-import { PluginSchemasDataStack } from "./plugin-schemas-data.stack";
+import { TenantSettingsDataStack } from "./tenant-settings-data.stack";
 
 /**
  * Main Data Stack
@@ -17,8 +16,8 @@ export class DataStack extends Stack {
   public readonly affiliatesTable: Table;
   public readonly campaignsTable: Table;
   public readonly leadsTable: Table;
-  public readonly credentialsTable: Table;
-  public readonly pluginSchemasTable: Table;
+  /** Consolidated single table for credentials, credential schemas, and plugin settings */
+  public readonly tenantSettingsTable: Table;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -61,20 +60,11 @@ export class DataStack extends Stack {
       },
     );
 
-    const credentialsDataStack = new CredentialsDataStack(
+    const tenantSettingsDataStack = new TenantSettingsDataStack(
       this,
-      `${config.appPrefix}-CredentialsData`,
+      `${config.appPrefix}-TenantSettingsData`,
       {
-        tableConfig: dataConfig.tables.credentials,
-        logicalIdPrefix: config.appPrefix,
-      },
-    );
-
-    const pluginSchemasDataStack = new PluginSchemasDataStack(
-      this,
-      `${config.appPrefix}-PluginSchemasData`,
-      {
-        tableConfig: dataConfig.tables.pluginSchemas,
+        tableConfig: dataConfig.tables.tenantSettings,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -83,19 +73,13 @@ export class DataStack extends Stack {
     this.affiliatesTable = affiliatesDataStack.table;
     this.campaignsTable = campaignsDataStack.table;
     this.leadsTable = leadsDataStack.table;
-    this.credentialsTable = credentialsDataStack.table;
-    this.pluginSchemasTable = pluginSchemasDataStack.table;
+    this.tenantSettingsTable = tenantSettingsDataStack.table;
 
-    new CfnOutput(this, `${config.appPrefix}-CredentialsTableName`, {
-      value: this.credentialsTable.tableName,
-      description: "Credentials DynamoDB table name",
-      exportName: `${config.appPrefix}-credentials-table-name`,
-    });
-
-    new CfnOutput(this, `${config.appPrefix}-PluginSchemasTableName`, {
-      value: this.pluginSchemasTable.tableName,
-      description: "Plugin Schemas DynamoDB table name",
-      exportName: `${config.appPrefix}-plugin-schemas-table-name`,
+    new CfnOutput(this, `${config.appPrefix}-TenantSettingsTableName`, {
+      value: this.tenantSettingsTable.tableName,
+      description:
+        "Tenant Settings DynamoDB table name (credentials, schemas, plugin settings)",
+      exportName: `${config.appPrefix}-tenant-settings-table-name`,
     });
 
     if (config.tags) {

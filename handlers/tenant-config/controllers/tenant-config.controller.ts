@@ -16,7 +16,10 @@ import { TenantConfigService } from "../services/tenant-config.service";
 import {
   CreateCredentialRequest,
   UpdateCredentialRequest,
-  CreatePluginSchemaRequest,
+  CreateCredentialSchemaRequest,
+  UpdateCredentialSchemaRequest,
+  SetPluginSettingRequest,
+  UpdatePluginSettingRequest,
 } from "../types/tenant-config-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
@@ -37,7 +40,7 @@ export class TenantConfigController extends Controller {
     );
   }
 
-  // ── Credential CRUD ─────────────────────────────────────────────────────────
+  // ── Credentials ─────────────────────────────────────────────────────────────
 
   @POST("/credentials")
   @produces("application/json")
@@ -48,15 +51,12 @@ export class TenantConfigController extends Controller {
       payload,
       this.getActor(),
     );
-
-    if (!result.result) {
+    if (!result.result)
       return {
         success: false,
         message: "Failed to create credential",
         error: result.error,
       };
-    }
-
     return {
       success: true,
       message: "Credential created successfully",
@@ -68,17 +68,18 @@ export class TenantConfigController extends Controller {
   @produces("application/json")
   async listCredentials(
     @queryParam("provider") provider?: string,
+    @queryParam("includeDeleted") includeDeleted?: string,
   ): Promise<RestApiResponse> {
-    const result = await this.service.listCredentials(provider);
-
-    if (!result.result) {
+    const result = await this.service.listCredentials(
+      provider,
+      includeDeleted === "true",
+    );
+    if (!result.result)
       return {
         success: false,
         message: "Failed to list credentials",
         error: result.error,
       };
-    }
-
     return {
       success: true,
       message: "Credentials retrieved successfully",
@@ -88,19 +89,14 @@ export class TenantConfigController extends Controller {
 
   @GET("/credentials/:id")
   @produces("application/json")
-  async getCredential(
-    @pathParam("id") id: string,
-  ): Promise<RestApiResponse> {
+  async getCredential(@pathParam("id") id: string): Promise<RestApiResponse> {
     const result = await this.service.getCredential(id);
-
-    if (!result.result) {
+    if (!result.result)
       return {
         success: false,
         message: "Credential not found",
         error: result.error,
       };
-    }
-
     return {
       success: true,
       message: "Credential retrieved successfully",
@@ -119,15 +115,12 @@ export class TenantConfigController extends Controller {
       payload,
       this.getActor(),
     );
-
-    if (!result.result) {
+    if (!result.result)
       return {
         success: false,
         message: "Failed to update credential",
         error: result.error,
       };
-    }
-
     return {
       success: true,
       message: "Credential updated successfully",
@@ -139,21 +132,41 @@ export class TenantConfigController extends Controller {
   @produces("application/json")
   async deleteCredential(
     @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
   ): Promise<RestApiResponse> {
-    const result = await this.service.deleteCredential(id);
-
-    if (!result.result) {
+    const result = await this.service.deleteCredential(
+      id,
+      { permanent: permanent === "true" },
+      this.getActor(),
+    );
+    if (!result.result)
       return {
         success: false,
         message: "Failed to delete credential",
         error: result.error,
       };
-    }
-
     return {
       success: true,
-      message: "Credential deleted successfully",
+      message:
+        permanent === "true"
+          ? "Credential permanently deleted"
+          : "Credential deleted",
     };
+  }
+
+  @PUT("/credentials/:id/restore")
+  @produces("application/json")
+  async restoreCredential(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.restoreCredential(id, this.getActor());
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to restore credential",
+        error: result.error,
+      };
+    return { success: true, message: "Credential restored", data: result.data };
   }
 
   @PUT("/credentials/:id/disable")
@@ -162,20 +175,13 @@ export class TenantConfigController extends Controller {
     @pathParam("id") id: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.disableCredential(id, this.getActor());
-
-    if (!result.result) {
+    if (!result.result)
       return {
         success: false,
         message: "Failed to disable credential",
         error: result.error,
       };
-    }
-
-    return {
-      success: true,
-      message: "Credential disabled",
-      data: result.data,
-    };
+    return { success: true, message: "Credential disabled", data: result.data };
   }
 
   @PUT("/credentials/:id/enable")
@@ -184,124 +190,343 @@ export class TenantConfigController extends Controller {
     @pathParam("id") id: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.enableCredential(id, this.getActor());
-
-    if (!result.result) {
+    if (!result.result)
       return {
         success: false,
         message: "Failed to enable credential",
         error: result.error,
       };
-    }
-
-    return {
-      success: true,
-      message: "Credential enabled",
-      data: result.data,
-    };
+    return { success: true, message: "Credential enabled", data: result.data };
   }
-  // ── Plugin Schemas ─────────────────────────────────────────────────────────
 
-  @POST("/plugin-schemas")
+  // ── Credential Schemas ──────────────────────────────────────────────────────
+
+  @POST("/credential-schemas")
   @produces("application/json")
-  async createPluginSchema(
-    @body payload: CreatePluginSchemaRequest,
+  async createCredentialSchema(
+    @body payload: CreateCredentialSchemaRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.service.createPluginSchema(
+    const result = await this.service.createCredentialSchema(
       payload,
       this.getActor(),
     );
-
-    if (!result.result) {
+    if (!result.result)
       return {
         success: false,
-        message: "Failed to create plugin schema",
+        message: "Failed to create credential schema",
         error: result.error,
       };
-    }
-
     return {
       success: true,
-      message: "Plugin schema created successfully",
+      message: "Credential schema created successfully",
       data: result.data,
     };
   }
 
-  @GET("/plugin-schemas")
+  @GET("/credential-schemas")
   @produces("application/json")
-  async listPluginSchemas(): Promise<RestApiResponse> {
-    const result = await this.service.listPluginSchemas();
-
-    if (!result.result) {
+  async listCredentialSchemas(
+    @queryParam("includeDeleted") includeDeleted?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.listCredentialSchemas(
+      includeDeleted === "true",
+    );
+    if (!result.result)
       return {
         success: false,
-        message: "Failed to list plugin schemas",
+        message: "Failed to list credential schemas",
         error: result.error,
       };
-    }
-
     return {
       success: true,
-      message: "Plugin schemas retrieved successfully",
+      message: "Credential schemas retrieved successfully",
       data: result.data,
     };
   }
 
-  @GET("/plugin-schemas/:id")
+  @GET("/credential-schemas/:id")
   @produces("application/json")
-  async getPluginSchema(
+  async getCredentialSchema(
     @pathParam("id") id: string,
   ): Promise<RestApiResponse> {
-    const result = await this.service.getPluginSchema(id);
-
-    if (!result.result) {
+    const result = await this.service.getCredentialSchema(id);
+    if (!result.result)
       return {
         success: false,
-        message: "Plugin schema not found",
+        message: "Credential schema not found",
         error: result.error,
       };
-    }
-
     return {
       success: true,
-      message: "Plugin schema retrieved successfully",
+      message: "Credential schema retrieved successfully",
       data: result.data,
     };
   }
-  // ── TrustedForm ad-hoc validate ─────────────────────────────────────────────
 
-  /**   * POST /tenant-config/trusted-form/check-cert
-   * Validates a TrustedForm certificate using the stored TrustedForm credential.
-   * Body: { cert_id: string, credentials_id?: string }
-   * If credentials_id is omitted the first active trusted_form credential is used.
-   * Returns the raw TrustedForm validate response.
-   */
-  @POST("/trusted-form/check-cert")
+  @PUT("/credential-schemas/:id")
   @produces("application/json")
-  async checkTrustedFormCert(
-    @body payload: { cert_id: string; credentials_id?: string },
+  async updateCredentialSchema(
+    @pathParam("id") id: string,
+    @body payload: UpdateCredentialSchemaRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.service.checkCert(
-      payload?.cert_id,
-      payload?.credentials_id,
+    const result = await this.service.updateCredentialSchema(
+      id,
+      payload,
+      this.getActor(),
     );
-    if (!result.result) {
-      return { success: false, error: result.error };
-    }
-    return { success: true, message: "TrustedForm certificate checked", data: result.data };
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to update credential schema",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Credential schema updated successfully",
+      data: result.data,
+    };
   }
 
-  @POST("/trusted-form/validate")
+  @DELETE("/credential-schemas/:id")
   @produces("application/json")
-  async validateTrustedForm(
-    @body payload: { credentials_id: string; cert_id: string },
+  async deleteCredentialSchema(
+    @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
   ): Promise<RestApiResponse> {
-    const result = await this.service.validateTrustedFormCert(
-      payload?.cert_id,
-      payload?.credentials_id,
+    const result = await this.service.deleteCredentialSchema(
+      id,
+      { permanent: permanent === "true" },
+      this.getActor(),
     );
-    if (!result.result) {
-      return { success: false, error: result.error };
-    }
-    return { success: true, message: "TrustedForm certificate validated", data: result.data };
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to delete credential schema",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message:
+        permanent === "true"
+          ? "Credential schema permanently deleted"
+          : "Credential schema deleted",
+    };
+  }
+
+  @PUT("/credential-schemas/:id/restore")
+  @produces("application/json")
+  async restoreCredentialSchema(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.restoreCredentialSchema(
+      id,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to restore credential schema",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Credential schema restored",
+      data: result.data,
+    };
+  }
+
+  // ── Plugin Settings ─────────────────────────────────────────────────────────
+
+  @GET("/plugin-settings")
+  @produces("application/json")
+  async listPluginSettings(
+    @queryParam("includeDeleted") includeDeleted?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.listPluginSettings(
+      includeDeleted === "true",
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to list plugin settings",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin settings retrieved successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * GET /tenant-config/plugin-settings/:schemaId
+   * Returns the global plugin setting for the given credential schema ID.
+   */
+  @GET("/plugin-settings/:schemaId")
+  @produces("application/json")
+  async getPluginSetting(
+    @pathParam("schemaId") schemaId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.getPluginSetting(schemaId);
+    if (!result.result)
+      return {
+        success: false,
+        message: "Plugin setting not found",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin setting retrieved successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * PUT /tenant-config/plugin-settings/:schemaId
+   * Upsert the global default plugin setting for the given credential schema.
+   * Body: { credentials_id: string, enabled?: boolean }
+   */
+  @PUT("/plugin-settings/:schemaId")
+  @produces("application/json")
+  async setPluginSetting(
+    @pathParam("schemaId") schemaId: string,
+    @body payload: SetPluginSettingRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.setPluginSetting(
+      schemaId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to set plugin setting",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin setting saved successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * PATCH /tenant-config/plugin-settings/:schemaId
+   * Partially update the plugin setting credentials_id or enabled flag.
+   */
+  @PUT("/plugin-settings/:schemaId/update")
+  @produces("application/json")
+  async updatePluginSetting(
+    @pathParam("schemaId") schemaId: string,
+    @body payload: UpdatePluginSettingRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.updatePluginSetting(
+      schemaId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to update plugin setting",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin setting updated successfully",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/plugin-settings/:schemaId")
+  @produces("application/json")
+  async deletePluginSetting(
+    @pathParam("schemaId") schemaId: string,
+    @queryParam("permanent") permanent?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.deletePluginSetting(
+      schemaId,
+      { permanent: permanent === "true" },
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to delete plugin setting",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message:
+        permanent === "true"
+          ? "Plugin setting permanently deleted"
+          : "Plugin setting deleted",
+    };
+  }
+
+  @PUT("/plugin-settings/:schemaId/disable")
+  @produces("application/json")
+  async disablePluginSetting(
+    @pathParam("schemaId") schemaId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.disablePluginSetting(
+      schemaId,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to disable plugin setting",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin setting disabled",
+      data: result.data,
+    };
+  }
+
+  @PUT("/plugin-settings/:schemaId/enable")
+  @produces("application/json")
+  async enablePluginSetting(
+    @pathParam("schemaId") schemaId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.enablePluginSetting(
+      schemaId,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to enable plugin setting",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin setting enabled",
+      data: result.data,
+    };
+  }
+
+  @PUT("/plugin-settings/:schemaId/restore")
+  @produces("application/json")
+  async restorePluginSetting(
+    @pathParam("schemaId") schemaId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.restorePluginSetting(
+      schemaId,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to restore plugin setting",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Plugin setting restored",
+      data: result.data,
+    };
   }
 }

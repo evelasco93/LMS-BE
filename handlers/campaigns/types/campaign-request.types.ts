@@ -3,6 +3,7 @@ import { CampaignParticipantStatus } from "../enums/campaign-participant-status.
 import {
   DuplicateCheckCriteriaField,
   IDuplicateCheckPluginConfig,
+  IIpqsPluginConfig,
   ITrustedFormPluginConfig,
 } from "../interfaces/ICampaign.interface";
 
@@ -35,6 +36,7 @@ export type UpdateCampaignPluginsRequest = {
     criteria?: DuplicateCheckCriteriaField[];
   };
   trusted_form?: Partial<ITrustedFormPluginConfig>;
+  ipqs?: Partial<IIpqsPluginConfig>;
 };
 
 export type ListCampaignsQuery = {

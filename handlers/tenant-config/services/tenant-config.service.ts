@@ -1,19 +1,23 @@
 import { inject, injectable } from "inversify";
-import https from "https";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { encrypt, decrypt } from "@shared/utils/crypto.util";
+import { IEditHistoryEntry } from "@shared/utils/request-audit.util";
 import { TenantConfigConstants } from "../constants/tenant-config.constants";
 import {
   CredentialType,
   TenantCredentialRecord,
-  IPluginSchemaRecord,
+  ICredentialSchemaRecord,
+  IPluginSettingRecord,
 } from "../interfaces/ITenantConfig.interface";
 import {
   CreateCredentialRequest,
   UpdateCredentialRequest,
-  CreatePluginSchemaRequest,
+  CreateCredentialSchemaRequest,
+  UpdateCredentialSchemaRequest,
+  SetPluginSettingRequest,
+  UpdatePluginSettingRequest,
 } from "../types/tenant-config-request.types";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
@@ -34,52 +38,69 @@ export class TenantConfigService {
     private readonly constants: TenantConfigConstants,
   ) {}
 
+  // ── Index name helpers ─────────────────────────────────────────────────────
+
+  private get typeIndex(): string {
+    return `${this.constants.TENANT_SETTINGS_TABLE_NAME}-type-index`;
+  }
+
+  private get typeProviderIndex(): string {
+    return `${this.constants.TENANT_SETTINGS_TABLE_NAME}-type-provider-index`;
+  }
+
+  private get schemaIdIndex(): string {
+    return `${this.constants.TENANT_SETTINGS_TABLE_NAME}-schema-id-index`;
+  }
+
+  // ── Credential CRUD ────────────────────────────────────────────────────────
+
   async createCredential(
     request: CreateCredentialRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
       const provider = request.provider?.trim().toLowerCase();
-      if (!provider) {
-        return { result: false, error: "provider is required" };
-      }
-      if (!request.name?.trim()) {
+      if (!provider) return { result: false, error: "provider is required" };
+      if (!request.name?.trim())
         return { result: false, error: "name is required" };
-      }
-      if (!request.type) {
-        return { result: false, error: "type is required" };
-      }
+      if (!request.credential_type)
+        return { result: false, error: "credential_type is required" };
 
-      const credentialsValidation = this.validateCredentials(
-        request.type,
+      const validation = this.validateCredentials(
+        request.credential_type,
         request.credentials,
       );
-      if (!credentialsValidation.result) {
-        return { result: false, error: credentialsValidation.error };
-      }
+      if (!validation.result) return { result: false, error: validation.error };
 
       const now = new Date().toISOString();
       const record: TenantCredentialRecord = {
         id: IdGenerator.generateCredentialId(),
+        type: "credential",
         provider,
+        schema_id: request.schema_id?.trim() || undefined,
         name: request.name.trim(),
-        type: request.type,
+        credential_type: request.credential_type,
         credentials: this.encryptCredentials(
-          request.type,
+          request.credential_type,
           request.credentials,
         ),
         vendor: request.vendor?.trim() || undefined,
+        enabled: true,
         created_at: now,
         updated_at: now,
         created_by: actor,
         updated_by: actor,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+        edit_history: [],
       };
 
       await this.dynamoDBUtil.put({
-        TableName: this.constants.CREDENTIALS_TABLE_NAME,
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: record,
       });
-
       this.logger.info("Credential created", { id: record.id, provider });
       return { result: true, data: this.decryptRecord(record) };
     } catch (error: any) {
@@ -97,30 +118,63 @@ export class TenantConfigService {
     actor?: RequestActor,
   ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
-      const existing = await this.getRecordById(id);
-      if (!existing) {
-        return { result: false, error: "Credential not found" };
-      }
+      const existing = await this.getCredentialById(id);
+      if (!existing) return { result: false, error: "Credential not found" };
+      if (existing.is_deleted)
+        return { result: false, error: "Cannot update a deleted credential" };
 
-      const type = request.type ?? existing.type;
-
+      const credentialType =
+        request.credential_type ?? existing.credential_type;
       if (request.credentials) {
-        const credentialsValidation = this.validateCredentials(
-          type,
+        const validation = this.validateCredentials(
+          credentialType,
           request.credentials,
         );
-        if (!credentialsValidation.result) {
-          return { result: false, error: credentialsValidation.error };
-        }
+        if (!validation.result)
+          return { result: false, error: validation.error };
       }
 
       const now = new Date().toISOString();
+      const tracked: Array<keyof TenantCredentialRecord> = [
+        "name",
+        "credential_type",
+        "vendor",
+        "enabled",
+      ];
+      const historyEntries: IEditHistoryEntry[] = [];
+
+      for (const key of tracked) {
+        const prev = existing[key];
+        const next = (request as any)[key];
+        if (
+          next !== undefined &&
+          JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)
+        ) {
+          historyEntries.push({
+            field: key,
+            previous_value: prev ?? null,
+            new_value: next,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+      }
+      if (request.credentials) {
+        historyEntries.push({
+          field: "credentials",
+          previous_value: "[redacted]",
+          new_value: "[updated]",
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+
       const updated: TenantCredentialRecord = {
         ...existing,
         name: request.name?.trim() ?? existing.name,
-        type,
+        credential_type: credentialType,
         credentials: request.credentials
-          ? this.encryptCredentials(type, request.credentials)
+          ? this.encryptCredentials(credentialType, request.credentials)
           : existing.credentials,
         vendor:
           request.vendor !== undefined
@@ -128,13 +182,13 @@ export class TenantConfigService {
             : existing.vendor,
         updated_at: now,
         updated_by: actor,
+        edit_history: [...(existing.edit_history ?? []), ...historyEntries],
       };
 
       await this.dynamoDBUtil.put({
-        TableName: this.constants.CREDENTIALS_TABLE_NAME,
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-
       this.logger.info("Credential updated", { id });
       return { result: true, data: this.decryptRecord(updated) };
     } catch (error: any) {
@@ -150,13 +204,10 @@ export class TenantConfigService {
     id: string,
   ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
-      const record = await this.getRecordById(id);
-      if (!record) {
-        return { result: false, error: "Credential not found" };
-      }
+      const record = await this.getCredentialById(id);
+      if (!record) return { result: false, error: "Credential not found" };
       return { result: true, data: this.decryptRecord(record) };
     } catch (error: any) {
-      this.logger.error("Failed to get credential", error);
       return {
         result: false,
         error: error?.message || "Failed to get credential",
@@ -166,29 +217,53 @@ export class TenantConfigService {
 
   async listCredentials(
     provider?: string,
+    includeDeleted = false,
   ): Promise<ServiceResult<TenantCredentialRecord[]>> {
     try {
       let records: TenantCredentialRecord[];
 
       if (provider) {
-        const normalizedProvider = provider.trim().toLowerCase();
         records = await this.dynamoDBUtil.queryAll<TenantCredentialRecord>({
-          TableName: this.constants.CREDENTIALS_TABLE_NAME,
-          IndexName: `${this.constants.CREDENTIALS_TABLE_NAME}-provider-index`,
-          KeyConditionExpression: "#provider = :provider",
-          ExpressionAttributeNames: { "#provider": "provider" },
-          ExpressionAttributeValues: { ":provider": normalizedProvider },
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          IndexName: this.typeProviderIndex,
+          KeyConditionExpression: "#t = :type AND #p = :provider",
+          ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
+          ExpressionAttributeValues: {
+            ":type": "credential",
+            ":provider": provider.trim().toLowerCase(),
+          },
+          ...(includeDeleted
+            ? {}
+            : {
+                FilterExpression:
+                  "attribute_not_exists(is_deleted) OR is_deleted = :f",
+                ExpressionAttributeValues: {
+                  ":type": "credential",
+                  ":provider": provider.trim().toLowerCase(),
+                  ":f": false,
+                },
+              }),
         });
       } else {
-        records = await this.dynamoDBUtil.scanAll<TenantCredentialRecord>({
-          TableName: this.constants.CREDENTIALS_TABLE_NAME,
+        records = await this.dynamoDBUtil.queryAll<TenantCredentialRecord>({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          IndexName: this.typeIndex,
+          KeyConditionExpression: "#t = :type",
+          ExpressionAttributeNames: { "#t": "type" },
+          ExpressionAttributeValues: {
+            ":type": "credential",
+            ...(includeDeleted ? {} : { ":f": false }),
+          },
+          ...(includeDeleted
+            ? {}
+            : {
+                FilterExpression:
+                  "attribute_not_exists(is_deleted) OR is_deleted = :f",
+              }),
         });
       }
 
-      return {
-        result: true,
-        data: records.map((r) => this.decryptRecord(r)),
-      };
+      return { result: true, data: records.map((r) => this.decryptRecord(r)) };
     } catch (error: any) {
       this.logger.error("Failed to list credentials", error);
       return {
@@ -198,19 +273,59 @@ export class TenantConfigService {
     }
   }
 
-  async deleteCredential(id: string): Promise<ServiceResult<void>> {
+  async deleteCredential(
+    id: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
     try {
-      const existing = await this.getRecordById(id);
-      if (!existing) {
-        return { result: false, error: "Credential not found" };
+      const existing = await this.getCredentialById(id);
+      if (!existing) return { result: false, error: "Credential not found" };
+
+      // Safeguard: check if any plugin_setting references this credential
+      const referencingSettings =
+        await this.findPluginSettingsByCredentialId(id);
+      if (referencingSettings.length > 0) {
+        return {
+          result: false,
+          error: `Cannot delete credential — it is referenced by ${referencingSettings.length} plugin setting(s). Remove the plugin setting first.`,
+        };
       }
 
-      await this.dynamoDBUtil.delete({
-        TableName: this.constants.CREDENTIALS_TABLE_NAME,
-        Key: { id },
-      });
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Key: { id },
+        });
+        this.logger.info("Credential hard-deleted", { id });
+      } else {
+        const now = new Date().toISOString();
+        const updated: TenantCredentialRecord = {
+          ...existing,
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor ?? null,
+          updated_at: now,
+          updated_by: actor,
+          edit_history: [
+            ...(existing.edit_history ?? []),
+            {
+              field: "is_deleted",
+              previous_value: false,
+              new_value: true,
+              changed_at: now,
+              changed_by: actor,
+            },
+          ],
+        };
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Item: updated,
+        });
+        this.logger.info("Credential soft-deleted", { id });
+      }
 
-      this.logger.info("Credential deleted", { id });
       return { result: true };
     } catch (error: any) {
       this.logger.error("Failed to delete credential", error);
@@ -221,52 +336,38 @@ export class TenantConfigService {
     }
   }
 
-  /**
-   * Fetches a raw (encrypted) record by ID. Used internally and by the
-   * TrustedForm validate endpoint which passes the decrypted credential
-   * to the TrustedForm API call.
-   */
-  async getRawCredential(
-    id: string,
-  ): Promise<ServiceResult<TenantCredentialRecord>> {
-    try {
-      const record = await this.getRecordById(id);
-      if (!record) {
-        return { result: false, error: "Credential not found" };
-      }
-      return { result: true, data: this.decryptRecord(record) };
-    } catch (error: any) {
-      this.logger.error("Failed to get raw credential", error);
-      return {
-        result: false,
-        error: error?.message || "Failed to get raw credential",
-      };
-    }
-  }
-  // ── Credential disable / enable ───────────────────────────────────────────
-
   async disableCredential(
     id: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
-      const existing = await this.getRecordById(id);
-      if (!existing) {
-        return { result: false, error: "Credential not found" };
-      }
+      const existing = await this.getCredentialById(id);
+      if (!existing) return { result: false, error: "Credential not found" };
+      if (existing.is_deleted)
+        return { result: false, error: "Cannot disable a deleted credential" };
 
+      const now = new Date().toISOString();
       const updated: TenantCredentialRecord = {
         ...existing,
         enabled: false,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
         updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "enabled",
+            previous_value: existing.enabled,
+            new_value: false,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
       };
 
       await this.dynamoDBUtil.put({
-        TableName: this.constants.CREDENTIALS_TABLE_NAME,
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-
       this.logger.info("Credential disabled", { id });
       return { result: true, data: this.decryptRecord(updated) };
     } catch (error: any) {
@@ -283,23 +384,33 @@ export class TenantConfigService {
     actor?: RequestActor,
   ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
-      const existing = await this.getRecordById(id);
-      if (!existing) {
-        return { result: false, error: "Credential not found" };
-      }
+      const existing = await this.getCredentialById(id);
+      if (!existing) return { result: false, error: "Credential not found" };
+      if (existing.is_deleted)
+        return { result: false, error: "Cannot enable a deleted credential" };
 
+      const now = new Date().toISOString();
       const updated: TenantCredentialRecord = {
         ...existing,
         enabled: true,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
         updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "enabled",
+            previous_value: existing.enabled,
+            new_value: true,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
       };
 
       await this.dynamoDBUtil.put({
-        TableName: this.constants.CREDENTIALS_TABLE_NAME,
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-
       this.logger.info("Credential enabled", { id });
       return { result: true, data: this.decryptRecord(updated) };
     } catch (error: any) {
@@ -311,67 +422,120 @@ export class TenantConfigService {
     }
   }
 
-  /** Finds the first active TrustedForm (basic_auth) credential for use by the check-cert endpoint */
-  async findDefaultTrustedFormCredential(): Promise<ServiceResult<TenantCredentialRecord>> {
+  async restoreCredential(
+    id: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<TenantCredentialRecord>> {
+    try {
+      const existing = await this.getCredentialById(id);
+      if (!existing) return { result: false, error: "Credential not found" };
+      if (!existing.is_deleted)
+        return { result: false, error: "Credential is not deleted" };
+
+      const now = new Date().toISOString();
+      const updated: TenantCredentialRecord = {
+        ...existing,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "is_deleted",
+            previous_value: true,
+            new_value: false,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+      this.logger.info("Credential restored", { id });
+      return { result: true, data: this.decryptRecord(updated) };
+    } catch (error: any) {
+      this.logger.error("Failed to restore credential", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to restore credential",
+      };
+    }
+  }
+
+  /**
+   * Finds the first active credential for a given provider.
+   * Used by the QA orchestrator to auto-resolve credentials from global plugin settings.
+   */
+  async findDefaultCredentialForProvider(
+    provider: string,
+  ): Promise<ServiceResult<TenantCredentialRecord>> {
     try {
       const records = await this.dynamoDBUtil.queryAll<TenantCredentialRecord>({
-        TableName: this.constants.CREDENTIALS_TABLE_NAME,
-        IndexName: `${this.constants.CREDENTIALS_TABLE_NAME}-provider-index`,
-        KeyConditionExpression: "#provider = :provider",
-        ExpressionAttributeNames: { "#provider": "provider" },
-        ExpressionAttributeValues: { ":provider": "trusted_form" },
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        IndexName: this.typeProviderIndex,
+        KeyConditionExpression: "#t = :type AND #p = :provider",
+        FilterExpression:
+          "enabled = :enabled AND (attribute_not_exists(is_deleted) OR is_deleted = :f)",
+        ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
+        ExpressionAttributeValues: {
+          ":type": "credential",
+          ":provider": provider,
+          ":enabled": true,
+          ":f": false,
+        },
       });
-      const active = records.find((r) => r.enabled !== false);
+      const active = records[0];
       if (!active) {
         return {
           result: false,
-          error: "No active TrustedForm credential found — create one at POST /tenant-config/credentials",
+          error: `No active credential found for provider "${provider}"`,
         };
       }
       return { result: true, data: this.decryptRecord(active) };
     } catch (error: any) {
-      this.logger.error("Failed to find default TrustedForm credential", error);
+      this.logger.error("Failed to find default credential", error);
       return {
         result: false,
-        error: error?.message || "Failed to find TrustedForm credential",
+        error: error?.message || "Failed to find default credential",
       };
     }
   }
-  // ── Plugin Schemas ─────────────────────────────────────────────────────────
 
-  async createPluginSchema(
-    request: CreatePluginSchemaRequest,
+  // ── Credential Schemas ─────────────────────────────────────────────────────
+
+  async createCredentialSchema(
+    request: CreateCredentialSchemaRequest,
     actor?: RequestActor,
-  ): Promise<ServiceResult<IPluginSchemaRecord>> {
+  ): Promise<ServiceResult<ICredentialSchemaRecord>> {
     try {
       const provider = request.provider?.trim().toLowerCase();
-      if (!provider) {
-        return { result: false, error: "provider is required" };
-      }
-      if (!request.name?.trim()) {
+      if (!provider) return { result: false, error: "provider is required" };
+      if (!request.name?.trim())
         return { result: false, error: "name is required" };
-      }
-      if (!request.credential_type) {
+      if (!request.credential_type)
         return { result: false, error: "credential_type is required" };
-      }
-      if (!Array.isArray(request.fields) || request.fields.length === 0) {
+      if (!Array.isArray(request.fields) || request.fields.length === 0)
         return { result: false, error: "fields must be a non-empty array" };
-      }
+
       for (const field of request.fields) {
-        if (!field.name?.trim()) {
+        if (!field.name?.trim())
           return { result: false, error: "Each field must have a name" };
-        }
-        if (!field.label?.trim()) {
+        if (!field.label?.trim())
           return { result: false, error: "Each field must have a label" };
-        }
-        if (!field.type) {
+        if (!field.type)
           return { result: false, error: "Each field must have a type" };
-        }
       }
 
       const now = new Date().toISOString();
-      const record: IPluginSchemaRecord = {
-        id: IdGenerator.generatePluginSchemaId(),
+      const record: ICredentialSchemaRecord = {
+        id: IdGenerator.generateCredentialSchemaId(),
+        type: "credential_schema",
         provider,
         name: request.name.trim(),
         credential_type: request.credential_type,
@@ -381,193 +545,831 @@ export class TenantConfigService {
         updated_at: now,
         created_by: actor,
         updated_by: actor,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+        edit_history: [],
       };
 
       await this.dynamoDBUtil.put({
-        TableName: this.constants.PLUGIN_SCHEMAS_TABLE_NAME,
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: record,
       });
-
-      this.logger.info("Plugin schema created", { id: record.id, provider });
+      this.logger.info("Credential schema created", {
+        id: record.id,
+        provider,
+      });
       return { result: true, data: record };
     } catch (error: any) {
-      this.logger.error("Failed to create plugin schema", error);
+      this.logger.error("Failed to create credential schema", error);
       return {
         result: false,
-        error: error?.message || "Failed to create plugin schema",
+        error: error?.message || "Failed to create credential schema",
       };
     }
   }
 
-  async listPluginSchemas(): Promise<ServiceResult<IPluginSchemaRecord[]>> {
+  async updateCredentialSchema(
+    id: string,
+    request: UpdateCredentialSchemaRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICredentialSchemaRecord>> {
     try {
-      const records = await this.dynamoDBUtil.scanAll<IPluginSchemaRecord>({
-        TableName: this.constants.PLUGIN_SCHEMAS_TABLE_NAME,
+      const existing = await this.getCredentialSchemaById(id);
+      if (!existing)
+        return { result: false, error: "Credential schema not found" };
+      if (existing.is_deleted)
+        return {
+          result: false,
+          error: "Cannot update a deleted credential schema",
+        };
+
+      const now = new Date().toISOString();
+      const historyEntries: IEditHistoryEntry[] = [];
+
+      if (request.name !== undefined && request.name !== existing.name) {
+        historyEntries.push({
+          field: "name",
+          previous_value: existing.name,
+          new_value: request.name,
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+      if (
+        request.description !== undefined &&
+        request.description !== existing.description
+      ) {
+        historyEntries.push({
+          field: "description",
+          previous_value: existing.description ?? null,
+          new_value: request.description,
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+      if (request.fields !== undefined) {
+        historyEntries.push({
+          field: "fields",
+          previous_value: JSON.stringify(existing.fields),
+          new_value: JSON.stringify(request.fields),
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+
+      const updated: ICredentialSchemaRecord = {
+        ...existing,
+        name: request.name?.trim() ?? existing.name,
+        description:
+          request.description !== undefined
+            ? request.description?.trim() || undefined
+            : existing.description,
+        fields: request.fields ?? existing.fields,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [...(existing.edit_history ?? []), ...historyEntries],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+      this.logger.info("Credential schema updated", { id });
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update credential schema", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to update credential schema",
+      };
+    }
+  }
+
+  async listCredentialSchemas(
+    includeDeleted = false,
+  ): Promise<ServiceResult<ICredentialSchemaRecord[]>> {
+    try {
+      const records = await this.dynamoDBUtil.queryAll<ICredentialSchemaRecord>(
+        {
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          IndexName: this.typeIndex,
+          KeyConditionExpression: "#t = :type",
+          ExpressionAttributeNames: { "#t": "type" },
+          ExpressionAttributeValues: {
+            ":type": "credential_schema",
+            ...(includeDeleted ? {} : { ":f": false }),
+          },
+          ...(includeDeleted
+            ? {}
+            : {
+                FilterExpression:
+                  "attribute_not_exists(is_deleted) OR is_deleted = :f",
+              }),
+        },
+      );
+      return { result: true, data: records };
+    } catch (error: any) {
+      this.logger.error("Failed to list credential schemas", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to list credential schemas",
+      };
+    }
+  }
+
+  async getCredentialSchema(
+    id: string,
+  ): Promise<ServiceResult<ICredentialSchemaRecord>> {
+    try {
+      const record = await this.getCredentialSchemaById(id);
+      if (!record)
+        return { result: false, error: "Credential schema not found" };
+      return { result: true, data: record };
+    } catch (error: any) {
+      return {
+        result: false,
+        error: error?.message || "Failed to get credential schema",
+      };
+    }
+  }
+
+  async deleteCredentialSchema(
+    id: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const existing = await this.getCredentialSchemaById(id);
+      if (!existing)
+        return { result: false, error: "Credential schema not found" };
+
+      // Safeguard: block if any credential (including soft-deleted) still references this schema
+      const referencingCredentials = await this.findCredentialsBySchemaId(id);
+      if (referencingCredentials.length > 0) {
+        return {
+          result: false,
+          error: `Cannot delete credential schema — ${referencingCredentials.length} credential(s) reference it. Delete those credentials first.`,
+        };
+      }
+
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Key: { id },
+        });
+        this.logger.info("Credential schema hard-deleted", { id });
+      } else {
+        const now = new Date().toISOString();
+        const updated: ICredentialSchemaRecord = {
+          ...existing,
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor ?? null,
+          updated_at: now,
+          updated_by: actor,
+          edit_history: [
+            ...(existing.edit_history ?? []),
+            {
+              field: "is_deleted",
+              previous_value: false,
+              new_value: true,
+              changed_at: now,
+              changed_by: actor,
+            },
+          ],
+        };
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Item: updated,
+        });
+        this.logger.info("Credential schema soft-deleted", { id });
+      }
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete credential schema", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to delete credential schema",
+      };
+    }
+  }
+
+  async restoreCredentialSchema(
+    id: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICredentialSchemaRecord>> {
+    try {
+      const existing = await this.getCredentialSchemaById(id);
+      if (!existing)
+        return { result: false, error: "Credential schema not found" };
+      if (!existing.is_deleted)
+        return { result: false, error: "Credential schema is not deleted" };
+
+      const now = new Date().toISOString();
+      const updated: ICredentialSchemaRecord = {
+        ...existing,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "is_deleted",
+            previous_value: true,
+            new_value: false,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+      this.logger.info("Credential schema restored", { id });
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to restore credential schema", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to restore credential schema",
+      };
+    }
+  }
+
+  // ── Plugin Settings ────────────────────────────────────────────────────────
+
+  /**
+   * Upsert the global default plugin setting for a given schema.
+   * If a setting already exists for the schema_id it is overwritten.
+   */
+  async setPluginSetting(
+    schemaId: string,
+    request: SetPluginSettingRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPluginSettingRecord>> {
+    try {
+      if (!schemaId?.trim())
+        return { result: false, error: "schema_id is required" };
+      if (!request.credentials_id?.trim())
+        return { result: false, error: "credentials_id is required" };
+
+      // Verify the referenced schema exists
+      const schemaRecord = await this.getCredentialSchemaById(schemaId);
+      if (!schemaRecord)
+        return { result: false, error: "Credential schema not found" };
+
+      // Verify the referenced credential exists and is active
+      const credRecord = await this.getCredentialById(request.credentials_id);
+      if (!credRecord) return { result: false, error: "Credential not found" };
+      if (credRecord.is_deleted)
+        return { result: false, error: "Cannot link to a deleted credential" };
+
+      // Look for an existing setting for this schema so we can preserve its id and history
+      const existing = await this.getPluginSettingBySchemaId(schemaId);
+
+      const now = new Date().toISOString();
+      const historyEntries: IEditHistoryEntry[] = [];
+      if (existing) {
+        if (existing.credentials_id !== request.credentials_id) {
+          historyEntries.push({
+            field: "credentials_id",
+            previous_value: existing.credentials_id,
+            new_value: request.credentials_id,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+        if (
+          request.enabled !== undefined &&
+          existing.enabled !== request.enabled
+        ) {
+          historyEntries.push({
+            field: "enabled",
+            previous_value: existing.enabled,
+            new_value: request.enabled,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+      }
+
+      const record: IPluginSettingRecord = {
+        id: existing?.id ?? IdGenerator.generatePluginSettingId(),
+        type: "plugin_setting",
+        schema_id: schemaId,
+        credentials_id: request.credentials_id,
+        enabled: request.enabled ?? existing?.enabled ?? true,
+        created_at: existing?.created_at ?? now,
+        updated_at: now,
+        created_by: existing?.created_by ?? actor,
+        updated_by: actor,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+        edit_history: [...(existing?.edit_history ?? []), ...historyEntries],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: record,
+      });
+      this.logger.info("Plugin setting upserted", { id: record.id, schemaId });
+      return { result: true, data: record };
+    } catch (error: any) {
+      this.logger.error("Failed to set plugin setting", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to set plugin setting",
+      };
+    }
+  }
+
+  async getPluginSetting(
+    schemaId: string,
+  ): Promise<ServiceResult<IPluginSettingRecord>> {
+    try {
+      const record = await this.getPluginSettingBySchemaId(schemaId);
+      if (!record) return { result: false, error: "Plugin setting not found" };
+      return { result: true, data: record };
+    } catch (error: any) {
+      return {
+        result: false,
+        error: error?.message || "Failed to get plugin setting",
+      };
+    }
+  }
+
+  async listPluginSettings(
+    includeDeleted = false,
+  ): Promise<ServiceResult<IPluginSettingRecord[]>> {
+    try {
+      const records = await this.dynamoDBUtil.queryAll<IPluginSettingRecord>({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        IndexName: this.typeIndex,
+        KeyConditionExpression: "#t = :type",
+        ExpressionAttributeNames: { "#t": "type" },
+        ExpressionAttributeValues: {
+          ":type": "plugin_setting",
+          ...(includeDeleted ? {} : { ":f": false }),
+        },
+        ...(includeDeleted
+          ? {}
+          : {
+              FilterExpression:
+                "attribute_not_exists(is_deleted) OR is_deleted = :f",
+            }),
       });
       return { result: true, data: records };
     } catch (error: any) {
-      this.logger.error("Failed to list plugin schemas", error);
+      this.logger.error("Failed to list plugin settings", error);
       return {
         result: false,
-        error: error?.message || "Failed to list plugin schemas",
+        error: error?.message || "Failed to list plugin settings",
       };
     }
   }
 
-  async getPluginSchema(
-    id: string,
-  ): Promise<ServiceResult<IPluginSchemaRecord>> {
+  async updatePluginSetting(
+    schemaId: string,
+    request: UpdatePluginSettingRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      const record = await this.dynamoDBUtil.get<IPluginSchemaRecord>({
-        TableName: this.constants.PLUGIN_SCHEMAS_TABLE_NAME,
-        Key: { id },
+      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      if (!existing)
+        return { result: false, error: "Plugin setting not found" };
+      if (existing.is_deleted)
+        return {
+          result: false,
+          error: "Cannot update a deleted plugin setting",
+        };
+
+      if (request.credentials_id) {
+        const credRecord = await this.getCredentialById(request.credentials_id);
+        if (!credRecord)
+          return { result: false, error: "Credential not found" };
+        if (credRecord.is_deleted)
+          return {
+            result: false,
+            error: "Cannot link to a deleted credential",
+          };
+      }
+
+      const now = new Date().toISOString();
+      const historyEntries: IEditHistoryEntry[] = [];
+
+      if (
+        request.credentials_id &&
+        request.credentials_id !== existing.credentials_id
+      ) {
+        historyEntries.push({
+          field: "credentials_id",
+          previous_value: existing.credentials_id,
+          new_value: request.credentials_id,
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+      if (
+        request.enabled !== undefined &&
+        request.enabled !== existing.enabled
+      ) {
+        historyEntries.push({
+          field: "enabled",
+          previous_value: existing.enabled,
+          new_value: request.enabled,
+          changed_at: now,
+          changed_by: actor,
+        });
+      }
+
+      const updated: IPluginSettingRecord = {
+        ...existing,
+        credentials_id: request.credentials_id ?? existing.credentials_id,
+        enabled: request.enabled ?? existing.enabled,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [...(existing.edit_history ?? []), ...historyEntries],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
       });
-      if (!record) {
-        return { result: false, error: "Plugin schema not found" };
-      }
-      return { result: true, data: record };
-    } catch (error: any) {
-      this.logger.error("Failed to get plugin schema", error);
-      return {
-        result: false,
-        error: error?.message || "Failed to get plugin schema",
-      };
-    }
-  }
+      this.logger.info("Plugin setting updated", { schemaId });
 
-  // ── TrustedForm API operations ───────────────────────────────────────────────
-
-  /**
-   * Validates a TrustedForm certificate using an auto-resolved or explicit credential.
-   * If credentialsId is omitted, the first active trusted_form credential is used.
-   */
-  async checkCert(
-    certId: string,
-    credentialsId?: string,
-  ): Promise<ServiceResult<unknown>> {
-    try {
-      if (!certId?.trim()) {
-        return { result: false, error: "cert_id is required" };
-      }
-
-      const credResult = credentialsId
-        ? await this.getCredential(credentialsId)
-        : await this.findDefaultTrustedFormCredential();
-
-      if (!credResult.result || !credResult.data) {
-        return { result: false, error: credResult.error ?? "TrustedForm credential not found" };
-      }
-
-      return this.callTrustedFormApi(this.extractCertId(certId), credResult.data);
-    } catch (error: any) {
-      this.logger.error("checkCert failed", error);
-      return { result: false, error: error?.message || "check-cert failed" };
-    }
-  }
-
-  /**
-   * Validates a TrustedForm certificate using an explicitly supplied credential ID.
-   */
-  async validateTrustedFormCert(
-    certId: string,
-    credentialsId: string,
-  ): Promise<ServiceResult<unknown>> {
-    try {
-      if (!certId?.trim()) {
-        return { result: false, error: "cert_id is required" };
-      }
-      if (!credentialsId?.trim()) {
-        return { result: false, error: "credentials_id is required" };
-      }
-
-      const credResult = await this.getCredential(credentialsId);
-      if (!credResult.result || !credResult.data) {
-        return { result: false, error: credResult.error ?? "Credential not found" };
-      }
-
-      return this.callTrustedFormApi(this.extractCertId(certId), credResult.data);
-    } catch (error: any) {
-      this.logger.error("validateTrustedFormCert failed", error);
-      return { result: false, error: error?.message || "validate failed" };
-    }
-  }
-
-  // ── Private helpers ─────────────────────────────────────────────────────────
-
-  private extractCertId(input: string): string {
-    // Accepts a bare 40-char hex ID or a full https://cert.trustedform.com/... URL
-    const match = input.match(
-      /(?:https?:\/\/cert\.trustedform\.com\/)?([a-f0-9]{40})(?:\/.*)?$/i,
-    );
-    return match ? match[1] : input.trim();
-  }
-
-  private async callTrustedFormApi(
-    certId: string,
-    cred: TenantCredentialRecord,
-  ): Promise<ServiceResult<unknown>> {
-    if (cred.type !== "basic_auth") {
-      return {
-        result: false,
-        error: "TrustedForm credentials must be of type basic_auth",
-      };
-    }
-
-    const { username, password } = cred.credentials;
-    if (!username || !password) {
-      return {
-        result: false,
-        error: "TrustedForm credential missing username or password",
-      };
-    }
-
-    try {
-      const data = await new Promise<unknown>((resolve, reject) => {
-        const auth = Buffer.from(`${username}:${password}`).toString("base64");
-        const req = https.request(
-          {
-            hostname: "cert.trustedform.com",
-            path: `/${certId}/validate`,
-            method: "POST",
-            headers: {
-              Authorization: `Basic ${auth}`,
-              "Content-Type": "application/json",
-              Accept: "application/json",
-              "Api-Version": "4.0",
-              "Content-Length": 2,
+      // Cascade: if the plugin was just disabled, propagate to all campaigns
+      if (!updated.enabled) {
+        const schema = await this.getCredentialSchemaById(schemaId);
+        if (schema?.provider) {
+          this.cascadePluginDisableToAllCampaigns(schema.provider).catch(
+            (err) => {
+              this.logger.error(
+                "Failed to cascade plugin disable to campaigns",
+                err,
+              );
             },
+          );
+        }
+      }
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update plugin setting", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to update plugin setting",
+      };
+    }
+  }
+
+  async deletePluginSetting(
+    schemaId: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      if (!existing)
+        return { result: false, error: "Plugin setting not found" };
+
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Key: { id: existing.id },
+        });
+        this.logger.info("Plugin setting hard-deleted", {
+          schemaId,
+          id: existing.id,
+        });
+      } else {
+        const now = new Date().toISOString();
+        const updated: IPluginSettingRecord = {
+          ...existing,
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor ?? null,
+          updated_at: now,
+          updated_by: actor,
+          edit_history: [
+            ...(existing.edit_history ?? []),
+            {
+              field: "is_deleted",
+              previous_value: false,
+              new_value: true,
+              changed_at: now,
+              changed_by: actor,
+            },
+          ],
+        };
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Item: updated,
+        });
+        this.logger.info("Plugin setting soft-deleted", { schemaId });
+      }
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete plugin setting", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to delete plugin setting",
+      };
+    }
+  }
+
+  async disablePluginSetting(
+    schemaId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPluginSettingRecord>> {
+    try {
+      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      if (!existing)
+        return { result: false, error: "Plugin setting not found" };
+      if (existing.is_deleted)
+        return {
+          result: false,
+          error: "Cannot disable a deleted plugin setting",
+        };
+
+      const now = new Date().toISOString();
+      const updated: IPluginSettingRecord = {
+        ...existing,
+        enabled: false,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "enabled",
+            previous_value: existing.enabled,
+            new_value: false,
+            changed_at: now,
+            changed_by: actor,
           },
-          (res) => {
-            let raw = "";
-            res.on("data", (chunk) => (raw += chunk));
-            res.on("end", () => {
-              try {
-                resolve(JSON.parse(raw));
-              } catch {
-                resolve(raw);
-              }
-            });
+        ],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+      this.logger.info("Plugin setting disabled", { schemaId });
+
+      // Cascade: propagate disabled state to all campaigns that have this plugin enabled
+      const schema = await this.getCredentialSchemaById(schemaId);
+      if (schema?.provider) {
+        this.cascadePluginDisableToAllCampaigns(schema.provider).catch(
+          (err) => {
+            this.logger.error(
+              "Failed to cascade plugin disable to campaigns",
+              err,
+            );
           },
         );
-        req.on("error", reject);
-        req.write("{}");
-        req.end();
-      });
-      return { result: true, data };
+      }
+
+      return { result: true, data: updated };
     } catch (error: any) {
-      this.logger.error("TrustedForm API call failed", { certId, error: error?.message });
-      return { result: false, error: error?.message || "TrustedForm API call failed" };
+      this.logger.error("Failed to disable plugin setting", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to disable plugin setting",
+      };
     }
   }
 
-  private async getRecordById(
+  async enablePluginSetting(
+    schemaId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPluginSettingRecord>> {
+    try {
+      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      if (!existing)
+        return { result: false, error: "Plugin setting not found" };
+      if (existing.is_deleted)
+        return {
+          result: false,
+          error: "Cannot enable a deleted plugin setting",
+        };
+
+      const now = new Date().toISOString();
+      const updated: IPluginSettingRecord = {
+        ...existing,
+        enabled: true,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "enabled",
+            previous_value: existing.enabled,
+            new_value: true,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+      this.logger.info("Plugin setting enabled", { schemaId });
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to enable plugin setting", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to enable plugin setting",
+      };
+    }
+  }
+
+  async restorePluginSetting(
+    schemaId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPluginSettingRecord>> {
+    try {
+      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      if (!existing)
+        return { result: false, error: "Plugin setting not found" };
+      if (!existing.is_deleted)
+        return { result: false, error: "Plugin setting is not deleted" };
+
+      const now = new Date().toISOString();
+      const updated: IPluginSettingRecord = {
+        ...existing,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+        updated_at: now,
+        updated_by: actor,
+        edit_history: [
+          ...(existing.edit_history ?? []),
+          {
+            field: "is_deleted",
+            previous_value: true,
+            new_value: false,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+      this.logger.info("Plugin setting restored", { schemaId });
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to restore plugin setting", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to restore plugin setting",
+      };
+    }
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Scans the campaigns table for any campaign that has `plugins.{provider}.enabled = true`
+   * and sets it to `false`.  Called fire-and-forget after a tenant-level plugin disable.
+   *
+   * Silently no-ops when CAMPAIGNS_TABLE_NAME is not configured.
+   */
+  private async cascadePluginDisableToAllCampaigns(
+    provider: string,
+  ): Promise<void> {
+    if (!this.constants.CAMPAIGNS_TABLE_NAME) return;
+
+    interface CampaignItem {
+      id: string;
+      plugins?: Record<string, { enabled?: boolean } & Record<string, unknown>>;
+      updated_at?: string;
+      [key: string]: unknown;
+    }
+
+    const campaigns = await this.dynamoDBUtil.scanAll<CampaignItem>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+      FilterExpression: "#plugins.#provider.#enabled = :true",
+      ExpressionAttributeNames: {
+        "#plugins": "plugins",
+        "#provider": provider,
+        "#enabled": "enabled",
+      },
+      ExpressionAttributeValues: { ":true": true },
+    });
+
+    if (!campaigns.length) {
+      this.logger.info(
+        `Cascade: no campaigns found with ${provider} enabled — nothing to update`,
+      );
+      return;
+    }
+
+    await Promise.all(
+      campaigns.map(async (campaign) => {
+        if (!campaign.plugins) return;
+        campaign.plugins[provider] = {
+          ...campaign.plugins[provider],
+          enabled: false,
+        };
+        campaign.updated_at = new Date().toISOString();
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME!,
+          Item: campaign,
+        });
+      }),
+    );
+
+    this.logger.info(
+      `Cascade: disabled ${provider} plugin on ${campaigns.length} campaign(s)`,
+    );
+  }
+
+  private async getCredentialById(
     id: string,
   ): Promise<TenantCredentialRecord | null> {
     const result = await this.dynamoDBUtil.get<TenantCredentialRecord>({
-      TableName: this.constants.CREDENTIALS_TABLE_NAME,
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
       Key: { id },
     });
     return result ?? null;
+  }
+
+  private async getCredentialSchemaById(
+    id: string,
+  ): Promise<ICredentialSchemaRecord | null> {
+    const result = await this.dynamoDBUtil.get<ICredentialSchemaRecord>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      Key: { id },
+    });
+    return result ?? null;
+  }
+
+  private async getPluginSettingBySchemaId(
+    schemaId: string,
+  ): Promise<IPluginSettingRecord | null> {
+    const records = await this.dynamoDBUtil.queryAll<IPluginSettingRecord>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      IndexName: this.schemaIdIndex,
+      KeyConditionExpression: "#s = :schemaId",
+      ExpressionAttributeNames: { "#s": "schema_id" },
+      ExpressionAttributeValues: { ":schemaId": schemaId },
+    });
+    return records[0] ?? null;
+  }
+
+  private async findPluginSettingsByCredentialId(
+    credentialsId: string,
+  ): Promise<IPluginSettingRecord[]> {
+    // Scan plugin_settings by type, then filter by credentials_id
+    const records = await this.dynamoDBUtil.queryAll<IPluginSettingRecord>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      IndexName: this.typeIndex,
+      KeyConditionExpression: "#t = :type",
+      FilterExpression: "#cid = :credId",
+      ExpressionAttributeNames: { "#t": "type", "#cid": "credentials_id" },
+      ExpressionAttributeValues: {
+        ":type": "plugin_setting",
+        ":credId": credentialsId,
+      },
+    });
+    return records;
+  }
+
+  private async findCredentialsBySchemaId(
+    schemaId: string,
+  ): Promise<TenantCredentialRecord[]> {
+    // Scan credentials by type, then filter by schema_id (including soft-deleted ones)
+    const records = await this.dynamoDBUtil.queryAll<TenantCredentialRecord>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      IndexName: this.typeIndex,
+      KeyConditionExpression: "#t = :type",
+      FilterExpression: "#sid = :schemaId",
+      ExpressionAttributeNames: { "#t": "type", "#sid": "schema_id" },
+      ExpressionAttributeValues: {
+        ":type": "credential",
+        ":schemaId": schemaId,
+      },
+    });
+    return records;
   }
 
   private encryptCredentials(
@@ -578,7 +1380,10 @@ export class TenantConfigService {
     const result: Record<string, string> = { ...credentials };
     for (const field of sensitiveFields) {
       if (result[field]) {
-        result[field] = encrypt(result[field], this.constants.CREDENTIALS_ENCRYPTION_KEY);
+        result[field] = encrypt(
+          result[field],
+          this.constants.CREDENTIALS_ENCRYPTION_KEY,
+        );
       }
     }
     return result;
@@ -593,19 +1398,27 @@ export class TenantConfigService {
     for (const field of sensitiveFields) {
       if (result[field]) {
         try {
-          result[field] = decrypt(result[field], this.constants.CREDENTIALS_ENCRYPTION_KEY);
+          result[field] = decrypt(
+            result[field],
+            this.constants.CREDENTIALS_ENCRYPTION_KEY,
+          );
         } catch {
-          // Value may already be plaintext (migration / first-run edge case)
+          // Value may already be plaintext (migration/first-run edge case)
         }
       }
     }
     return result;
   }
 
-  private decryptRecord(record: TenantCredentialRecord): TenantCredentialRecord {
+  private decryptRecord(
+    record: TenantCredentialRecord,
+  ): TenantCredentialRecord {
     return {
       ...record,
-      credentials: this.decryptCredentials(record.type, record.credentials),
+      credentials: this.decryptCredentials(
+        record.credential_type,
+        record.credentials,
+      ),
     };
   }
 
@@ -616,41 +1429,31 @@ export class TenantConfigService {
     if (!credentials || typeof credentials !== "object") {
       return { result: false, error: "credentials are required" };
     }
-
     if (type === "api_key") {
-      if (!credentials.apiKey) {
+      if (!credentials.apiKey)
         return {
           result: false,
           error: "credentials.apiKey is required for api_key",
         };
-      }
       return { result: true };
     }
-
     if (type === "basic_auth") {
-      if (!credentials.username || !credentials.password) {
+      if (!credentials.username || !credentials.password)
         return {
           result: false,
           error:
             "credentials.username and credentials.password are required for basic_auth",
         };
-      }
       return { result: true };
     }
-
     if (type === "bearer_token") {
-      if (!credentials.token) {
+      if (!credentials.token)
         return {
           result: false,
           error: "credentials.token is required for bearer_token",
         };
-      }
       return { result: true };
     }
-
-    return {
-      result: false,
-      error: `Unsupported credential type: ${type}`,
-    };
+    return { result: false, error: `Unsupported credential type: ${type}` };
   }
 }

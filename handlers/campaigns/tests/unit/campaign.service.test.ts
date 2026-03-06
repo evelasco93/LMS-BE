@@ -77,11 +77,13 @@ describe("CampaignService", () => {
       const result = await campaignService.linkClient(campaign.id, payload);
 
       expect(result.result).toBe(true);
-      expect(result.data?.clients).toContainEqual({
-        client_id: "CL999",
-        status: CampaignParticipantStatus.TEST,
-        added_at: expect.any(String),
-      });
+      expect(result.data?.clients).toContainEqual(
+        expect.objectContaining({
+          client_id: "CL999",
+          status: CampaignParticipantStatus.TEST,
+          added_at: expect.any(String),
+        }),
+      );
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -103,11 +105,11 @@ describe("CampaignService", () => {
 
       expect(result.result).toBe(true);
       expect(result.data?.clients).toEqual([
-        {
+        expect.objectContaining({
           client_id: "CL123",
           status: CampaignParticipantStatus.TEST,
           added_at: expect.any(String),
-        },
+        }),
       ]);
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
@@ -127,12 +129,14 @@ describe("CampaignService", () => {
       const result = await campaignService.linkAffiliate(campaign.id, payload);
 
       expect(result.result).toBe(true);
-      expect(result.data?.campaign.affiliates).toContainEqual({
-        affiliate_id: "AF555",
-        campaign_key: "123456789012",
-        status: CampaignParticipantStatus.TEST,
-        added_at: expect.any(String),
-      });
+      expect(result.data?.campaign.affiliates).toContainEqual(
+        expect.objectContaining({
+          affiliate_id: "AF555",
+          campaign_key: "123456789012",
+          status: CampaignParticipantStatus.TEST,
+          added_at: expect.any(String),
+        }),
+      );
       expect(result.data?.campaign_key).toBe("123456789012");
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
@@ -158,12 +162,14 @@ describe("CampaignService", () => {
       const result = await campaignService.linkAffiliate(campaign.id, payload);
 
       expect(result.result).toBe(true);
-      expect(result.data?.campaign.affiliates).toContainEqual({
-        affiliate_id: "AF777",
-        campaign_key: "777777777777",
-        status: CampaignParticipantStatus.TEST,
-        added_at: expect.any(String),
-      });
+      expect(result.data?.campaign.affiliates).toContainEqual(
+        expect.objectContaining({
+          affiliate_id: "AF777",
+          campaign_key: "777777777777",
+          status: CampaignParticipantStatus.TEST,
+          added_at: expect.any(String),
+        }),
+      );
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
   });
@@ -214,11 +220,11 @@ describe("CampaignService", () => {
 
       expect(result.result).toBe(true);
       expect(result.data?.clients).toEqual([
-        {
+        expect.objectContaining({
           client_id: "CL2",
           status: CampaignParticipantStatus.LIVE,
           added_at: expect.any(String),
-        },
+        }),
       ]);
     });
   });

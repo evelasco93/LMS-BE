@@ -36,6 +36,7 @@ export interface IInternalApiStackProps extends NestedStackProps {
   campaignsLambda: IFunction;
   leadsLambda: IFunction;
   tenantConfigLambda: IFunction;
+  qaOrchestratorLambda: IFunction;
   apiConfig: IInternalApiConfig;
   authLambdaRoleName: string;
   usersLambdaRoleName: string;
@@ -66,6 +67,7 @@ export class InternalApiStack extends NestedStack {
       campaignsLambda,
       leadsLambda,
       tenantConfigLambda,
+      qaOrchestratorLambda,
       apiConfig,
       authLambdaRoleName,
       usersLambdaRoleName,
@@ -645,14 +647,12 @@ export class InternalApiStack extends NestedStack {
     // ── Credentials ──────────────────────────────────────────────────────────
     const credentialsResource = tenantConfigResource.addResource("credentials");
 
-    // POST /v2/tenant-config/credentials — create credential
     addProtectedMethod(
       credentialsResource,
       "POST",
       tenantConfigLambdaIntegration,
       [writeScope],
     );
-    // GET /v2/tenant-config/credentials — list credentials
     addProtectedMethod(
       credentialsResource,
       "GET",
@@ -660,24 +660,19 @@ export class InternalApiStack extends NestedStack {
       [readScope],
     );
 
-    // /v2/tenant-config/credentials/{provider}  (reuses the already-deployed variable resource)
-    const credentialByIdResource =
-      credentialsResource.addResource("{provider}");
-    // GET /v2/tenant-config/credentials/{provider} — get credential by id
+    const credentialByIdResource = credentialsResource.addResource("{id}");
     addProtectedMethod(
       credentialByIdResource,
       "GET",
       tenantConfigLambdaIntegration,
       [readScope],
     );
-    // PUT /v2/tenant-config/credentials/{provider} — update credential
     addProtectedMethod(
       credentialByIdResource,
       "PUT",
       tenantConfigLambdaIntegration,
       [writeScope],
     );
-    // DELETE /v2/tenant-config/credentials/{provider} — delete credential
     addProtectedMethod(
       credentialByIdResource,
       "DELETE",
@@ -685,7 +680,15 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
-    // PUT /v2/tenant-config/credentials/{provider}/disable
+    const credentialRestoreResource =
+      credentialByIdResource.addResource("restore");
+    addProtectedMethod(
+      credentialRestoreResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
     const credentialDisableResource =
       credentialByIdResource.addResource("disable");
     addProtectedMethod(
@@ -695,7 +698,6 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
-    // PUT /v2/tenant-config/credentials/{provider}/enable
     const credentialEnableResource =
       credentialByIdResource.addResource("enable");
     addProtectedMethod(
@@ -705,45 +707,151 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
+    // ── Credential Schemas ────────────────────────────────────────────────────
+    const credSchemasResource =
+      tenantConfigResource.addResource("credential-schemas");
+    addProtectedMethod(
+      credSchemasResource,
+      "POST",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      credSchemasResource,
+      "GET",
+      tenantConfigLambdaIntegration,
+      [readScope],
+    );
+
+    const credSchemaByIdResource = credSchemasResource.addResource("{id}");
+    addProtectedMethod(
+      credSchemaByIdResource,
+      "GET",
+      tenantConfigLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      credSchemaByIdResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      credSchemaByIdResource,
+      "DELETE",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    const credSchemaRestoreResource =
+      credSchemaByIdResource.addResource("restore");
+    addProtectedMethod(
+      credSchemaRestoreResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    // ── Plugin Settings ───────────────────────────────────────────────────────
+    const pluginSettingsResource =
+      tenantConfigResource.addResource("plugin-settings");
+    addProtectedMethod(
+      pluginSettingsResource,
+      "GET",
+      tenantConfigLambdaIntegration,
+      [readScope],
+    );
+
+    const pluginSettingBySchemaResource =
+      pluginSettingsResource.addResource("{schemaId}");
+    addProtectedMethod(
+      pluginSettingBySchemaResource,
+      "GET",
+      tenantConfigLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      pluginSettingBySchemaResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      pluginSettingBySchemaResource,
+      "DELETE",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    const pluginSettingUpdateResource =
+      pluginSettingBySchemaResource.addResource("update");
+    addProtectedMethod(
+      pluginSettingUpdateResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    const pluginSettingDisableResource =
+      pluginSettingBySchemaResource.addResource("disable");
+    addProtectedMethod(
+      pluginSettingDisableResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    const pluginSettingEnableResource =
+      pluginSettingBySchemaResource.addResource("enable");
+    addProtectedMethod(
+      pluginSettingEnableResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    const pluginSettingRestoreResource =
+      pluginSettingBySchemaResource.addResource("restore");
+    addProtectedMethod(
+      pluginSettingRestoreResource,
+      "PUT",
+      tenantConfigLambdaIntegration,
+      [writeScope],
+    );
+
+    // ============================================================================
+    // QA ORCHESTRATOR HTTP ROUTES
+    // ============================================================================
+    const qaOrchestratorLambdaIntegration = new LambdaIntegration(
+      qaOrchestratorLambda,
+      { proxy: true, allowTestInvoke: true },
+    );
+
+    const qaResource = v2Resource.addResource("qa");
+
     // ── TrustedForm ───────────────────────────────────────────────────────────
-    const trustedFormResource = tenantConfigResource.addResource("trusted-form");
+    const qaTrustedFormResource = qaResource.addResource("trusted-form");
 
-    // POST /v2/tenant-config/trusted-form/check-cert — validate cert via stored credentials
-    const checkCertResource = trustedFormResource.addResource("check-cert");
+    // POST /v2/qa/trusted-form/validate — proxy to TrustedForm API (auto-resolve or explicit credentials_id)
+    // Note: duplicate-check and full lead validation are lambda-to-lambda only (no HTTP route)
+    const qaValidateResource = qaTrustedFormResource.addResource("validate");
     addProtectedMethod(
-      checkCertResource,
+      qaValidateResource,
       "POST",
-      tenantConfigLambdaIntegration,
+      qaOrchestratorLambdaIntegration,
       [writeScope],
     );
 
-    // ── Plugin Schemas ────────────────────────────────────────────────────────
-    const pluginSchemasResource =
-      tenantConfigResource.addResource("plugin-schemas");
+    // ── IPQS ─────────────────────────────────────────────────────────────────
+    const qaIpqsResource = qaResource.addResource("ipqs");
 
-    // POST /v2/tenant-config/plugin-schemas — create plugin schema
+    // POST /v2/qa/ipqs/check — run an IPQS fraud-score check directly (auto-resolve credentials)
+    const qaIpqsCheckResource = qaIpqsResource.addResource("check");
     addProtectedMethod(
-      pluginSchemasResource,
+      qaIpqsCheckResource,
       "POST",
-      tenantConfigLambdaIntegration,
+      qaOrchestratorLambdaIntegration,
       [writeScope],
-    );
-    // GET /v2/tenant-config/plugin-schemas — list plugin schemas
-    addProtectedMethod(
-      pluginSchemasResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-
-    // GET /v2/tenant-config/plugin-schemas/{id} — get plugin schema by id
-    const pluginSchemaByIdResource =
-      pluginSchemasResource.addResource("{id}");
-    addProtectedMethod(
-      pluginSchemaByIdResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
     );
 
     new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolId`, {

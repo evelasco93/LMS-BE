@@ -112,6 +112,17 @@ export class ResourceNameBuilder {
       ? `${this.tenant}-${this.system}-${resourceName}-secret-${this.environment}`
       : `${this.system}-${resourceName}-secret-${this.environment}`;
   }
+
+  /**
+   * Build SSM Parameter Store path
+   * Pattern: /{tenant}/{system}/{environment}/{resourceName}
+   * Use with CloudFormation dynamic reference: {{resolve:ssm-secure:PATH:1}}
+   */
+  public ssmParam(resourceName: string): string {
+    return this.tenant
+      ? `/${this.tenant}/${this.system}/${this.environment}/${resourceName}`
+      : `/${this.system}/${this.environment}/${resourceName}`;
+  }
 }
 
 /**

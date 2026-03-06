@@ -10,7 +10,7 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 - Move campaign to TEST once both client and affiliate are linked. Participant status starts as TEST; change to LIVE via participant update endpoints.
 - Optionally flip participant statuses (TEST ↔ LIVE or DISABLED) via participant update endpoints.
 - Move campaign to ACTIVE only when campaign is currently TEST and it has at least one LIVE client and one LIVE affiliate (DISABLED participants are ignored for the LIVE requirement).
-- Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`.
+- Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`. `plugins.trusted_form.enabled=false` and `plugins.ipqs.enabled=false` on creation. `duplicate_check` is **always auto-enabled** when a campaign is promoted to ACTIVE — TrustedForm and IPQS are optional.
 - Rotate keys if compromised: use the new key rotation endpoints to issue a fresh `campaign_key` for an affiliate or `client_key` for a linked client.
 - Deletion safeguards: campaigns can only be deleted in DRAFT/TEST when empty and without leads; clients/affiliates must be disabled in all campaigns before soft delete and cannot be hard deleted when campaigns have leads.
 - Internal API is protected by Bearer token auth — call `POST /v2/auth/login` to get a token, then send `Authorization: Bearer <id_token>` on all internal API requests. **Use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
@@ -306,7 +306,7 @@ Rules:
 - `duplicate_check.enabled` toggles duplicate detection during lead intake.
 - `duplicate_check.criteria` supports `phone` and/or `email`.
 - `duplicate_check.enabled=true` requires at least one active criterion (`phone` or `email`).
-- When `duplicate_check.enabled=true`, duplicate matches are stored with `duplicate=true` and are marked `rejected=true` with a duplicate-check rejection reason.
+- When `duplicate_check.enabled=true`, duplicate matches are stored with `duplicate=true` and are marked `rejected=true` with `rejection_reason: "Duplicate lead detected"`.
 - When `duplicate_check.enabled=false`, duplicate-check does not reject leads.
 
 **Submit test lead (external API)** `POST /leads/test`
@@ -350,12 +350,26 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
   "campaign_id": "CMABCDEFG",
   "campaign_key": "123456789012",
   "test": true,
-  "payload": { "email": "..." },
+  "payload": {
+    "email": "...",
+    "phone": "5551234567",
+    "trusted_form_cert_id": "6e573ab8..."
+  },
   "duplicate": false,
   "duplicate_matches": { "lead_ids": [] },
   "affiliate_status_at_intake": "TEST",
   "rejected": false,
   "rejection_reason": null,
+  "trusted_form_result": {
+    "success": true,
+    "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
+    "outcome": "success",
+    "phone": "15551234567",
+    "phone_match": true,
+    "vendor": "SummitEdgeLegal",
+    "previously_retained": false,
+    "expires_at": "2026-06-03T22:48:05Z"
+  },
   "created_at": "2024-01-01T00:00:00Z",
   "created_by": "123456789012",
   "updated_by": null,
@@ -366,11 +380,16 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
 }
 ```
 
+`trusted_form_result` is `null` when TrustedForm is disabled or no credential is linked.
+
 Rejection behavior:
 
 - `rejected=true` when affiliate is DISABLED for the campaign.
-- `rejected=true` when duplicate-check is enabled and a duplicate is detected.
-- `rejected=false` when neither condition applies.
+- `rejected=true` when duplicate-check is enabled and a duplicate is detected (`rejection_reason: "Duplicate lead detected"`).
+- `rejected=true` when TrustedForm is enabled and certificate validation fails (`rejection_reason: "TrustedForm validation failed: <reason>"`).
+- `rejected=true` when IPQS is enabled and the fraud check fails (`rejection_reason: "IPQS fraud check failed (phone, email, ip_address)"` — only failing checks listed).
+- Multiple causes are combined with `; ` e.g. `"Duplicate lead detected; IPQS fraud check failed (email)"`.
+- `rejected=false` when none of the above apply.
 
 ## UI hints
 
@@ -572,43 +591,51 @@ There is no permanent user delete endpoint; `DELETE /v2/users/{id}` is always a 
 
 ## Tenant credentials (DynamoDB-backed)
 
-Credentials are stored in a DynamoDB table with sensitive fields encrypted at rest (AES-256-GCM). Each record has an auto-generated `CR-…` ID that is used to reference the credential in campaign plugin configs.
+Credentials are stored in the `tenant-settings` DynamoDB table with sensitive fields encrypted at rest (AES-256-GCM). Each record has an auto-generated `CR-…` ID. Credentials are global, admin-managed resources — they are **not** set on individual campaigns.
 
 ### Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tenant-config/credentials` | Create a credential |
-| `GET` | `/tenant-config/credentials` | List all credentials (optional `?provider=` filter) |
-| `GET` | `/tenant-config/credentials/{id}` | Get credential by ID |
-| `PUT` | `/tenant-config/credentials/{id}` | Update credential |
-| `PUT` | `/tenant-config/credentials/{id}/disable` | Soft-disable a credential |
-| `PUT` | `/tenant-config/credentials/{id}/enable` | Re-enable a disabled credential |
-| `DELETE` | `/tenant-config/credentials/{id}` | Delete credential |
-| `POST` | `/tenant-config/trusted-form/check-cert` | Validate a cert using stored credentials |
-| `POST` | `/tenant-config/trusted-form/validate` | Ad-hoc validate a TrustedForm cert |
+| Method   | Path                                      | Description                                                                 |
+| -------- | ----------------------------------------- | --------------------------------------------------------------------------- |
+| `POST`   | `/tenant-config/credentials`              | Create a credential                                                         |
+| `GET`    | `/tenant-config/credentials`              | List all credentials (optional `?provider=` filter, `?includeDeleted=true`) |
+| `GET`    | `/tenant-config/credentials/{id}`         | Get credential by ID                                                        |
+| `PUT`    | `/tenant-config/credentials/{id}`         | Update credential                                                           |
+| `PUT`    | `/tenant-config/credentials/{id}/disable` | Soft-disable a credential                                                   |
+| `PUT`    | `/tenant-config/credentials/{id}/enable`  | Re-enable a disabled credential                                             |
+| `PUT`    | `/tenant-config/credentials/{id}/restore` | Restore a soft-deleted credential                                           |
+| `DELETE` | `/tenant-config/credentials/{id}`         | Soft-delete (default) or hard-delete (`?permanent=true`)                    |
 
 ### Credential record shape
 
 ```json
 {
-  "id": "CR-a1b2c3d4",
+  "id": "CRA1B2C3D4",
   "provider": "trusted_form",
   "name": "TrustedForm Prod",
-  "type": "basic_auth",
+  "credential_type": "basic_auth",
   "credentials": {
     "username": "API",
     "password": "de3b2f39..."
   },
   "vendor": "MyVendor",
+  "enabled": true,
+  "is_deleted": false,
+  "active": true,
+  "deleted_at": null,
+  "deleted_by": null,
+  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z"
 }
 ```
 
-Supported `type` values: `api_key`, `basic_auth`, `bearer_token`
+Supported `credential_type` values: `api_key`, `basic_auth`, `bearer_token`
+
+> The `type` field is now named `credential_type` to avoid collision with the DynamoDB record-type discriminator.
 
 Sensitive field per type:
+
 - `api_key` → `credentials.apiKey` (encrypted)
 - `basic_auth` → `credentials.password` (encrypted); `credentials.username` (plaintext)
 - `bearer_token` → `credentials.token` (encrypted)
@@ -629,25 +656,31 @@ POST /v2/tenant-config/credentials
 }
 ```
 
-Response includes the new record with `id: "CR-XXXXXXXX"`. Store this ID to use in campaign plugin configs.
+Response includes the new record with `id: "CRXXXXXXXX"`. The credential is now available globally for use by the plugin system.
 
-### Linking a credential to a campaign
+### Soft-delete vs hard-delete
 
-Once you have a credential `id`, set it on the campaign's `trusted_form` plugin:
+All three record types (credentials, credential schemas, plugin settings) support both soft and hard deletion:
+
+- **Soft-delete** (default): Sets `is_deleted=true`, `active=false`, records `deleted_at` / `deleted_by`. Record is hidden from normal list responses but can be restored.
+- **Hard-delete** (`?permanent=true`): Permanently removes the record. Blocked with a `400` if the record is still referenced — a credential cannot be hard-deleted while plugin settings point to it, and a schema cannot be hard-deleted while credentials reference it.
+- **Restore**: `PUT /{id}/restore` to undo a soft-delete.
+
+### Edit history (audit trail)
+
+Every PUT update writes an `IEditHistoryEntry` to the record's `edit_history` array:
 
 ```json
-PUT /v2/campaigns/{id}/plugins
 {
-  "trusted_form": {
-    "enabled": true,
-    "credentials_id": "CR-a1b2c3d4"
-  }
+  "field": "name",
+  "previous_value": "TrustedForm Staging",
+  "new_value": "TrustedForm Prod",
+  "changed_at": "2024-06-01T12:00:00.000Z",
+  "changed_by": { "id": "user@example.com", "name": "Admin" }
 }
 ```
 
-### TrustedForm is enabled by default
-
-When a campaign is created, `trusted_form.enabled = true` is set automatically. A credential must be linked via `credentials_id` for actual validation/claiming to occur. Without it, the plugin is silently skipped.
+Use `edit_history` to surface change logs in admin audit views.
 
 ### Disable / enable a credential
 
@@ -658,49 +691,34 @@ PUT /v2/tenant-config/credentials/{id}/disable
 PUT /v2/tenant-config/credentials/{id}/enable
 ```
 
-A disabled credential returns `enabled: false` in its record. The `check-cert` endpoint will not use a disabled credential when auto-resolving.
+A disabled credential returns `enabled: false` in its record. The `validate` endpoint will not use a disabled credential when auto-resolving.
 
-### TrustedForm check-cert (uses stored credentials)
+### TrustedForm validate (QA Orchestrator)
 
-Use this endpoint when you want to validate a certificate without specifying credentials manually — the Lambda resolves the first active `trusted_form` credential automatically:
+This is the **single exposed HTTP endpoint** for TrustedForm certificate validation on the QA Orchestrator handler (`/qa/`). It proxies directly to `https://cert.trustedform.com/{cert_id}/validate`. Credentials are always resolved automatically from the globally configured `trusted_form` plugin setting in the tenant settings table — no credential ID is accepted from the caller:
 
 ```json
-POST /v2/tenant-config/trusted-form/check-cert
+POST /v2/qa/trusted-form/validate
 {
   "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"
 }
 ```
 
-You can also pin a specific credential:
-
-```json
-{
-  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
-  "credentials_id": "CRa1b2c3d4"
-}
-```
-
 `cert_id` accepts either a bare 40-char hex ID or a full `https://cert.trustedform.com/…` URL.
 
-This is different from `/trusted-form/validate` which requires the caller to always supply `credentials_id`.
-
-### Ad-hoc validate (frontend cert checker)
-
-Use this endpoint to test a certificate without claiming it:
+Response `data` is the raw TrustedForm validate API response:
 
 ```json
-POST /v2/tenant-config/trusted-form/validate
-{
-  "credentials_id": "CR-a1b2c3d4",
-  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"
-}
+{ "outcome": "success" }
+// or
+{ "outcome": "failure", "reason": "Expired" }
 ```
 
-`cert_id` accepts either a bare 40-char hex ID or a full `https://cert.trustedform.com/…` URL.
+> Duplicate-check and full lead validation are **lambda-to-lambda only** — there are no HTTP routes for those operations.
 
 ### Lead intake with TrustedForm
 
-The lead payload should include `trusted_form_cert_id` and optionally `phone`:
+The lead payload should include `trusted_form_cert_id` and optionally `phone` (used for phone-match verification during the retain/claim step):
 
 ```json
 POST /v2/leads
@@ -715,41 +733,189 @@ POST /v2/leads
 }
 ```
 
-If `trusted_form.enabled = true` and `credentials_id` is set on the campaign, the orchestrator will validate + claim the cert and store the result on the lead as `trusted_form_result`:
+If `trusted_form.enabled = true`, the orchestrator will resolve the default `trusted_form` credential via the plugin settings table, validate + claim the cert, and store the result on the lead as `trusted_form_result`.
+
+**Success (cert valid, phone matched):**
 
 ```json
 {
   "success": true,
   "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
   "outcome": "success",
-  "phone": "5551234567",
+  "phone": "15551234567",
   "phone_match": true,
   "vendor": "SummitEdgeLegal",
   "previously_retained": false,
-  "expires_at": "2024-02-01T00:00:00.000Z"
+  "expires_at": "2026-06-03T22:48:05Z"
 }
 ```
+
+**Rejection — cert invalid or expired (validate step failed):**
+
+```json
+{
+  "success": false,
+  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
+  "outcome": "failure",
+  "error": "Expired",
+  "phone": "15551234567"
+}
+```
+
+**Rejection — phone mismatch (cert retained but lead rejected):**
+
+```json
+{
+  "success": false,
+  "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
+  "outcome": "failure",
+  "phone": "15551234567",
+  "phone_match": false,
+  "vendor": "SummitEdgeLegal",
+  "previously_retained": true,
+  "expires_at": "2026-06-03T22:48:05Z"
+}
+```
+
+> **UI hint:** Use `trusted_form_result.success` to show a pass/fail badge on the lead detail view. When `success: false`, display `trusted_form_result.outcome` + `error` (validate failure) or `phone_match: false` (retain failure) to explain why it was rejected. `previously_retained: true` means the cert was already claimed by a prior lead.
+
 - External leads API is isolated to POST-only intake routes. No API key required.
 
 ---
 
-## Plugin schemas (dynamic credential form generation)
+### IPQS (IPQualityScore) plugin
 
-Plugin schemas describe the credential fields that each plugin integration requires. The frontend reads these records to **dynamically render the credential creation form** — instead of hard-coding a form per plugin, it renders the fields defined in the schema.
+IPQS runs fraud-score checks on phone, email, and IP address at lead-intake time (lambda-to-lambda only). A proxy HTTP endpoint is also available for manual/test checks.
 
-### Endpoints
+#### Campaign plugin configuration
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/tenant-config/plugin-schemas` | Create a plugin schema |
-| `GET` | `/tenant-config/plugin-schemas` | List all plugin schemas |
-| `GET` | `/tenant-config/plugin-schemas/{id}` | Get a plugin schema by ID |
-
-### Plugin schema record shape
+Enable IPQS on a campaign via `PUT /campaigns/{id}/plugins`. The `ipqs` block mirrors TrustedForm in structure but has three independent sub-checks:
 
 ```json
 {
-  "id": "PSa1b2c3d4",
+  "ipqs": {
+    "enabled": true,
+    "phone": {
+      "enabled": true,
+      "criteria": {
+        "valid": { "enabled": true, "required": true },
+        "fraud_score": { "enabled": true, "operator": "lte", "value": 75 },
+        "country": { "enabled": true, "allowed": ["US", "CA"] }
+      }
+    },
+    "email": {
+      "enabled": true,
+      "criteria": {
+        "valid": { "enabled": true, "required": true },
+        "fraud_score": { "enabled": true, "operator": "lte", "value": 75 }
+      }
+    },
+    "ip": {
+      "enabled": true,
+      "criteria": {
+        "fraud_score": { "enabled": true, "operator": "lte", "value": 75 },
+        "country_code": { "enabled": false, "allowed": [] },
+        "proxy": { "enabled": true, "allowed": false },
+        "vpn": { "enabled": true, "allowed": false }
+      }
+    }
+  }
+}
+```
+
+- `ipqs.enabled` is the **master toggle** — all sub-checks are skipped when false.
+- Criteria operators: `lte` = score ≤ value, `gte` = score ≥ value, `eq` = exact match.
+- IPQS **must be enabled** before a campaign can be promoted to `ACTIVE` (along with `duplicate_check` and `trusted_form`).
+
+#### Lead intake with IPQS
+
+Include `email` and/or `ip_address` in the lead payload alongside `phone`:
+
+```json
+POST /v2/leads
+{
+  "campaign_id": "CM...",
+  "campaign_key": "...",
+  "payload": {
+    "phone": "5551234567",
+    "email": "lead@example.com",
+    "ip_address": "8.8.8.8"
+  }
+}
+```
+
+The result is stored on the lead as `ipqs_result`:
+
+```json
+{
+  "ipqs_result": {
+    "success": true,
+    "phone": {
+      "success": true,
+      "criteria_results": {
+        "valid": true,
+        "fraud_score": true,
+        "country": true
+      }
+    },
+    "email": {
+      "success": true,
+      "criteria_results": { "valid": true, "fraud_score": true }
+    },
+    "ip": {
+      "success": true,
+      "criteria_results": { "fraud_score": true, "proxy": true, "vpn": true }
+    }
+  }
+}
+```
+
+`ipqs_result` is omitted when IPQS is disabled or no credential is configured.
+
+#### IPQS proxy check endpoint
+
+`POST /v2/qa/ipqs/check` — runs a check directly without a lead submission. At least one field is required:
+
+```json
+{ "phone": "5551234567", "email": "lead@example.com", "ip_address": "8.8.8.8" }
+```
+
+Credentials are auto-resolved from the active `ipqs` plugin setting in tenant config.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "success": true,
+    "phone": { "success": true, "raw": { ... } },
+    "email": { "success": true, "raw": { ... } },
+    "ip":    { "success": false, "error": "Proxy detected" }
+  }
+}
+```
+
+> **UI hint:** Use `ipqs_result.success` for an overall pass/fail badge. Drill into `ipqs_result.phone`, `.email`, `.ip` for per-check details and `criteria_results` for per-criterion breakdown.
+
+Credential schemas describe the credential fields that each plugin integration requires. The frontend reads these records to **dynamically render the credential creation form** — instead of hard-coding a form per plugin, it renders the fields defined in the schema.
+
+### Endpoints
+
+| Method   | Path                                             | Description                                                                                   |
+| -------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `POST`   | `/tenant-config/credential-schemas`              | Create a credential schema                                                                    |
+| `GET`    | `/tenant-config/credential-schemas`              | List all schemas (`?includeDeleted=true` for deleted)                                         |
+| `GET`    | `/tenant-config/credential-schemas/{id}`         | Get a schema by ID                                                                            |
+| `PUT`    | `/tenant-config/credential-schemas/{id}`         | Update a schema                                                                               |
+| `PUT`    | `/tenant-config/credential-schemas/{id}/restore` | Restore a soft-deleted schema                                                                 |
+| `DELETE` | `/tenant-config/credential-schemas/{id}`         | Soft-delete (default) or hard-delete (`?permanent=true`, blocked if credentials reference it) |
+
+### Credential schema record shape
+
+```json
+{
+  "id": "CSa1b2c3d4",
   "provider": "trusted_form",
   "name": "TrustedForm",
   "credential_type": "basic_auth",
@@ -770,23 +936,30 @@ Plugin schemas describe the credential fields that each plugin integration requi
       "placeholder": "Enter your TrustedForm password"
     }
   ],
+  "is_deleted": false,
+  "active": true,
+  "deleted_at": null,
+  "deleted_by": null,
+  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z"
 }
 ```
 
+> IDs are now **CS-prefixed** (was PS). Schemas now carry full audit fields: `is_deleted`, `active`, `deleted_at`, `deleted_by`, `edit_history`.
+
 ### Field types
 
-| `type` | Rendered as |
-|--------|-------------|
-| `text` | Plain text input (username, API key label, etc.) |
-| `password` | Password input — value masked in the browser |
-| `select` | Dropdown — must include `options: string[]` |
+| `type`     | Rendered as                                      |
+| ---------- | ------------------------------------------------ |
+| `text`     | Plain text input (username, API key label, etc.) |
+| `password` | Password input — value masked in the browser     |
+| `select`   | Dropdown — must include `options: string[]`      |
 
-### Creating a plugin schema
+### Creating a credential schema
 
 ```json
-POST /v2/tenant-config/plugin-schemas
+POST /v2/tenant-config/credential-schemas
 {
   "provider": "trusted_form",
   "name": "TrustedForm",
@@ -801,23 +974,140 @@ POST /v2/tenant-config/plugin-schemas
 
 ### Frontend usage pattern
 
-1. On the **credential creation page**, call `GET /v2/tenant-config/plugin-schemas` to retrieve all schemas.
+1. On the **credential creation page**, call `GET /v2/tenant-config/credential-schemas` to retrieve all schemas.
 2. When the user selects a plugin (e.g. "TrustedForm"), look up the matching schema by `provider`.
 3. Render each entry in `fields` as a form input using the field's `type`, `label`, `placeholder`, and `required` attributes.
 4. On submit, build the `credentials` object using `field.name` as the key and the user's input as the value.
 5. `POST /v2/tenant-config/credentials` with `credential_type` taken from `schema.credential_type`.
+6. Include `schema_id: schema.id` in the request to hard-link the credential to its schema (enables grouping by plugin in the UI).
 
 ```typescript
 // Example: building the credentials payload from schema fields
-const schema = schemas.find(s => s.provider === selectedProvider);
+const schema = schemas.find((s) => s.provider === selectedProvider);
 const credentials = Object.fromEntries(
-  schema.fields.map(field => [field.name, formValues[field.name]])
+  schema.fields.map((field) => [field.name, formValues[field.name]]),
 );
 
-await api.post('/tenant-config/credentials', {
+await api.post("/tenant-config/credentials", {
   provider: schema.provider,
+  schema_id: schema.id, // ← link credential to its credential schema
   name: credentialLabel,
   type: schema.credential_type,
   credentials,
 });
 ```
+
+---
+
+## Global plugin settings (default credential per plugin)
+
+Plugin settings let an admin set a **global default credential** for each plugin. The lead processing orchestrator resolves credentials through this table — there is no per-campaign credential override.
+
+### Endpoints
+
+| Method   | Path                                                | Description                                                          |
+| -------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| `GET`    | `/tenant-config/plugin-settings`                    | List all global plugin settings (`?includeDeleted=true` for deleted) |
+| `GET`    | `/tenant-config/plugin-settings/{schemaId}`         | Get the global setting for a plugin                                  |
+| `PUT`    | `/tenant-config/plugin-settings/{schemaId}`         | Set (upsert) the global setting for a plugin                         |
+| `PUT`    | `/tenant-config/plugin-settings/{schemaId}/restore` | Restore a soft-deleted plugin setting                                |
+| `DELETE` | `/tenant-config/plugin-settings/{schemaId}`         | Soft-delete (default) or hard-delete (`?permanent=true`)             |
+
+> `{schemaId}` is the **CS-prefixed** credential schema ID (e.g. `CSa1b2c3d4`), **not** the plugin setting ID.
+
+### Plugin setting record shape
+
+```json
+{
+  "id": "PGA1B2C3D4",
+  "schema_id": "CSa1b2c3d4",
+  "credentials_id": "CRA1B2C3D4",
+  "enabled": true,
+  "is_deleted": false,
+  "active": true,
+  "deleted_at": null,
+  "deleted_by": null,
+  "edit_history": [],
+  "created_at": "2024-01-01T00:00:00.000Z",
+  "updated_at": "2024-01-01T00:00:00.000Z"
+}
+```
+
+> IDs are now **PG-prefixed** (was PC). Schema references use **CS-prefixed** IDs (was PS).
+
+### Setting the global default for a plugin
+
+```json
+PUT /v2/tenant-config/plugin-settings/CSa1b2c3d4
+{
+  "credentials_id": "CRA1B2C3D4",
+  "enabled": true
+}
+```
+
+- If no setting exists for this schema, a new one is created.
+- If one already exists, it is **overwritten** (upsert semantics).
+- Both the schema (`schema_id`) and the credential (`credentials_id`) must exist or the request returns a 400.
+
+### Response
+
+```json
+{
+  "success": true,
+  "message": "Plugin setting saved successfully",
+  "data": {
+    "id": "PGA1B2C3D4",
+    "schema_id": "CSa1b2c3d4",
+    "credentials_id": "CRA1B2C3D4",
+    "enabled": true,
+    "is_deleted": false,
+    "active": true,
+    "deleted_at": null,
+    "deleted_by": null,
+    "edit_history": [],
+    "created_at": "2024-01-01T00:00:00.000Z",
+    "updated_at": "2024-06-01T12:00:00.000Z"
+  }
+}
+```
+
+### Settings page workflow (Credentials + Plugins tabs)
+
+**Credentials tab**
+
+1. `GET /v2/tenant-config/credential-schemas` — load all schemas (for grouping & schema_id lookup).
+2. `GET /v2/tenant-config/credentials` — load all credentials.
+3. Group credentials by `schema_id` (or fall back to `provider` for unlabelled records).
+4. Render an "Add credential" button per group that opens a schema-driven modal.
+
+**Plugins tab**
+
+1. `GET /v2/tenant-config/credential-schemas` — list all plugins.
+2. `GET /v2/tenant-config/plugin-settings` — load current global defaults.
+3. For each schema, show the currently selected default credential (match `plugin_setting.schema_id === schema.id`).
+4. A dropdown per plugin lists only the credentials belonging to that schema (`credential.schema_id === schema.id`).
+5. On change: `PUT /v2/tenant-config/plugin-settings/{schema.id}` with `{ credentials_id, enabled }`.
+
+```typescript
+// Example: loading the plugins tab
+const [schemas, credentials, settings] = await Promise.all([
+  api.get("/tenant-config/credential-schemas").then((r) => r.data.data),
+  api.get("/tenant-config/credentials").then((r) => r.data.data),
+  api.get("/tenant-config/plugin-settings").then((r) => r.data.data),
+]);
+
+const pluginRows = schemas.map((schema) => ({
+  schema,
+  availableCredentials: credentials.filter((c) => c.schema_id === schema.id),
+  currentSetting: settings.find((s) => s.schema_id === schema.id) ?? null,
+}));
+```
+
+### QA Orchestrator endpoints
+
+TrustedForm certificate validation and IPQS checks are handled by the QA Orchestrator lambda. Duplicate-check and full lead validation are lambda-to-lambda only (no HTTP routes):
+
+| Method | Path                        | Description                                                         |
+| ------ | --------------------------- | ------------------------------------------------------------------- |
+| `POST` | `/qa/trusted-form/validate` | Validate cert using globally configured plugin-setting credentials  |
+| `POST` | `/qa/ipqs/check`            | Run an IPQS fraud-score check using globally configured credentials |

@@ -92,7 +92,11 @@ export class LeadsController extends Controller {
   @POST("/")
   @produces("application/json")
   async createLead(@body payload: CreateLeadRequest): Promise<RestApiResponse> {
-    const result = await this.service.createLead(payload, false, this.getActor());
+    const result = await this.service.createLead(
+      payload,
+      false,
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -104,9 +108,7 @@ export class LeadsController extends Controller {
 
     return {
       success: true,
-      message: result.data?.rejected
-        ? "Lead stored but rejected"
-        : "Lead accepted",
+      message: result.data?.rejected ? "Lead rejected" : "Lead accepted",
       data: result.data,
     };
   }
@@ -116,7 +118,11 @@ export class LeadsController extends Controller {
   async createTestLead(
     @body payload: CreateLeadRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.service.createLead(payload, true, this.getActor());
+    const result = await this.service.createLead(
+      payload,
+      true,
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -128,9 +134,7 @@ export class LeadsController extends Controller {
 
     return {
       success: true,
-      message: result.data?.rejected
-        ? "Lead stored but rejected"
-        : "Test lead accepted",
+      message: result.data?.rejected ? "Lead rejected" : "Test lead accepted",
       data: result.data,
     };
   }

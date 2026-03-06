@@ -14,9 +14,6 @@ export const servicesConfig: IServicesStackConfig = {
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
-        INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
-          "internal-api-auth-token",
-        ),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("clients-lambda"),
@@ -35,9 +32,6 @@ export const servicesConfig: IServicesStackConfig = {
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
-        INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
-          "internal-api-auth-token",
-        ),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("affiliates-lambda"),
@@ -57,9 +51,6 @@ export const servicesConfig: IServicesStackConfig = {
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
-        INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
-          "internal-api-auth-token",
-        ),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("campaigns-lambda"),
@@ -78,9 +69,6 @@ export const servicesConfig: IServicesStackConfig = {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         QA_ORCHESTRATOR_LAMBDA_NAME: nameBuilder.lambda("qa-orchestrator"),
-        INTERNAL_API_AUTH_TOKEN_SECRET_NAME: nameBuilder.secret(
-          "internal-api-auth-token",
-        ),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("leads-lambda"),
@@ -96,15 +84,15 @@ export const servicesConfig: IServicesStackConfig = {
       memorySize: 512,
       timeout: 30,
       environment: {
-        CREDENTIALS_TABLE_NAME: nameBuilder.table("credentials"),
-        CREDENTIALS_ENCRYPTION_KEY: process.env.CREDENTIALS_ENCRYPTION_KEY ?? "",
-        PLUGIN_SCHEMAS_TABLE_NAME: nameBuilder.table("plugin-schemas"),
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
+        CREDENTIALS_ENCRYPTION_KEY:
+          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("tenant-config-lambda"),
     },
-    tableName: nameBuilder.table("credentials"),
-    tableArn: arnBuilder.dynamoTable(nameBuilder.table("credentials")),
+    tableName: nameBuilder.table("tenant-settings"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("tenant-settings")),
   },
   qaOrchestrator: {
     lambda: {
@@ -119,6 +107,10 @@ export const servicesConfig: IServicesStackConfig = {
       environment: {
         DUPLICATE_CHECK_LAMBDA_NAME: nameBuilder.lambda("qa-duplicate-check"),
         TRUSTED_FORM_LAMBDA_NAME: nameBuilder.lambda("qa-trusted-form"),
+        IPQS_LAMBDA_NAME: nameBuilder.lambda("qa-ipqs"),
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
+        CREDENTIALS_ENCRYPTION_KEY:
+          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-orchestrator-lambda"),
@@ -156,13 +148,35 @@ export const servicesConfig: IServicesStackConfig = {
       memorySize: 512,
       timeout: 30,
       environment: {
-        CREDENTIALS_TABLE_NAME: nameBuilder.table("credentials"),
-        CREDENTIALS_ENCRYPTION_KEY: process.env.CREDENTIALS_ENCRYPTION_KEY ?? "",
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
+        CREDENTIALS_ENCRYPTION_KEY:
+          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-trusted-form-lambda"),
     },
-    tableName: nameBuilder.table("credentials"),
-    tableArn: arnBuilder.dynamoTable(nameBuilder.table("credentials")),
+    tableName: nameBuilder.table("tenant-settings"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("tenant-settings")),
+  },
+  qaIpqs: {
+    lambda: {
+      functionName: nameBuilder.lambda("qa-ipqs"),
+      entry: path.join(
+        __dirname,
+        "../../../../handlers/qa/modules/ipqs/main.ts",
+      ),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
+        CREDENTIALS_ENCRYPTION_KEY:
+          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("qa-ipqs-lambda"),
+    },
+    tableName: nameBuilder.table("tenant-settings"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("tenant-settings")),
   },
 };

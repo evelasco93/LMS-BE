@@ -20,6 +20,21 @@ export interface ITrustedFormResult {
   expires_at?: string;
 }
 
+export interface IIpqsCheckResult {
+  success: boolean;
+  raw?: Record<string, unknown>;
+  error?: string;
+  criteria_results?: Record<string, boolean>;
+}
+
+export interface IIpqsResult {
+  success: boolean;
+  phone?: IIpqsCheckResult;
+  email?: IIpqsCheckResult;
+  ip?: IIpqsCheckResult;
+  error?: string;
+}
+
 export interface ILead {
   id: string;
   campaign_id: string;
@@ -31,6 +46,7 @@ export interface ILead {
     lead_ids: string[];
   };
   trusted_form_result?: ITrustedFormResult;
+  ipqs_result?: IIpqsResult;
   created_at: string;
   affiliate_status_at_intake?: string;
   rejected?: boolean;

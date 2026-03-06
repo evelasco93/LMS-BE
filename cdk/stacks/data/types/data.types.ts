@@ -40,8 +40,8 @@ export interface IDataStackConfig {
     affiliates: ITableConfig;
     campaigns: ITableConfig;
     leads: ITableConfig;
-    credentials: ITableConfig;
-    pluginSchemas: ITableConfig;
+    /** Consolidated single table for credentials, credential schemas, and plugin settings */
+    tenantSettings: ITableConfig;
   };
 }
 
@@ -51,4 +51,3 @@ export interface IDataStackConfig {
 export interface IDataStackProps extends IBaseStackProps {
   dataConfig: IDataStackConfig;
 }
-

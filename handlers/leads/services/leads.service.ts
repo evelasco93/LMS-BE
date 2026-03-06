@@ -36,11 +36,11 @@ interface CampaignRecord {
       enabled?: boolean;
       credentials_id?: string;
     };
+    ipqs?: {
+      enabled?: boolean;
+    };
   };
 }
-
-const DUPLICATE_REJECTION_REASON =
-  "Lead rejected by campaign duplicate_check plugin";
 
 interface QaOrchestratorResult {
   duplicate?: boolean;
@@ -57,6 +57,28 @@ interface QaOrchestratorResult {
     vendor?: string;
     previously_retained?: boolean;
     expires_at?: string;
+  };
+  ipqs_result?: {
+    success: boolean;
+    phone?: {
+      success: boolean;
+      raw?: Record<string, unknown>;
+      error?: string;
+      criteria_results?: Record<string, boolean>;
+    };
+    email?: {
+      success: boolean;
+      raw?: Record<string, unknown>;
+      error?: string;
+      criteria_results?: Record<string, boolean>;
+    };
+    ip?: {
+      success: boolean;
+      raw?: Record<string, unknown>;
+      error?: string;
+      criteria_results?: Record<string, boolean>;
+    };
+    error?: string;
   };
 }
 
@@ -76,17 +98,29 @@ export class LeadsService {
     actor?: RequestActor,
   ): Promise<ServiceResult<ILead>> {
     try {
-      const { ok, extras, sanitized } = validateAllowedFields(
-        request as Record<string, unknown>,
-        ["campaign_id", "campaign_key", "payload"],
-      );
-
-      if (!ok) {
-        return { result: false, error: `Invalid fields: ${extras.join(", ")}` };
-      }
-
-      const campaignId = sanitized.campaign_id as string;
-      const campaignKey = sanitized.campaign_key as string;
+      // Normalize: support both structured and flat external formats.
+      //   Structured (internal/test):  { campaign_id, campaign_key, payload: { ...leadData } }
+      //   Flat (external affiliate):   { campaign_id, campaign_key, first_name, phone, email, ... }
+      // When payload is absent at the top level, every field other than
+      // campaign_id / campaign_key is treated as lead payload data.
+      const raw = request as Record<string, unknown>;
+      const campaignId = raw.campaign_id as string;
+      const campaignKey = raw.campaign_key as string;
+      const leadPayload: Record<string, unknown> =
+        raw.payload !== undefined &&
+        raw.payload !== null &&
+        typeof raw.payload === "object" &&
+        !Array.isArray(raw.payload)
+          ? (raw.payload as Record<string, unknown>)
+          : (() => {
+              const {
+                campaign_id: _ci,
+                campaign_key: _ck,
+                payload: _p,
+                ...rest
+              } = raw;
+              return rest;
+            })();
 
       if (!campaignId || !campaignKey) {
         return {
@@ -145,7 +179,7 @@ export class LeadsService {
       const qaResult = await this.runQaPlugins(campaign, {
         campaign_id: campaignId,
         campaign_key: campaignKey,
-        payload: sanitized.payload as Record<string, unknown> | undefined,
+        payload: leadPayload,
       });
 
       const duplicateMatchIds = Array.isArray(
@@ -162,20 +196,62 @@ export class LeadsService {
       const rejectedByAffiliate =
         affiliateStatus === CampaignParticipantStatus.DISABLED;
       const rejectedByDuplicate = duplicateCheckEnabled && duplicateDetected;
-      const rejected = rejectedByAffiliate || rejectedByDuplicate;
 
-      const rejectionReason = rejectedByAffiliate
-        ? "Lead received while affiliate is DISABLED for this campaign"
-        : rejectedByDuplicate
-          ? DUPLICATE_REJECTION_REASON
-          : undefined;
+      // TrustedForm: reject the lead if TF ran and the certificate validation failed
+      const trustedFormFailed =
+        qaResult.trusted_form_result != null &&
+        qaResult.trusted_form_result.success === false;
+
+      // IPQS: reject the lead if IPQS ran and the overall fraud check failed
+      const ipqsFailed =
+        qaResult.ipqs_result != null && qaResult.ipqs_result.success === false;
+      const ipqsFailedChecks: string[] = [];
+      if (ipqsFailed) {
+        if (qaResult.ipqs_result?.phone?.success === false)
+          ipqsFailedChecks.push("phone");
+        if (qaResult.ipqs_result?.email?.success === false)
+          ipqsFailedChecks.push("email");
+        if (qaResult.ipqs_result?.ip?.success === false)
+          ipqsFailedChecks.push("ip_address");
+      }
+
+      const rejected =
+        rejectedByAffiliate ||
+        rejectedByDuplicate ||
+        trustedFormFailed ||
+        ipqsFailed;
+
+      const rejectionReasons: string[] = [];
+      if (rejectedByAffiliate)
+        rejectionReasons.push(
+          "Lead received while affiliate is DISABLED for this campaign",
+        );
+      if (rejectedByDuplicate) rejectionReasons.push("Duplicate lead detected");
+      if (trustedFormFailed) {
+        const tfError = qaResult.trusted_form_result?.error;
+        rejectionReasons.push(
+          tfError
+            ? `TrustedForm validation failed: ${tfError}`
+            : "TrustedForm validation failed",
+        );
+      }
+      if (ipqsFailed) {
+        const checks =
+          ipqsFailedChecks.length > 0
+            ? ` (${ipqsFailedChecks.join(", ")})`
+            : "";
+        rejectionReasons.push(`IPQS fraud check failed${checks}`);
+      }
+
+      const rejectionReason =
+        rejectionReasons.length > 0 ? rejectionReasons.join("; ") : undefined;
 
       const lead: ILead = {
         id: IdGenerator.generateLeadId(),
         campaign_id: campaignId,
         campaign_key: campaignKey,
         test: isTest,
-        payload: sanitized.payload as Record<string, unknown> | undefined,
+        payload: leadPayload,
         duplicate: duplicateDetected,
         duplicate_matches: {
           lead_ids: duplicateMatchIds,
@@ -183,6 +259,7 @@ export class LeadsService {
         ...(qaResult.trusted_form_result
           ? { trusted_form_result: qaResult.trusted_form_result }
           : {}),
+        ...(qaResult.ipqs_result ? { ipqs_result: qaResult.ipqs_result } : {}),
         created_at: now,
         affiliate_status_at_intake: affiliateStatus,
         rejected,
@@ -514,6 +591,12 @@ export class LeadsService {
           : undefined;
       const phone =
         typeof leadPayload.phone === "string" ? leadPayload.phone : undefined;
+      const email =
+        typeof leadPayload.email === "string" ? leadPayload.email : undefined;
+      const ipAddress =
+        typeof leadPayload.ip_address === "string"
+          ? leadPayload.ip_address
+          : undefined;
 
       return await this.lambdaInvokeUtil.invokeJson<QaOrchestratorResult>({
         functionName: this.constants.QA_ORCHESTRATOR_LAMBDA_NAME,
@@ -523,6 +606,8 @@ export class LeadsService {
           plugins: campaign.plugins,
           ...(certId ? { cert_id: certId } : {}),
           ...(phone ? { phone } : {}),
+          ...(email ? { email } : {}),
+          ...(ipAddress ? { ip_address: ipAddress } : {}),
         },
       });
     } catch (error) {

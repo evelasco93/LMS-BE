@@ -10,11 +10,21 @@ export interface TrustedFormValidateResponse {
 }
 
 export interface TrustedFormClaimResponse {
-  cert?: {
-    id?: string;
-    expires_at?: string;
-    previously_retained?: boolean;
+  retain?: {
+    results?: {
+      expires_at?: string;
+      masked_cert_url?: string;
+      previously_retained?: boolean;
+    };
     vendor?: string;
+  };
+  match_lead?: {
+    result?: {
+      success?: boolean;
+      phone_match?: boolean;
+      email_match?: boolean;
+    };
+    phone?: string;
   };
   outcome?: string;
   reason?: string;

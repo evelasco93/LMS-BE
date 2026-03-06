@@ -10,7 +10,6 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.922.0",
     "inversify": "^6.0.2",
     "reflect-metadata": "^0.2.2",
     "ts-lambda-api": "^2.5.3"

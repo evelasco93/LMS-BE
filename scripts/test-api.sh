@@ -45,8 +45,8 @@ load_dotenv_file() {
 load_dotenv_file ".frontend-auth.env"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-DEFAULT_INTERNAL_API_BASE_URL="https://9jeq3wzyxf.execute-api.us-east-1.amazonaws.com/dev/"
-DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://oyvtl04a9c.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_INTERNAL_API_BASE_URL="https://1t2jyew8o2.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://a1tu1h2ev8.execute-api.us-east-1.amazonaws.com/dev/"
 
 INTERNAL_API_BASE_URL="${INTERNAL_API_BASE_URL:-${NEXT_INTERNAL_API_BASE_URL:-$DEFAULT_INTERNAL_API_BASE_URL}}"
 EXTERNAL_LEADS_API_BASE_URL="${EXTERNAL_LEADS_API_BASE_URL:-${NEXT_EXTERNAL_LEADS_API_BASE_URL:-$DEFAULT_EXTERNAL_LEADS_API_BASE_URL}}"
@@ -67,6 +67,7 @@ CAMPAIGNS_TABLE_NAME="${CAMPAIGNS_TABLE_NAME:-}"
 CLIENTS_TABLE_NAME="${CLIENTS_TABLE_NAME:-}"
 AFFILIATES_TABLE_NAME="${AFFILIATES_TABLE_NAME:-}"
 LEADS_TABLE_NAME="${LEADS_TABLE_NAME:-}"
+TENANT_SETTINGS_TABLE_NAME="${TENANT_SETTINGS_TABLE_NAME:-sel-lms-tenant-settings-dev}"
 
 # Shared state between suites (populated when running "all")
 CLIENT_ID=""
@@ -89,7 +90,7 @@ LEAD_ID_SOFT=""
 
 # Tenant-config state
 CREDENTIAL_ID=""
-PLUGIN_SCHEMA_ID=""
+CREDENTIAL_SCHEMA_ID=""
 TC_CAMPAIGN_ID=""
 TC_CAMPAIGN_KEY=""
 
@@ -1638,8 +1639,11 @@ except: print(0)
 # ─── Optional cleanup ─────────────────────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUITE: TENANT CONFIG
-# Tests: plugin schemas, credential CRUD + disable/enable, TrustedForm check-cert,
-#        campaign plugin toggle scenarios (TrustedForm on/off, dup check on/off).
+# Tests: credential schemas, credentials CRUD + disable/enable, plugin settings,
+#        POST /qa/trusted-form/validate (auto-resolve from plugin setting),
+#        POST /qa/ipqs/check — phone-only, email-only, ip_address-only,
+#        disabled-credentials blocking proxy, ACTIVE gate (dup_check auto-enabled),
+#        campaign plugin toggle scenarios (TrustedForm on/off, dup check on/off, IPQS on/off).
 # ═══════════════════════════════════════════════════════════════════════════════
 run_tenant_config_tests() {
     reset_suite_log
@@ -1647,40 +1651,40 @@ run_tenant_config_tests() {
     echo -e "${MAGENTA}║  TENANT CONFIG SUITE                          ║${NC}"
     echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
 
-    # ── 1. Plugin Schema: create TrustedForm schema ──────────────────────────
-    print_section "PLUGIN SCHEMA: POST /tenant-config/plugin-schemas (TrustedForm)"
-    local ps_resp
-    ps_resp=$(test_endpoint "POST" "/tenant-config/plugin-schemas" \
-        "Create TrustedForm plugin schema" \
+    # ── 1. Credential Schema: create TrustedForm credential schema ───────────
+    print_section "CREDENTIAL SCHEMA: POST /tenant-config/credential-schemas (TrustedForm)"
+    local cs_resp
+    cs_resp=$(test_endpoint "POST" "/tenant-config/credential-schemas" \
+        "Create TrustedForm credential schema" \
         '{"provider":"trusted_form","name":"TrustedForm","credential_type":"basic_auth","description":"TrustedForm certificate verification integration","fields":[{"name":"username","label":"Username","type":"text","required":true,"placeholder":"Enter your TrustedForm username"},{"name":"password","label":"Password","type":"password","required":true,"placeholder":"Enter your TrustedForm password"}]}')
-    PLUGIN_SCHEMA_ID=$(extract_json_value "$ps_resp" "data.id")
-    if [ -n "$PLUGIN_SCHEMA_ID" ]; then
-        print_result 0 "Plugin schema created: $PLUGIN_SCHEMA_ID"
+    CREDENTIAL_SCHEMA_ID=$(extract_json_value "$cs_resp" "data.id")
+    if [ -n "$CREDENTIAL_SCHEMA_ID" ]; then
+        print_result 0 "Credential schema created: $CREDENTIAL_SCHEMA_ID"
     else
-        print_result 1 "Failed to create plugin schema"
-        print_json "$ps_resp"
+        print_result 1 "Failed to create credential schema"
+        print_json "$cs_resp"
     fi
 
-    # ── 2. List plugin schemas ───────────────────────────────────────────────
-    print_section "PLUGIN SCHEMA: GET /tenant-config/plugin-schemas"
-    local ps_list_resp
-    ps_list_resp=$(test_endpoint "GET" "/tenant-config/plugin-schemas" "List all plugin schemas")
+    # ── 2. List + Get credential schemas ────────────────────────────────────
+    print_section "CREDENTIAL SCHEMA: GET /tenant-config/credential-schemas"
+    local cs_list_resp
+    cs_list_resp=$(test_endpoint "GET" "/tenant-config/credential-schemas" "List all credential schemas")
     if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-        print_result 0 "List plugin schemas returned HTTP $LAST_HTTP_STATUS"
+        print_result 0 "List credential schemas returned HTTP $LAST_HTTP_STATUS"
     else
-        print_result 1 "List plugin schemas failed (HTTP $LAST_HTTP_STATUS)"
+        print_result 1 "List credential schemas failed (HTTP $LAST_HTTP_STATUS)"
     fi
 
-    if [ -n "$PLUGIN_SCHEMA_ID" ]; then
-        print_section "PLUGIN SCHEMA: GET /tenant-config/plugin-schemas/$PLUGIN_SCHEMA_ID"
-        local ps_get_resp
-        ps_get_resp=$(test_endpoint "GET" "/tenant-config/plugin-schemas/$PLUGIN_SCHEMA_ID" "Get plugin schema by ID")
-        local ps_provider
-        ps_provider=$(extract_json_value "$ps_get_resp" "data.provider")
-        if [ "$ps_provider" = "trusted_form" ]; then
-            print_result 0 "Plugin schema retrieved correctly (provider=$ps_provider)"
+    if [ -n "$CREDENTIAL_SCHEMA_ID" ]; then
+        print_section "CREDENTIAL SCHEMA: GET /tenant-config/credential-schemas/$CREDENTIAL_SCHEMA_ID"
+        local cs_get_resp
+        cs_get_resp=$(test_endpoint "GET" "/tenant-config/credential-schemas/$CREDENTIAL_SCHEMA_ID" "Get credential schema by ID")
+        local cs_provider
+        cs_provider=$(extract_json_value "$cs_get_resp" "data.provider")
+        if [ "$cs_provider" = "trusted_form" ]; then
+            print_result 0 "Credential schema retrieved correctly (provider=$cs_provider)"
         else
-            print_result 1 "Plugin schema mismatch (provider=$ps_provider expected trusted_form)"
+            print_result 1 "Credential schema mismatch (provider=$cs_provider expected trusted_form)"
         fi
     fi
 
@@ -1689,7 +1693,7 @@ run_tenant_config_tests() {
     local cred_resp
     cred_resp=$(test_endpoint "POST" "/tenant-config/credentials" \
         "Create TrustedForm basic_auth credential" \
-        '{"provider":"trusted_form","name":"TrustedForm Prod","type":"basic_auth","credentials":{"username":"API","password":"de3b2f39055939221023f0325f33d25a"},"vendor":"SummitEdgeLegal"}')
+        "{\"provider\":\"trusted_form\",\"name\":\"TrustedForm Prod\",\"credential_type\":\"basic_auth\",\"credentials\":{\"username\":\"API\",\"password\":\"de3b2f39055939221023f0325f33d25a\"},\"vendor\":\"Summit Edge Legal\",\"schema_id\":\"$CREDENTIAL_SCHEMA_ID\"}")
     CREDENTIAL_ID=$(extract_json_value "$cred_resp" "data.id")
     if [ -n "$CREDENTIAL_ID" ]; then
         print_result 0 "Credential created: $CREDENTIAL_ID"
@@ -1719,7 +1723,7 @@ run_tenant_config_tests() {
         print_result 1 "Provider filter failed (HTTP $LAST_HTTP_STATUS)"
     fi
 
-    # ── 5. Edit (update) credential ──────────────────────────────────────────
+    # ── 5. Update credential ─────────────────────────────────────────────────
     print_section "CREDENTIAL: PUT /tenant-config/credentials/$CREDENTIAL_ID (rename)"
     local cred_upd_resp
     cred_upd_resp=$(test_endpoint "PUT" "/tenant-config/credentials/$CREDENTIAL_ID" \
@@ -1733,7 +1737,63 @@ run_tenant_config_tests() {
         print_result 1 "Credential rename failed (name=$upd_name)"
     fi
 
-    # ── 6. Disable credential ────────────────────────────────────────────────
+    # ── 6. Test validate with NO plugin setting configured yet ───────────────
+    # At this point no plugin_setting exists — auto-resolve should fail
+    print_section "VALIDATE: POST /qa/trusted-form/validate (no plugin setting → expect error)"
+    local val_nops_resp
+    val_nops_resp=$(test_endpoint "POST" "/qa/trusted-form/validate" \
+        "Validate cert before plugin setting created — expects error" \
+        '{"cert_id":"832c886bc1dfb73412603c908c4d5f654906d443"}')
+    local val_nops_success
+    val_nops_success=$(extract_json_value "$val_nops_resp" "success" | tr '[:upper:]' '[:lower:]')
+    if [ "$val_nops_success" = "false" ]; then
+        print_result 0 "Correctly returned error — no plugin setting configured yet"
+    else
+        print_result 1 "Expected error before plugin setting exists (success=$val_nops_success)"
+        print_json "$val_nops_resp"
+    fi
+
+    # ── 7. Create plugin setting (link schema → credential) ──────────────────
+    if [ -n "$CREDENTIAL_SCHEMA_ID" ]; then
+        print_section "PLUGIN SETTING: PUT /tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID"
+        local ps_upsert_resp
+        ps_upsert_resp=$(test_endpoint "PUT" "/tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID" \
+            "Upsert plugin setting — link TrustedForm schema to credential" \
+            "{\"credentials_id\":\"$CREDENTIAL_ID\"}")
+        local ps_cred_id
+        ps_cred_id=$(extract_json_value "$ps_upsert_resp" "data.credentials_id")
+        if [ "$ps_cred_id" = "$CREDENTIAL_ID" ]; then
+            print_result 0 "Plugin setting created: schema=$CREDENTIAL_SCHEMA_ID → cred=$CREDENTIAL_ID"
+        else
+            print_result 1 "Plugin setting create may have failed (credentials_id=$ps_cred_id expected $CREDENTIAL_ID)"
+            print_json "$ps_upsert_resp"
+        fi
+
+        # ── 8. Get plugin setting ────────────────────────────────────────────
+        print_section "PLUGIN SETTING: GET /tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID"
+        local ps_get_resp
+        ps_get_resp=$(test_endpoint "GET" "/tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID" \
+            "Get plugin setting by schema ID")
+        local ps_get_cred
+        ps_get_cred=$(extract_json_value "$ps_get_resp" "data.credentials_id")
+        if [ "$ps_get_cred" = "$CREDENTIAL_ID" ]; then
+            print_result 0 "Plugin setting GET returned correct credentials_id"
+        else
+            print_result 1 "Plugin setting GET mismatch (credentials_id=$ps_get_cred expected $CREDENTIAL_ID)"
+        fi
+
+        # ── 9. List plugin settings ──────────────────────────────────────────
+        print_section "PLUGIN SETTING: GET /tenant-config/plugin-settings"
+        local ps_list_resp
+        ps_list_resp=$(test_endpoint "GET" "/tenant-config/plugin-settings" "List all plugin settings")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "List plugin settings returned HTTP $LAST_HTTP_STATUS"
+        else
+            print_result 1 "List plugin settings failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+    fi
+
+    # ── 10. Disable credential, test validate → expect error ─────────────────
     print_section "CREDENTIAL: PUT /tenant-config/credentials/$CREDENTIAL_ID/disable"
     local cred_dis_resp
     cred_dis_resp=$(test_endpoint "PUT" "/tenant-config/credentials/$CREDENTIAL_ID/disable" \
@@ -1746,21 +1806,21 @@ run_tenant_config_tests() {
         print_result 1 "Credential disable may have failed (enabled=$dis_enabled expected false)"
     fi
 
-    # ── 7. Verify check-cert skips disabled credential (auto-resolve) ────────
-    print_section "CHECK-CERT: POST /trusted-form/check-cert with no credentials_id → expects no active cred error"
-    local cc_nodis_resp
-    cc_nodis_resp=$(test_endpoint "POST" "/tenant-config/trusted-form/check-cert" \
-        "Check cert while only TF credential is disabled — expects error" \
-        '{"cert_id":"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"}')
-    local cc_nodis_success
-    cc_nodis_success=$(extract_json_value "$cc_nodis_resp" "success" | tr '[:upper:]' '[:lower:]')
-    if [ "$cc_nodis_success" = "false" ]; then
-        print_result 0 "Correctly returned error when no active TrustedForm credential exists"
+    print_section "VALIDATE: POST /qa/trusted-form/validate (credential disabled → expect error)"
+    local val_dis_resp
+    val_dis_resp=$(test_endpoint "POST" "/qa/trusted-form/validate" \
+        "Validate cert with disabled credential — expects error" \
+        '{"cert_id":"832c886bc1dfb73412603c908c4d5f654906d443"}')
+    local val_dis_success
+    val_dis_success=$(extract_json_value "$val_dis_resp" "success" | tr '[:upper:]' '[:lower:]')
+    if [ "$val_dis_success" = "false" ]; then
+        print_result 0 "Correctly returned error when TrustedForm credential is disabled"
     else
-        print_result 1 "Expected error when all TF credentials disabled (success=$cc_nodis_success)"
+        print_result 1 "Expected error when credential disabled (success=$val_dis_success)"
+        print_json "$val_dis_resp"
     fi
 
-    # ── 8. Re-enable credential ──────────────────────────────────────────────
+    # ── 11. Re-enable credential ─────────────────────────────────────────────
     print_section "CREDENTIAL: PUT /tenant-config/credentials/$CREDENTIAL_ID/enable"
     local cred_enb_resp
     cred_enb_resp=$(test_endpoint "PUT" "/tenant-config/credentials/$CREDENTIAL_ID/enable" \
@@ -1773,33 +1833,163 @@ run_tenant_config_tests() {
         print_result 1 "Credential re-enable may have failed (enabled=$enb_enabled expected true)"
     fi
 
-    # ── 9. Check-cert with active credential (auto-resolve) ──────────────────
-    print_section "CHECK-CERT: POST /tenant-config/trusted-form/check-cert (auto-resolve, cert: 6e573ab8...)"
-    local cc_auto_resp
-    cc_auto_resp=$(test_endpoint "POST" "/tenant-config/trusted-form/check-cert" \
-        "Check TrustedForm cert using auto-resolved active credential" \
-        '{"cert_id":"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a"}')
+    # ── 12. Validate with auto-resolved credential ───────────────────────────
+    print_section "VALIDATE: POST /qa/trusted-form/validate (auto-resolve via plugin setting)"
+    local val_auto_resp
+    val_auto_resp=$(test_endpoint "POST" "/qa/trusted-form/validate" \
+        "Validate TrustedForm cert using plugin-setting auto-resolved credential" \
+        '{"cert_id":"832c886bc1dfb73412603c908c4d5f654906d443"}')
     if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-        print_result 0 "check-cert endpoint reached TrustedForm API (HTTP $LAST_HTTP_STATUS) — full response:"
-        print_json "$cc_auto_resp"
+        print_result 0 "Validate endpoint reached TrustedForm API (HTTP $LAST_HTTP_STATUS) — full response:"
+        print_json "$val_auto_resp"
     else
-        print_result 1 "check-cert endpoint failed (HTTP $LAST_HTTP_STATUS)"
+        print_result 1 "Validate auto-resolve failed (HTTP $LAST_HTTP_STATUS)"
+        print_json "$val_auto_resp"
     fi
 
-    # ── 10. Check-cert with explicit credentials_id ──────────────────────────
-    print_section "CHECK-CERT: POST /tenant-config/trusted-form/check-cert (explicit credentials_id)"
-    local cc_exp_resp
-    cc_exp_resp=$(test_endpoint "POST" "/tenant-config/trusted-form/check-cert" \
-        "Check cert with explicit credentials_id" \
-        "{\"cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\",\"credentials_id\":\"$CREDENTIAL_ID\"}")
-    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-        print_result 0 "check-cert with explicit credential reached TF API (HTTP $LAST_HTTP_STATUS)"
+    # ── 13a. IPQS credential schema ──────────────────────────────────────────
+    print_section "CREDENTIAL SCHEMA: POST /tenant-config/credential-schemas (IPQS)"
+    local ipqs_cs_resp
+    ipqs_cs_resp=$(test_endpoint "POST" "/tenant-config/credential-schemas" \
+        "Create IPQS credential schema" \
+        '{"provider":"ipqs","name":"IPQS","credential_type":"api_key","description":"IPQualityScore fraud score checks","fields":[{"name":"apiKey","label":"API Key","type":"password","required":true,"placeholder":"Enter your IPQS API key"}]}')
+    local IPQS_CREDENTIAL_SCHEMA_ID
+    IPQS_CREDENTIAL_SCHEMA_ID=$(extract_json_value "$ipqs_cs_resp" "data.id")
+    if [ -n "$IPQS_CREDENTIAL_SCHEMA_ID" ]; then
+        print_result 0 "IPQS credential schema created: $IPQS_CREDENTIAL_SCHEMA_ID"
     else
-        print_result 1 "check-cert with explicit credential failed (HTTP $LAST_HTTP_STATUS)"
+        print_result 1 "Failed to create IPQS credential schema"
+        print_json "$ipqs_cs_resp"
     fi
 
-    # ── 11. Campaign + plugin toggle tests ───────────────────────────────────
-    # We need a campaign with a client+affiliate linked to send test leads.
+    # ── 13b. IPQS credential ─────────────────────────────────────────────────
+    local IPQS_CREDENTIAL_ID
+    if [ -n "$IPQS_CREDENTIAL_SCHEMA_ID" ]; then
+        print_section "CREDENTIAL: POST /tenant-config/credentials (IPQS api_key)"
+        local ipqs_cred_resp
+        ipqs_cred_resp=$(test_endpoint "POST" "/tenant-config/credentials" \
+            "Create IPQS api_key credential" \
+            "{\"provider\":\"ipqs\",\"name\":\"IPQS Test\",\"credential_type\":\"api_key\",\"credentials\":{\"apiKey\":\"test_api_key_12345\"},\"schema_id\":\"$IPQS_CREDENTIAL_SCHEMA_ID\"}")
+        IPQS_CREDENTIAL_ID=$(extract_json_value "$ipqs_cred_resp" "data.id")
+        if [ -n "$IPQS_CREDENTIAL_ID" ]; then
+            print_result 0 "IPQS credential created: $IPQS_CREDENTIAL_ID"
+        else
+            print_result 1 "Failed to create IPQS credential"
+            print_json "$ipqs_cred_resp"
+        fi
+    fi
+
+    # ── 13c. IPQS plugin setting ─────────────────────────────────────────────
+    if [ -n "$IPQS_CREDENTIAL_SCHEMA_ID" ] && [ -n "$IPQS_CREDENTIAL_ID" ]; then
+        print_section "PLUGIN SETTING: PUT /tenant-config/plugin-settings/$IPQS_CREDENTIAL_SCHEMA_ID (IPQS)"
+        local ipqs_ps_resp
+        ipqs_ps_resp=$(test_endpoint "PUT" "/tenant-config/plugin-settings/$IPQS_CREDENTIAL_SCHEMA_ID" \
+            "Upsert IPQS plugin setting — link schema to credential" \
+            "{\"credentials_id\":\"$IPQS_CREDENTIAL_ID\"}")
+        local ipqs_ps_cred_id
+        ipqs_ps_cred_id=$(extract_json_value "$ipqs_ps_resp" "data.credentials_id")
+        if [ "$ipqs_ps_cred_id" = "$IPQS_CREDENTIAL_ID" ]; then
+            print_result 0 "IPQS plugin setting created: schema=$IPQS_CREDENTIAL_SCHEMA_ID → cred=$IPQS_CREDENTIAL_ID"
+        else
+            print_result 1 "IPQS plugin setting create may have failed (credentials_id=$ipqs_ps_cred_id expected $IPQS_CREDENTIAL_ID)"
+            print_json "$ipqs_ps_resp"
+        fi
+    fi
+
+    # ── 13d. IPQS check proxy endpoint — all fields ────────────────────────
+    print_section "POST /qa/ipqs/check (proxy — phone + email + ip_address)"
+    local ipqs_check_resp
+    ipqs_check_resp=$(test_endpoint "POST" "/qa/ipqs/check" \
+        "IPQS check via proxy endpoint (phone + email + ip_address)" \
+        '{"phone":"5551234567","email":"test@example.com","ip_address":"8.8.8.8"}')
+    # The test API key is invalid so the IPQS API may reject the key itself,
+    # but the endpoint must respond (not crash / return empty)
+    if [ -n "$ipqs_check_resp" ]; then
+        print_result 0 "IPQS check endpoint responded (HTTP $LAST_HTTP_STATUS)"
+        print_json "$ipqs_check_resp"
+    else
+        print_result 1 "IPQS check endpoint returned empty response"
+    fi
+
+    # ── 13e. IPQS proxy — phone only ─────────────────────────────────────────
+    print_section "POST /qa/ipqs/check → phone only"
+    local ipqs_phone_resp
+    ipqs_phone_resp=$(test_endpoint "POST" "/qa/ipqs/check" \
+        "IPQS check (phone only)" \
+        '{"phone":"5551234567"}')
+    if [ -n "$ipqs_phone_resp" ]; then
+        print_result 0 "IPQS phone-only check responded (HTTP $LAST_HTTP_STATUS)"
+        print_json "$ipqs_phone_resp"
+    else
+        print_result 1 "IPQS phone-only check returned empty response"
+    fi
+
+    # ── 13f. IPQS proxy — email only ─────────────────────────────────────────
+    print_section "POST /qa/ipqs/check → email only"
+    local ipqs_email_resp
+    ipqs_email_resp=$(test_endpoint "POST" "/qa/ipqs/check" \
+        "IPQS check (email only)" \
+        '{"email":"test@example.com"}')
+    if [ -n "$ipqs_email_resp" ]; then
+        print_result 0 "IPQS email-only check responded (HTTP $LAST_HTTP_STATUS)"
+        print_json "$ipqs_email_resp"
+    else
+        print_result 1 "IPQS email-only check returned empty response"
+    fi
+
+    # ── 13g. IPQS proxy — ip_address only ────────────────────────────────────
+    print_section "POST /qa/ipqs/check → ip_address only"
+    local ipqs_ip_resp
+    ipqs_ip_resp=$(test_endpoint "POST" "/qa/ipqs/check" \
+        "IPQS check (ip_address only)" \
+        '{"ip_address":"8.8.8.8"}')
+    if [ -n "$ipqs_ip_resp" ]; then
+        print_result 0 "IPQS ip_address-only check responded (HTTP $LAST_HTTP_STATUS)"
+        print_json "$ipqs_ip_resp"
+    else
+        print_result 1 "IPQS ip_address-only check returned empty response"
+    fi
+
+    # ── 13h. IPQS proxy — disabled credential should block the check ─────────
+    if [ -n "$IPQS_CREDENTIAL_ID" ]; then
+        print_section "CREDENTIAL: Disable IPQS credential — verify proxy is blocked"
+        test_endpoint "PUT" "/tenant-config/credentials/$IPQS_CREDENTIAL_ID/disable" \
+            "Disable IPQS credential" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "IPQS credential disabled"
+        else
+            print_result 1 "Failed to disable IPQS credential (HTTP $LAST_HTTP_STATUS)"
+        fi
+
+        local ipqs_dis_resp
+        ipqs_dis_resp=$(test_endpoint "POST" "/qa/ipqs/check" \
+            "IPQS check with credential disabled — expect error" \
+            '{"phone":"5551234567"}')
+        local ipqs_dis_success
+        ipqs_dis_success=$(extract_json_value "$ipqs_dis_resp" "success" | tr '[:upper:]' '[:lower:]')
+        # Accept success=false OR any 4xx HTTP status as "correctly blocked"
+        local ipqs_dis_blocked="no"
+        [ "$ipqs_dis_success" = "false" ] && ipqs_dis_blocked="yes"
+        { [ "$LAST_HTTP_STATUS" -ge 400 ] 2>/dev/null && ipqs_dis_blocked="yes"; } || true
+        if [ "$ipqs_dis_blocked" = "yes" ]; then
+            print_result 0 "Correctly blocked — disabled credential prevents IPQS check (HTTP $LAST_HTTP_STATUS) ✓"
+        else
+            print_result 1 "Expected error when IPQS credential is disabled (success=$ipqs_dis_success HTTP=$LAST_HTTP_STATUS)"
+            print_json "$ipqs_dis_resp"
+        fi
+
+        # Re-enable IPQS credential
+        print_section "CREDENTIAL: Re-enable IPQS credential"
+        test_endpoint "PUT" "/tenant-config/credentials/$IPQS_CREDENTIAL_ID/enable" \
+            "Re-enable IPQS credential" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "IPQS credential re-enabled"
+        else
+            print_result 1 "Failed to re-enable IPQS credential (HTTP $LAST_HTTP_STATUS)"
+        fi
+    fi
+
+    # ── 14. Campaign + plugin toggle tests ───────────────────────────────────
     # Re-use CLIENT_ID/AFFILIATE_ID if already set (running after campaigns suite),
     # otherwise create fresh ones.
     local tc_client_id="$CLIENT_ID"
@@ -1823,7 +2013,8 @@ run_tenant_config_tests() {
         print_result 0 "TC client=$tc_client_id affiliate=$tc_affiliate_id"
     fi
 
-    print_section "TC CAMPAIGN: POST /campaigns (TrustedForm plugin test campaign)"
+    # Create campaign — duplicate_check on by default, TF+IPQS off
+    print_section "TC CAMPAIGN: POST /campaigns (verify default plugin state)"
     local tc_camp_resp
     tc_camp_resp=$(test_endpoint "POST" "/campaigns" "Create TrustedForm test campaign" \
         "{\"name\":\"TrustedForm Plugin Test $TIMESTAMP\"}")
@@ -1834,7 +2025,16 @@ run_tenant_config_tests() {
         print_suite_summary "TENANT CONFIG SUITE"
         return 0
     fi
-    print_result 0 "TC campaign created: $TC_CAMPAIGN_ID"
+    # Verify default plugin state: duplicate_check=true by default, TF+IPQS=false
+    local tc_tf_enabled tc_dup_enabled tc_ipqs_enabled
+    tc_tf_enabled=$(extract_json_value "$tc_camp_resp" "data.plugins.trusted_form.enabled" | tr '[:upper:]' '[:lower:]')
+    tc_dup_enabled=$(extract_json_value "$tc_camp_resp" "data.plugins.duplicate_check.enabled" | tr '[:upper:]' '[:lower:]')
+    tc_ipqs_enabled=$(extract_json_value "$tc_camp_resp" "data.plugins.ipqs.enabled" | tr '[:upper:]' '[:lower:]')
+    if [ "$tc_tf_enabled" = "false" ] && [ "$tc_dup_enabled" = "true" ] && [ "$tc_ipqs_enabled" = "false" ]; then
+        print_result 0 "TC campaign default plugins correct: duplicate_check=true trusted_form=false ipqs=false ($TC_CAMPAIGN_ID)"
+    else
+        print_result 1 "Default plugins mismatch (duplicate_check=$tc_dup_enabled expected=true, trusted_form=$tc_tf_enabled expected=false, ipqs=$tc_ipqs_enabled expected=false)"
+    fi
 
     test_endpoint "POST" "/campaigns/$TC_CAMPAIGN_ID/clients" "Link TC client" \
         "{\"client_id\":\"$tc_client_id\"}" > /dev/null
@@ -1850,28 +2050,60 @@ run_tenant_config_tests() {
 
     test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/status" "TC campaign → TEST" \
         '{"status":"TEST"}' > /dev/null
-    print_result 0 "TC campaign set to TEST status"
+    print_result 0 "TC campaign set to TEST status (plugins still disabled — TEST allows disabled plugins)"
 
-    # ── 12. Enable TrustedForm plugin on campaign + link credential ──────────
-    print_section "PLUGINS: Enable TrustedForm on TC campaign + link credential"
-    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
-        "Enable trusted_form plugin with credential" \
-        "{\"trusted_form\":{\"enabled\":true,\"credentials_id\":\"$CREDENTIAL_ID\"}}" > /dev/null
-    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-        print_result 0 "TrustedForm plugin enabled on TC campaign"
+    # ── 14b. Promote TC participants → LIVE (required before ACTIVE gate) ────
+    print_section "TC CAMPAIGN: Promote participants → LIVE"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/clients/$tc_client_id" \
+        "TC client → LIVE" '{"status":"LIVE"}' > /dev/null
+    print_result 0 "TC client promoted to LIVE"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/affiliates/$tc_affiliate_id" \
+        "TC affiliate → LIVE" '{"status":"LIVE"}' > /dev/null
+    print_result 0 "TC affiliate promoted to LIVE"
+
+    # ── 15. ACTIVE gate: optional plugins disabled → must succeed; dup_check auto-enabled ──
+    print_section "ACTIVE GATE: Campaign → ACTIVE with optional plugins disabled — must succeed"
+    local tc_active_resp tc_active_result tc_dup_auto_enabled
+    tc_active_resp=$(test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/status" \
+        "Campaign → ACTIVE (dup_check auto-enabled, TF+IPQS optional)" \
+        '{"status":"ACTIVE"}')
+    tc_active_result=$(extract_json_value "$tc_active_resp" "data.status")
+    tc_dup_auto_enabled=$(extract_json_value "$tc_active_resp" "data.plugins.duplicate_check.enabled" | tr '[:upper:]' '[:lower:]')
+    if [ "$tc_active_result" = "ACTIVE" ]; then
+        print_result 0 "Campaign successfully moved to ACTIVE status"
     else
-        print_result 1 "Failed to enable TrustedForm plugin (HTTP $LAST_HTTP_STATUS)"
+        print_result 1 "Expected campaign to reach ACTIVE (status=$tc_active_result)"
+        print_json "$tc_active_resp"
+    fi
+    if [ "$tc_dup_auto_enabled" = "true" ]; then
+        print_result 0 "duplicate_check was auto-enabled on ACTIVE transition ✓"
+    else
+        print_result 1 "Expected duplicate_check to be auto-enabled on ACTIVE (got enabled=$tc_dup_auto_enabled)"
     fi
 
-    # ── 13. Send lead WITH cert — TrustedForm should run ────────────────────
-    print_section "LEAD [TF enabled]: Send test lead WITH trusted_form_cert_id"
+    # Set back to TEST for lead tests
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/status" "TC campaign → back to TEST for leads" \
+        '{"status":"TEST"}' > /dev/null
+
+    # ── 16. Enable TrustedForm + IPQS ahead of lead-toggle tests ─────────────
+    print_section "PLUGINS: Enable TrustedForm + IPQS for lead tests"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Enable TF and IPQS for lead tests" \
+        '{"trusted_form":{"enabled":true},"ipqs":{"enabled":true,"phone":{"enabled":true},"email":{"enabled":true},"ip":{"enabled":true}}}' > /dev/null
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "TrustedForm + IPQS enabled for lead tests (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "Failed to enable TF + IPQS for lead tests (HTTP $LAST_HTTP_STATUS)"
+    fi
+
+    # ── 17. Send lead WITH cert — TrustedForm should run ────────────────────
+    print_section "LEAD [TF+IPQS enabled]: Send test lead WITH trusted_form_cert_id"
     if [ -n "$TC_CAMPAIGN_KEY" ]; then
         local tf_lead_resp
         tf_lead_resp=$(test_endpoint "POST" "/v2/leads/test" \
             "Test lead with TrustedForm cert (TF enabled)" \
-            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"832c886bc1dfb73412603c908c4d5f654906d443\"}}" \
             "external")
-        # Lead should be accepted (trusted_form result may be success or failure depending on cert status)
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
             local tf_result
             tf_result=$(extract_json_value "$tf_lead_resp" "data.trusted_form_result")
@@ -1883,7 +2115,7 @@ run_tenant_config_tests() {
         print_result 1 "Skipped TF lead test — no campaign_key"
     fi
 
-    # ── 14. Disable TrustedForm plugin — send lead — should skip TF ──────────
+    # ── 19. Disable TrustedForm plugin — send lead — should skip TF ──────────
     print_section "PLUGINS: Disable TrustedForm on TC campaign"
     test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
         "Disable trusted_form plugin" \
@@ -1899,7 +2131,7 @@ run_tenant_config_tests() {
         local tf_dis_resp
         tf_dis_resp=$(test_endpoint "POST" "/v2/leads/test" \
             "Test lead with TF cert (TF disabled — should skip TF, trusted_form_result absent/null)" \
-            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-2@lms-test.local\",\"phone\":\"+15559990002\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-2@lms-test.local\",\"phone\":\"+15559990002\",\"trusted_form_cert_id\":\"832c886bc1dfb73412603c908c4d5f654906d443\"}}" \
             "external")
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
             local tf_dis_result
@@ -1916,11 +2148,11 @@ run_tenant_config_tests() {
         print_result 1 "Skipped TF-disabled lead test — no campaign_key"
     fi
 
-    # ── 15. Re-enable TrustedForm — verify it runs again ────────────────────
+    # ── 20. Re-enable TrustedForm — verify it runs again ────────────────────
     print_section "PLUGINS: Re-enable TrustedForm on TC campaign"
     test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
         "Re-enable trusted_form plugin" \
-        "{\"trusted_form\":{\"enabled\":true,\"credentials_id\":\"$CREDENTIAL_ID\"}}" > /dev/null
+        '{"trusted_form":{"enabled":true}}' > /dev/null
     print_result 0 "TrustedForm plugin re-enabled"
 
     print_section "LEAD [TF re-enabled]: Send test lead — TF should run again"
@@ -1928,7 +2160,7 @@ run_tenant_config_tests() {
         local tf_reenb_resp
         tf_reenb_resp=$(test_endpoint "POST" "/v2/leads/test" \
             "Test lead with TF cert (TF re-enabled)" \
-            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-3@lms-test.local\",\"phone\":\"+15559990003\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-3@lms-test.local\",\"phone\":\"+15559990003\",\"trusted_form_cert_id\":\"832c886bc1dfb73412603c908c4d5f654906d443\"}}" \
             "external")
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
             print_result 0 "Lead accepted with TF re-enabled (HTTP $LAST_HTTP_STATUS)"
@@ -1940,11 +2172,11 @@ run_tenant_config_tests() {
         print_result 1 "Skipped TF re-enable lead test — no campaign_key"
     fi
 
-    # ── 16. Disable dup check, keep TF enabled ───────────────────────────────
+    # ── 21. Disable dup check, keep TF enabled ───────────────────────────────
     print_section "PLUGINS: Disable duplicate_check, keep TrustedForm enabled"
     test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
         "Disable dup check, keep TF" \
-        "{\"duplicate_check\":{\"enabled\":false},\"trusted_form\":{\"enabled\":true,\"credentials_id\":\"$CREDENTIAL_ID\"}}" > /dev/null
+        '{"duplicate_check":{"enabled":false},"trusted_form":{"enabled":true}}' > /dev/null
     if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
         print_result 0 "duplicate_check disabled, TrustedForm still enabled (HTTP $LAST_HTTP_STATUS)"
     else
@@ -1957,7 +2189,7 @@ run_tenant_config_tests() {
         local nodup_resp
         nodup_resp=$(test_endpoint "POST" "/v2/leads/test" \
             "Duplicate lead with dup check disabled (should be accepted, TF runs)" \
-            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"6e573ab8abffbd1a3fdbbda781b177a3cf61c99a\"}}" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"832c886bc1dfb73412603c908c4d5f654906d443\"}}" \
             "external")
         local nodup_dup nodup_rejected
         nodup_dup=$(extract_json_value "$nodup_resp" "data.duplicate" | tr '[:upper:]' '[:lower:]')
@@ -1981,6 +2213,7 @@ run_cleanup() {
     purge_table "$AFFILIATES_TABLE_NAME"
     purge_table "$CAMPAIGNS_TABLE_NAME"
     purge_table "$LEADS_TABLE_NAME"
+    purge_table "$TENANT_SETTINGS_TABLE_NAME"
 }
 
 # ─── Setup: create/reset test Cognito user ───────────────────────────────────
@@ -2130,7 +2363,7 @@ show_menu() {
     echo -e "  ${GREEN}2)${NC} Clients       — create / validate"
     echo -e "  ${GREEN}3)${NC} Affiliates    — create / validate"
     echo -e "  ${GREEN}4)${NC} Campaigns & Leads — full lifecycle + lead intake"
-    echo -e "  ${GREEN}5)${NC} Tenant Config — credentials, plugin schemas, TrustedForm check-cert"
+    echo -e "  ${GREEN}5)${NC} Tenant Config — credential schemas, credentials, plugin settings, TrustedForm validate"
     echo -e "  ${GREEN}6)${NC} All           — cleanup → auth → clients → affiliates → campaigns → tenant-config"
     echo -e "  ${GREEN}7)${NC} Setup         — create / reset test Cognito user"
     echo -e "  ${GREEN}0)${NC} Exit"

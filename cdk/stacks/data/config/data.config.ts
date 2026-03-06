@@ -63,22 +63,40 @@ export const dataConfig: IDataStackConfig = {
       pointInTimeRecovery: true,
       deletionProtection: false,
     },
-    credentials: {
-      tableName: nameBuilder.table("credentials"),
+    /**
+     * Consolidated single table for all tenant configuration records.
+     * Records are discriminated by the `type` field:
+     *   credential        → tenant credentials (CR-prefixed id)
+     *   credential_schema → credential schema definitions (CS-prefixed id)
+     *   plugin_setting    → global plugin default configurations (PG-prefixed id)
+     */
+    tenantSettings: {
+      tableName: nameBuilder.table("tenant-settings"),
       partitionKey: { name: "id", type: "S" },
       gsi: [
         {
-          indexName: nameBuilder.index("credentials", "provider"),
-          partitionKey: { name: "provider", type: "S" },
+          // GSI 1: list all records of a given type
+          // Service uses: `${TENANT_SETTINGS_TABLE_NAME}-type-index`
+          indexName: `${nameBuilder.table("tenant-settings")}-type-index`,
+          partitionKey: { name: "type", type: "S" },
+          projectionType: "ALL",
+        },
+        {
+          // GSI 2: filter within a type by provider (e.g. all trusted_form credentials)
+          // Service uses: `${TENANT_SETTINGS_TABLE_NAME}-type-provider-index`
+          indexName: `${nameBuilder.table("tenant-settings")}-type-provider-index`,
+          partitionKey: { name: "type", type: "S" },
+          sortKey: { name: "provider", type: "S" },
+          projectionType: "ALL",
+        },
+        {
+          // GSI 3: look up plugin_setting records by the schema_id they reference
+          // Service uses: `${TENANT_SETTINGS_TABLE_NAME}-schema-id-index`
+          indexName: `${nameBuilder.table("tenant-settings")}-schema-id-index`,
+          partitionKey: { name: "schema_id", type: "S" },
           projectionType: "ALL",
         },
       ],
-      pointInTimeRecovery: true,
-      deletionProtection: false,
-    },
-    pluginSchemas: {
-      tableName: nameBuilder.table("plugin-schemas"),
-      partitionKey: { name: "id", type: "S" },
       pointInTimeRecovery: true,
       deletionProtection: false,
     },

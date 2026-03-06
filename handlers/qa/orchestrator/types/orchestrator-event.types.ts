@@ -8,4 +8,8 @@ export interface OrchestratorEvent {
   cert_id?: string;
   /** Lead phone number — used by trusted_form plugin for phone match */
   phone?: string;
+  /** Lead email address — used by ipqs plugin */
+  email?: string;
+  /** Lead IP address — used by ipqs plugin */
+  ip_address?: string;
 }

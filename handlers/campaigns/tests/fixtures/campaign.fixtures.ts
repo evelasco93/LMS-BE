@@ -29,6 +29,33 @@ export const mockCampaign: ICampaign = {
     trusted_form: {
       enabled: true,
     },
+    ipqs: {
+      enabled: true,
+      phone: {
+        enabled: true,
+        criteria: {
+          valid: { enabled: true, required: true },
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+          country: { enabled: false, allowed: [] },
+        },
+      },
+      email: {
+        enabled: true,
+        criteria: {
+          valid: { enabled: true, required: true },
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+        },
+      },
+      ip: {
+        enabled: true,
+        criteria: {
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+          country_code: { enabled: false, allowed: [] },
+          proxy: { enabled: false, allowed: false },
+          vpn: { enabled: false, allowed: false },
+        },
+      },
+    },
   },
   created_at: now,
   updated_at: now,
@@ -48,6 +75,33 @@ export const emptyCampaign: ICampaign = {
     },
     trusted_form: {
       enabled: true,
+    },
+    ipqs: {
+      enabled: false,
+      phone: {
+        enabled: false,
+        criteria: {
+          valid: { enabled: true, required: true },
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+          country: { enabled: false, allowed: [] },
+        },
+      },
+      email: {
+        enabled: false,
+        criteria: {
+          valid: { enabled: true, required: true },
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+        },
+      },
+      ip: {
+        enabled: false,
+        criteria: {
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+          country_code: { enabled: false, allowed: [] },
+          proxy: { enabled: false, allowed: false },
+          vpn: { enabled: false, allowed: false },
+        },
+      },
     },
   },
   created_at: now,
@@ -78,6 +132,33 @@ export const campaignWithAffiliate: ICampaign = {
     },
     trusted_form: {
       enabled: true,
+    },
+    ipqs: {
+      enabled: true,
+      phone: {
+        enabled: true,
+        criteria: {
+          valid: { enabled: true, required: true },
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+          country: { enabled: false, allowed: [] },
+        },
+      },
+      email: {
+        enabled: true,
+        criteria: {
+          valid: { enabled: true, required: true },
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+        },
+      },
+      ip: {
+        enabled: true,
+        criteria: {
+          fraud_score: { enabled: true, operator: "lte", value: 75 },
+          country_code: { enabled: false, allowed: [] },
+          proxy: { enabled: false, allowed: false },
+          vpn: { enabled: false, allowed: false },
+        },
+      },
     },
   },
   created_at: now,

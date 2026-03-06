@@ -109,13 +109,24 @@ export class IdGenerator {
   }
 
   /**
-   * Generate a plugin schema ID
+   * Generate a credential schema ID
    * @param length - Length of random part (default: 8)
-   * @returns Plugin schema ID (e.g., 'PSA1B2C3D4')
+   * @returns Credential schema ID (e.g., 'CSA1B2C3D4')
    */
-  static generatePluginSchemaId(
+  static generateCredentialSchemaId(
     length: number = IdGenerator.DEFAULT_LENGTH,
   ): string {
-    return IdGenerator.generate(EntityPrefix.PLUGIN_SCHEMA, length);
+    return IdGenerator.generate(EntityPrefix.CREDENTIAL_SCHEMA, length);
+  }
+
+  /**
+   * Generate a plugin setting ID
+   * @param length - Length of random part (default: 8)
+   * @returns Plugin setting ID (e.g., 'PGA1B2C3D4')
+   */
+  static generatePluginSettingId(
+    length: number = IdGenerator.DEFAULT_LENGTH,
+  ): string {
+    return IdGenerator.generate(EntityPrefix.PLUGIN_SETTING, length);
   }
 }

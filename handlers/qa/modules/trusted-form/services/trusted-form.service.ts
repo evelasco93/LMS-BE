@@ -60,25 +60,35 @@ export class TrustedFormService {
       const cleanPhone = phone ? this.normalizePhone(phone) : undefined;
       const effectiveVendor = vendor ?? cred.vendor ?? "";
 
+      this.logger.info("TrustedForm executing", {
+        raw_cert_id: cert_id,
+        clean_cert_id: cleanCertId,
+        phone: cleanPhone,
+        vendor: effectiveVendor,
+        credentials_id,
+      });
+
       // 3. Validate
       const validateResponse = await this.callValidate(
         cleanCertId,
-        cleanPhone,
         username,
         password,
       );
 
+      this.logger.info("TrustedForm validate response", {
+        cert_id: cleanCertId,
+        response: validateResponse,
+      });
+
       const validateOutcome = validateResponse?.outcome as string | undefined;
       const validateReason = validateResponse?.reason as string | undefined;
 
-      if (
-        validateOutcome === "failure" ||
-        validateOutcome === "error"
-      ) {
+      if (validateOutcome === "failure" || validateOutcome === "error") {
         this.logger.warn("TrustedForm validate failed", {
           cert_id: cleanCertId,
           outcome: validateOutcome,
           reason: validateReason,
+          full_response: validateResponse,
         });
 
         return {
@@ -102,29 +112,37 @@ export class TrustedFormService {
         password,
       );
 
-      const certData = claimResponse?.cert;
+      this.logger.info("TrustedForm claim response", {
+        cert_id: cleanCertId,
+        response: claimResponse,
+      });
+
+      const retainResults = claimResponse?.retain?.results;
+      const retainVendor = claimResponse?.retain?.vendor;
+      const phoneMatch = claimResponse?.match_lead?.result?.phone_match;
 
       this.logger.info("TrustedForm cert claimed", {
         cert_id: cleanCertId,
         outcome: claimResponse?.outcome,
-        vendor: certData?.vendor,
+        vendor: retainVendor,
+        phone_match: phoneMatch,
+        previously_retained: retainResults?.previously_retained,
       });
+
+      const claimOutcome = (claimResponse?.outcome as string) ?? "failure";
+      const isSuccess = claimOutcome === "success";
 
       return {
         result: true,
         data: {
-          success: true,
+          success: isSuccess,
           cert_id: cleanCertId,
-          outcome: (claimResponse?.outcome as string) ?? "success",
+          outcome: claimOutcome,
           phone: cleanPhone,
-          phone_match: (
-            validateResponse?.match_lead as
-              | { phone_match?: boolean }
-              | undefined
-          )?.phone_match,
-          vendor: certData?.vendor ?? effectiveVendor,
-          previously_retained: certData?.previously_retained,
-          expires_at: certData?.expires_at,
+          phone_match: phoneMatch,
+          vendor: retainVendor ?? effectiveVendor,
+          previously_retained: retainResults?.previously_retained,
+          expires_at: retainResults?.expires_at,
         },
       };
     } catch (error: unknown) {
@@ -141,7 +159,7 @@ export class TrustedFormService {
     credentialsId: string,
   ): Promise<CredentialRecord | null> {
     const item = await this.dynamoDBUtil.get({
-      TableName: this.constants.CREDENTIALS_TABLE_NAME,
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
       Key: { id: credentialsId },
     });
     return (item as CredentialRecord | null) ?? null;
@@ -187,18 +205,18 @@ export class TrustedFormService {
 
   private callValidate(
     certId: string,
-    phone: string | undefined,
     username: string,
     password: string,
   ): Promise<TrustedFormValidateResponse> {
-    const body = JSON.stringify(
-      phone ? { match_lead: { phone } } : {},
-    );
+    const path = `/${certId}/validate`;
 
-    return this.httpsPost(
+    this.logger.info("TrustedForm → GET validate", {
+      url: `https://cert.trustedform.com${path}`,
+    });
+
+    return this.httpsGet(
       `cert.trustedform.com`,
-      `/${certId}/validate`,
-      body,
+      path,
       username,
       password,
     ) as Promise<TrustedFormValidateResponse>;
@@ -216,6 +234,11 @@ export class TrustedFormService {
       retain: { vendor },
     });
 
+    this.logger.info("TrustedForm → POST retain", {
+      url: `https://cert.trustedform.com/${certId}`,
+      body,
+    });
+
     return this.httpsPost(
       `cert.trustedform.com`,
       `/${certId}`,
@@ -223,6 +246,53 @@ export class TrustedFormService {
       username,
       password,
     ) as Promise<TrustedFormClaimResponse>;
+  }
+
+  private httpsGet(
+    hostname: string,
+    path: string,
+    username: string,
+    password: string,
+  ): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const auth = Buffer.from(`${username}:${password}`).toString("base64");
+      const options = {
+        hostname,
+        path,
+        method: "GET",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let raw = "";
+        res.on("data", (chunk) => (raw += chunk));
+        res.on("end", () => {
+          this.logger.info("TrustedForm ← HTTP response", {
+            url: `https://${hostname}${path}`,
+            status: res.statusCode,
+            raw_body: raw,
+          });
+          try {
+            resolve(JSON.parse(raw));
+          } catch {
+            resolve(raw);
+          }
+        });
+      });
+
+      req.on("error", (err) => {
+        this.logger.error("TrustedForm HTTP request error", {
+          url: `https://${hostname}${path}`,
+          error: err.message,
+        });
+        reject(err);
+      });
+      req.end();
+    });
   }
 
   private httpsPost(
@@ -251,6 +321,11 @@ export class TrustedFormService {
         let raw = "";
         res.on("data", (chunk) => (raw += chunk));
         res.on("end", () => {
+          this.logger.info("TrustedForm ← HTTP response", {
+            url: `https://${hostname}${path}`,
+            status: res.statusCode,
+            raw_body: raw,
+          });
           try {
             resolve(JSON.parse(raw));
           } catch {
@@ -259,7 +334,13 @@ export class TrustedFormService {
         });
       });
 
-      req.on("error", reject);
+      req.on("error", (err) => {
+        this.logger.error("TrustedForm HTTP request error", {
+          url: `https://${hostname}${path}`,
+          error: err.message,
+        });
+        reject(err);
+      });
       req.write(body);
       req.end();
     });

@@ -3,11 +3,15 @@ import {
   IPluginSchemaField,
 } from "../interfaces/ITenantConfig.interface";
 
+// ── Credentials ───────────────────────────────────────────────────────────────
+
 export type CreateCredentialRequest = {
   provider: string;
+  /** FK to ICredentialSchemaRecord.id — links this credential to its schema */
+  schema_id?: string;
   /** Human-readable label shown in frontend dropdowns */
   name: string;
-  type: CredentialType;
+  credential_type: CredentialType;
   credentials: Record<string, string>;
   /** Optional vendor name for TrustedForm certificate claims */
   vendor?: string;
@@ -15,15 +19,14 @@ export type CreateCredentialRequest = {
 
 export type UpdateCredentialRequest = {
   name?: string;
-  type?: CredentialType;
+  credential_type?: CredentialType;
   credentials?: Record<string, string>;
   vendor?: string;
 };
 
-/** @deprecated kept for backward-compat; use CreateCredentialRequest */
-export type UpsertCredentialRequest = CreateCredentialRequest;
+// ── Credential Schemas ────────────────────────────────────────────────────────
 
-export type CreatePluginSchemaRequest = {
+export type CreateCredentialSchemaRequest = {
   /** Machine-readable provider identifier, e.g. "trusted_form" */
   provider: string;
   /** Human-readable plugin name, e.g. "TrustedForm" */
@@ -34,4 +37,24 @@ export type CreatePluginSchemaRequest = {
   fields: IPluginSchemaField[];
   /** Optional human-readable description */
   description?: string;
+};
+
+export type UpdateCredentialSchemaRequest = {
+  name?: string;
+  description?: string;
+  fields?: IPluginSchemaField[];
+};
+
+// ── Plugin Settings ───────────────────────────────────────────────────────────
+
+export type SetPluginSettingRequest = {
+  /** FK to TenantCredentialRecord.id — the global default credential to use for this plugin */
+  credentials_id: string;
+  /** Whether this global plugin setting is active (defaults to true) */
+  enabled?: boolean;
+};
+
+export type UpdatePluginSettingRequest = {
+  credentials_id?: string;
+  enabled?: boolean;
 };

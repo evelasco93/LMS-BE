@@ -10,6 +10,10 @@ import {
   ICampaignClient,
   ICampaignPlugins,
   ICampaignStatusChange,
+  IIpqsEmailCheckConfig,
+  IIpqsIpCheckConfig,
+  IIpqsPhoneCheckConfig,
+  IIpqsPluginConfig,
   IParticipantHistoryEntry,
   IEditHistoryEntry,
 } from "../interfaces/ICampaign.interface";
@@ -504,6 +508,18 @@ export class CampaignService {
               "At least one LIVE client and one LIVE affiliate are required for campaign to go ACTIVE",
           };
         }
+
+        // duplicate_check is essential for every campaign — auto-enable on ACTIVE
+        const normalizedPlugins = this.normalizePlugins(campaign.plugins);
+        if (!normalizedPlugins.duplicate_check.enabled) {
+          campaign.plugins = {
+            ...(campaign.plugins ?? {}),
+            duplicate_check: {
+              ...(campaign.plugins?.duplicate_check ?? {}),
+              enabled: true,
+            },
+          };
+        }
       }
 
       if (status === previousStatus) {
@@ -546,7 +562,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["duplicate_check", "trusted_form"],
+        ["duplicate_check", "trusted_form", "ipqs"],
       );
 
       if (!ok) {
@@ -635,7 +651,7 @@ export class CampaignService {
       if (trustedFormRequest) {
         const tfFields = Object.keys(trustedFormRequest);
         const invalidTfFields = tfFields.filter(
-          (f) => !["enabled", "credentials_id"].includes(f),
+          (f) => !["enabled"].includes(f),
         );
         if (invalidTfFields.length > 0) {
           return {
@@ -652,17 +668,46 @@ export class CampaignService {
             error: "trusted_form.enabled must be a boolean",
           };
         }
-        if (
-          trustedFormRequest.credentials_id !== undefined &&
-          (typeof trustedFormRequest.credentials_id !== "string" ||
-            !(trustedFormRequest.credentials_id as string).trim())
-        ) {
+      }
+
+      // ── IPQS validation ───────────────────────────────────────────────────────
+      const ipqsRequest =
+        (sanitized.ipqs as Record<string, unknown> | undefined) ?? undefined;
+
+      if (ipqsRequest) {
+        const ipqsFields = Object.keys(ipqsRequest);
+        const invalidIpqsFields = ipqsFields.filter(
+          (f) => !["enabled", "phone", "email", "ip"].includes(f),
+        );
+        if (invalidIpqsFields.length > 0) {
           return {
             result: false,
-            error: "trusted_form.credentials_id must be a non-empty string",
+            error: `Invalid ipqs fields: ${invalidIpqsFields.join(", ")}`,
           };
         }
+        if (
+          ipqsRequest.enabled !== undefined &&
+          typeof ipqsRequest.enabled !== "boolean"
+        ) {
+          return { result: false, error: "ipqs.enabled must be a boolean" };
+        }
+        for (const check of ["phone", "email", "ip"] as const) {
+          const checkReq = ipqsRequest[check] as
+            | Record<string, unknown>
+            | undefined;
+          if (
+            checkReq?.enabled !== undefined &&
+            typeof checkReq.enabled !== "boolean"
+          ) {
+            return {
+              result: false,
+              error: `ipqs.${check}.enabled must be a boolean`,
+            };
+          }
+        }
       }
+
+      const defaults = this.getDefaultPlugins();
 
       const nextPlugins: ICampaignPlugins = {
         duplicate_check: {
@@ -681,12 +726,12 @@ export class CampaignService {
             trustedFormRequest?.enabled !== undefined
               ? (trustedFormRequest.enabled as boolean)
               : currentPlugins.trusted_form.enabled,
-          ...(trustedFormRequest?.credentials_id !== undefined
-            ? { credentials_id: trustedFormRequest.credentials_id as string }
-            : currentPlugins.trusted_form.credentials_id
-              ? { credentials_id: currentPlugins.trusted_form.credentials_id }
-              : {}),
         },
+        ipqs: this.mergeIpqsConfig(
+          currentPlugins.ipqs,
+          ipqsRequest,
+          defaults.ipqs,
+        ),
       };
 
       if (
@@ -698,6 +743,47 @@ export class CampaignService {
           error:
             "duplicate_check.enabled=true requires at least one criteria: phone or email",
         };
+      }
+
+      // ── Tenant-level guard: block enabling a plugin that is globally disabled ──
+      if (
+        nextPlugins.duplicate_check.enabled &&
+        !currentPlugins.duplicate_check.enabled
+      ) {
+        const tenantAllows =
+          await this.isTenantPluginEnabled("duplicate_check");
+        if (!tenantAllows) {
+          return {
+            result: false,
+            error:
+              "Cannot enable duplicate_check: this plugin is disabled at the tenant level. Enable it via PUT /tenant-config/plugin-settings/{schemaId} first.",
+          };
+        }
+      }
+
+      if (
+        nextPlugins.trusted_form.enabled &&
+        !currentPlugins.trusted_form.enabled
+      ) {
+        const tenantAllows = await this.isTenantPluginEnabled("trusted_form");
+        if (!tenantAllows) {
+          return {
+            result: false,
+            error:
+              "Cannot enable trusted_form: this plugin is disabled at the tenant level. Enable it via PUT /tenant-config/plugin-settings/{schemaId} first.",
+          };
+        }
+      }
+
+      if (nextPlugins.ipqs.enabled && !currentPlugins.ipqs.enabled) {
+        const tenantAllows = await this.isTenantPluginEnabled("ipqs");
+        if (!tenantAllows) {
+          return {
+            result: false,
+            error:
+              "Cannot enable ipqs: this plugin is disabled at the tenant level. Enable it via PUT /tenant-config/plugin-settings/{schemaId} first.",
+          };
+        }
       }
 
       campaign.plugins = nextPlugins;
@@ -877,8 +963,15 @@ export class CampaignService {
     options: { recordRemoval?: boolean } = {},
   ): Promise<ServiceResult<ICampaign>> {
     try {
-      const hasLeads = await this.campaignHasLeads(campaignId);
-      if (hasLeads && options.recordRemoval) {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const normalized = this.normalizeParticipants(campaign);
+      Object.assign(campaign, normalized);
+
+      // Use the persisted flag — avoids an unreliable cross-table scan
+      if (campaign.has_received_leads && options.recordRemoval) {
         return {
           result: false,
           error:
@@ -886,12 +979,6 @@ export class CampaignService {
         };
       }
 
-      const campaign = await this.getCampaignById(campaignId);
-      if (!campaign) {
-        return { result: false, error: `Campaign ${campaignId} not found` };
-      }
-      const normalized = this.normalizeParticipants(campaign);
-      Object.assign(campaign, normalized);
       const affiliate = (campaign.affiliates ?? []).find(
         (a) => a.affiliate_id === affiliateId,
       );
@@ -972,8 +1059,15 @@ export class CampaignService {
     options: { recordRemoval?: boolean } = {},
   ): Promise<ServiceResult<ICampaign>> {
     try {
-      const hasLeads = await this.campaignHasLeads(campaignId);
-      if (hasLeads && options.recordRemoval) {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const normalized = this.normalizeParticipants(campaign);
+      Object.assign(campaign, normalized);
+
+      // Use the persisted flag — avoids an unreliable cross-table scan
+      if (campaign.has_received_leads && options.recordRemoval) {
         return {
           result: false,
           error:
@@ -981,12 +1075,6 @@ export class CampaignService {
         };
       }
 
-      const campaign = await this.getCampaignById(campaignId);
-      if (!campaign) {
-        return { result: false, error: `Campaign ${campaignId} not found` };
-      }
-      const normalized = this.normalizeParticipants(campaign);
-      Object.assign(campaign, normalized);
       const client = (campaign.clients ?? []).find(
         (c) => c.client_id === clientId,
       );
@@ -1098,7 +1186,8 @@ export class CampaignService {
 
       const hasClients = (existing.clients?.length ?? 0) > 0;
       const hasAffiliates = (existing.affiliates?.length ?? 0) > 0;
-      const hasLeads = await this.campaignHasLeads(id);
+      // Use the persisted flag — avoids an unreliable cross-table scan with Limit:1
+      const hasLeads = existing.has_received_leads === true;
       const statusAllowsDelete =
         existing.status === CampaignStatus.DRAFT ||
         existing.status === CampaignStatus.TEST;
@@ -1260,21 +1349,123 @@ export class CampaignService {
           typeof plugins?.trusted_form?.enabled === "boolean"
             ? plugins.trusted_form.enabled
             : defaults.trusted_form.enabled,
-        ...(plugins?.trusted_form?.credentials_id
-          ? { credentials_id: plugins.trusted_form.credentials_id }
-          : {}),
       },
+      ipqs: this.mergeIpqsConfig(plugins?.ipqs, undefined, defaults.ipqs),
     };
+  }
+
+  /** Deep-merge an incoming ipqs patch over currentConfig, falling back to defaults. */
+  private mergeIpqsConfig(
+    current: IIpqsPluginConfig | undefined,
+    patch: Record<string, unknown> | undefined,
+    defaults: IIpqsPluginConfig,
+  ): IIpqsPluginConfig {
+    const base: IIpqsPluginConfig = current ?? defaults;
+
+    if (!patch) return base;
+
+    const patchPhone = patch.phone as
+      | Partial<IIpqsPhoneCheckConfig>
+      | undefined;
+    const patchEmail = patch.email as
+      | Partial<IIpqsEmailCheckConfig>
+      | undefined;
+    const patchIp = patch.ip as Partial<IIpqsIpCheckConfig> | undefined;
+
+    return {
+      enabled:
+        typeof patch.enabled === "boolean" ? patch.enabled : base.enabled,
+      phone: patchPhone ? { ...base.phone, ...patchPhone } : base.phone,
+      email: patchEmail ? { ...base.email, ...patchEmail } : base.email,
+      ip: patchIp ? { ...base.ip, ...patchIp } : base.ip,
+    };
+  }
+
+  /**
+   * Checks whether the globally configured plugin setting for the given provider
+   * is enabled in the tenant-settings table.
+   *
+   * Returns `true` (permissive) if TENANT_SETTINGS_TABLE_NAME is not configured,
+   * so the guard is a no-op in environments where tenant-config is not wired up.
+   */
+  private async isTenantPluginEnabled(provider: string): Promise<boolean> {
+    if (!this.constants.TENANT_SETTINGS_TABLE_NAME) return true;
+
+    const typeProviderIndex = `${this.constants.TENANT_SETTINGS_TABLE_NAME}-type-provider-index`;
+    const schemaIdIndex = `${this.constants.TENANT_SETTINGS_TABLE_NAME}-schema-id-index`;
+
+    // Step 1: find the credential_schema record for this provider
+    const schemas = await this.dynamoDBUtil.queryAll<{
+      id: string;
+      is_deleted?: boolean;
+    }>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      IndexName: typeProviderIndex,
+      KeyConditionExpression: "#t = :type AND #p = :provider",
+      ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
+      ExpressionAttributeValues: {
+        ":type": "credential_schema",
+        ":provider": provider,
+      },
+    });
+
+    const schema = schemas.find((s) => !s.is_deleted);
+    if (!schema) return false; // plugin not configured at tenant level
+
+    // Step 2: find the matching plugin_setting and check enabled
+    const settings = await this.dynamoDBUtil.queryAll<{
+      enabled: boolean;
+      is_deleted?: boolean;
+    }>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      IndexName: schemaIdIndex,
+      KeyConditionExpression: "#s = :schemaId",
+      ExpressionAttributeNames: { "#s": "schema_id" },
+      ExpressionAttributeValues: { ":schemaId": schema.id },
+    });
+
+    const setting = settings.find((s) => !s.is_deleted);
+    if (!setting) return false; // no active plugin setting → treated as disabled
+
+    return setting.enabled === true;
   }
 
   private getDefaultPlugins(): ICampaignPlugins {
     return {
       duplicate_check: {
+        // Always on by default — essential for every campaign
         enabled: true,
         criteria: ["phone", "email"],
       },
       trusted_form: {
-        enabled: true,
+        enabled: false,
+      },
+      ipqs: {
+        enabled: false,
+        phone: {
+          enabled: false,
+          criteria: {
+            valid: { enabled: true, required: true },
+            fraud_score: { enabled: true, operator: "lte", value: 75 },
+            country: { enabled: false, allowed: [] },
+          },
+        },
+        email: {
+          enabled: false,
+          criteria: {
+            valid: { enabled: true, required: true },
+            fraud_score: { enabled: true, operator: "lte", value: 75 },
+          },
+        },
+        ip: {
+          enabled: false,
+          criteria: {
+            fraud_score: { enabled: true, operator: "lte", value: 75 },
+            country_code: { enabled: false, allowed: [] },
+            proxy: { enabled: false, allowed: false },
+            vpn: { enabled: false, allowed: false },
+          },
+        },
       },
     };
   }

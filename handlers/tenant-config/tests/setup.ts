@@ -17,20 +17,24 @@ export function createMockLogger() {
   };
 }
 
-export function createMockSecretsManagerUtil() {
+export function createMockDynamoDBUtil() {
   return {
-    upsertJsonSecret: vi.fn(),
-    getJsonSecret: vi.fn(),
-    deleteSecret: vi.fn(),
+    get: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+    query: vi.fn(),
+    queryAll: vi.fn(),
+    scan: vi.fn(),
+    scanAll: vi.fn(),
   };
 }
 
 export function createMockConstants() {
   return {
-    IPQS_SECRET_NAME: "test-ipqs-secret",
-    TRUSTED_FORMS_SECRET_NAME: "test-trusted-forms-secret",
-    SECRET_PREFIX: "test-tenant-config",
-    INTERNAL_API_AUTH_TOKEN_SECRET_NAME: "test-internal-auth-secret",
+    CREDENTIALS_TABLE_NAME: "test-credentials-table",
+    CREDENTIALS_ENCRYPTION_KEY:
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    PLUGIN_SCHEMAS_TABLE_NAME: "test-plugin-schemas-table",
   };
 }
 
@@ -39,14 +43,12 @@ beforeEach(() => {
 
   testContainer = new Container();
   testContainer.bind("Logger").toConstantValue(createMockLogger());
-  testContainer
-    .bind("SecretsManagerUtil")
-    .toConstantValue(createMockSecretsManagerUtil());
+  testContainer.bind("DynamoDBUtil").toConstantValue(createMockDynamoDBUtil());
   testContainer
     .bind("TenantConfigConstants")
     .toConstantValue(createMockConstants());
 });
 
-export function getMockSecretsManagerUtil() {
-  return testContainer.get("SecretsManagerUtil");
+export function getMockDynamoDBUtil() {
+  return testContainer.get("DynamoDBUtil");
 }

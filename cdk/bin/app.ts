@@ -154,7 +154,7 @@ iamStack.leadsLambdaRole.addToPolicy(
 );
 
 // ── Tenant Config ─────────────────────────────────────────────────────────────
-// Full CRUD on credentials DynamoDB table
+// Full CRUD on the consolidated tenant-settings DynamoDB table
 iamStack.tenantConfigLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
@@ -167,17 +167,9 @@ iamStack.tenantConfigLambdaRole.addToPolicy(
       "dynamodb:Scan",
     ],
     resources: [
-      dataStack.credentialsTable.tableArn,
-      `${dataStack.credentialsTable.tableArn}/index/*`,
+      dataStack.tenantSettingsTable.tableArn,
+      `${dataStack.tenantSettingsTable.tableArn}/index/*`,
     ],
-  }),
-);
-
-iamStack.tenantConfigLambdaRole.addToPolicy(
-  new PolicyStatement({
-    effect: Effect.ALLOW,
-    actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Scan"],
-    resources: [dataStack.pluginSchemasTable.tableArn],
   }),
 );
 
@@ -189,6 +181,18 @@ iamStack.qaOrchestratorLambdaRole.addToPolicy(
     resources: [
       arnBuilder.lambda(nameBuilder.lambda("qa-duplicate-check")),
       arnBuilder.lambda(nameBuilder.lambda("qa-trusted-form")),
+      arnBuilder.lambda(nameBuilder.lambda("qa-ipqs")),
+    ],
+  }),
+);
+
+iamStack.qaOrchestratorLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:GetItem", "dynamodb:Query"],
+    resources: [
+      dataStack.tenantSettingsTable.tableArn,
+      `${dataStack.tenantSettingsTable.tableArn}/index/*`,
     ],
   }),
 );
@@ -210,7 +214,16 @@ iamStack.qaTrustedFormLambdaRole.addToPolicy(
   new PolicyStatement({
     effect: Effect.ALLOW,
     actions: ["dynamodb:GetItem"],
-    resources: [dataStack.credentialsTable.tableArn],
+    resources: [dataStack.tenantSettingsTable.tableArn],
+  }),
+);
+
+// ── QA IPQS ───────────────────────────────────────────────────────────────────
+iamStack.qaIpqsLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:GetItem"],
+    resources: [dataStack.tenantSettingsTable.tableArn],
   }),
 );
 
@@ -239,6 +252,7 @@ const apiStack = new ApiStack(app, `${baseConfig.appPrefix}-ApiStack`, {
   campaignsLambda: servicesStack.campaignsLambda,
   leadsLambda: servicesStack.leadsLambda,
   tenantConfigLambda: servicesStack.tenantConfigLambda,
+  qaOrchestratorLambda: servicesStack.qaOrchestratorLambda,
   authLambdaRoleName: iamStack.authLambdaRole.roleName,
   usersLambdaRoleName: iamStack.usersLambdaRole.roleName,
   description: `${baseConfig.system.toUpperCase()} - API Gateway`,

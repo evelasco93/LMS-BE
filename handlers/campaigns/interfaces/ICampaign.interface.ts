@@ -71,12 +71,80 @@ export interface IDuplicateCheckPluginConfig {
 
 export interface ITrustedFormPluginConfig {
   enabled: boolean;
-  credentials_id?: string;
 }
+
+// ── IPQS plugin types ─────────────────────────────────────────────────────────
+
+export type IpqsScoreOperator = "lte" | "gte" | "eq";
+
+export interface IIpqsFraudScoreCheck {
+  enabled: boolean;
+  operator: IpqsScoreOperator;
+  value: number;
+}
+
+export interface IIpqsCountryCheck {
+  enabled: boolean;
+  allowed: string[];
+}
+
+export interface IIpqsValidCheck {
+  enabled: boolean;
+  required: boolean;
+}
+
+export interface IIpqsBoolCheck {
+  enabled: boolean;
+  allowed: boolean;
+}
+
+export interface IIpqsPhoneCriteria {
+  valid: IIpqsValidCheck;
+  fraud_score: IIpqsFraudScoreCheck;
+  country: IIpqsCountryCheck;
+}
+
+export interface IIpqsEmailCriteria {
+  valid: IIpqsValidCheck;
+  fraud_score: IIpqsFraudScoreCheck;
+}
+
+export interface IIpqsIpCriteria {
+  fraud_score: IIpqsFraudScoreCheck;
+  country_code: IIpqsCountryCheck;
+  proxy: IIpqsBoolCheck;
+  vpn: IIpqsBoolCheck;
+}
+
+export interface IIpqsPhoneCheckConfig {
+  enabled: boolean;
+  criteria: IIpqsPhoneCriteria;
+}
+
+export interface IIpqsEmailCheckConfig {
+  enabled: boolean;
+  criteria: IIpqsEmailCriteria;
+}
+
+export interface IIpqsIpCheckConfig {
+  enabled: boolean;
+  criteria: IIpqsIpCriteria;
+}
+
+export interface IIpqsPluginConfig {
+  /** Master toggle — must be true for any sub-check to run */
+  enabled: boolean;
+  phone: IIpqsPhoneCheckConfig;
+  email: IIpqsEmailCheckConfig;
+  ip: IIpqsIpCheckConfig;
+}
+
+// ── Aggregate plugin config ───────────────────────────────────────────────────
 
 export interface ICampaignPlugins {
   duplicate_check: IDuplicateCheckPluginConfig;
   trusted_form: ITrustedFormPluginConfig;
+  ipqs: IIpqsPluginConfig;
 }
 
 export interface ICampaign {

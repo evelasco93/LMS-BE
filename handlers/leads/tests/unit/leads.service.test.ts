@@ -58,19 +58,25 @@ describe("LeadsService", () => {
   });
 
   describe("createLead", () => {
-    it("rejects invalid fields", async () => {
+    it("normalises flat external format (no payload wrapper) correctly", async () => {
+      // External affiliates post a flat body: { campaign_id, campaign_key, ...leadData }
+      // Service must extract lead data into payload and still reject for a missing campaign.
+      mockDynamoDBUtil.get.mockResolvedValueOnce(null);
+
       const result = await leadsService.createLead(
         {
           campaign_id: "CM123",
           campaign_key: "KEY123",
-          payload: {},
-          extra: "nope",
+          first_name: "Edgar",
+          email: "test@example.com",
+          phone: "+15551234567",
         } as any,
         true,
       );
 
+      // Gets through normalisation, reaches "Campaign not found" — not an Invalid fields error
       expect(result.result).toBe(false);
-      expect(result.error).toContain("Invalid fields");
+      expect(result.error).toContain("Campaign not found");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
 
@@ -330,7 +336,9 @@ describe("LeadsService", () => {
       expect(result.result).toBe(true);
       expect(result.data?.duplicate).toBe(true);
       expect(result.data?.rejected).toBe(true);
-      expect(result.data?.rejection_reason).toContain("duplicate_check");
+      expect(result.data?.rejection_reason).toContain(
+        "Duplicate lead detected",
+      );
       expect(result.data?.duplicate_matches?.lead_ids).toEqual([
         "LD-EXISTING-1",
       ]);

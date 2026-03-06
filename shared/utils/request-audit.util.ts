@@ -7,6 +7,15 @@ export interface RequestActor {
   full_name?: string;
 }
 
+/** Immutable log entry written whenever a tracked field changes on a record */
+export interface IEditHistoryEntry {
+  field: string;
+  previous_value: unknown;
+  new_value: unknown;
+  changed_at: string; // ISO timestamp
+  changed_by?: RequestActor;
+}
+
 export function decodeJwtPayload(token: string): Record<string, any> | null {
   try {
     const parts = token.split(".");
