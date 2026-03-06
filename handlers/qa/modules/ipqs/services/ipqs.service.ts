@@ -25,6 +25,23 @@ type ServiceResult<T> =
   | { result: true; data: T }
   | { result: false; error: string };
 
+// ── Safe defaults (all criteria disabled — API call runs, always passes unless API returns success:false) ──
+const DEFAULT_PHONE_CRITERIA: IIpqsPhoneCriteria = {
+  valid: { enabled: false, required: true },
+  fraud_score: { enabled: false, operator: "lte", value: 100 },
+  country: { enabled: false, allowed: [] },
+};
+const DEFAULT_EMAIL_CRITERIA: IIpqsEmailCriteria = {
+  valid: { enabled: false, required: true },
+  fraud_score: { enabled: false, operator: "lte", value: 100 },
+};
+const DEFAULT_IP_CRITERIA: IIpqsIpCriteria = {
+  fraud_score: { enabled: false, operator: "lte", value: 100 },
+  country_code: { enabled: false, allowed: [] },
+  proxy: { enabled: false, allowed: false },
+  vpn: { enabled: false, allowed: false },
+};
+
 @injectable()
 export class IpqsService {
   constructor(
@@ -35,7 +52,12 @@ export class IpqsService {
 
   async execute(event: IpqsEvent): Promise<ServiceResult<IIpqsResult>> {
     try {
-      const { credentials_id, phone, email, ip_address, config } = event;
+      const { credentials_id, phone, email, ip_address } = event;
+      const cfg = this.normalizeConfig(event.config, {
+        phone,
+        email,
+        ip_address,
+      });
 
       if (!credentials_id) {
         return { result: false, error: "credentials_id is required" };
@@ -55,26 +77,26 @@ export class IpqsService {
       let emailResult: IIpqsCheckResult | undefined;
       let ipResult: IIpqsCheckResult | undefined;
 
-      if (config.phone.enabled && phone) {
+      if (cfg.phone.enabled && phone) {
         tasks.push(
           (async () => {
-            phoneResult = await this.runPhoneCheck(apiKey, phone, config.phone);
+            phoneResult = await this.runPhoneCheck(apiKey, phone, cfg.phone);
           })(),
         );
       }
 
-      if (config.email.enabled && email) {
+      if (cfg.email.enabled && email) {
         tasks.push(
           (async () => {
-            emailResult = await this.runEmailCheck(apiKey, email, config.email);
+            emailResult = await this.runEmailCheck(apiKey, email, cfg.email);
           })(),
         );
       }
 
-      if (config.ip.enabled && ip_address) {
+      if (cfg.ip.enabled && ip_address) {
         tasks.push(
           (async () => {
-            ipResult = await this.runIpCheck(apiKey, ip_address, config.ip);
+            ipResult = await this.runIpCheck(apiKey, ip_address, cfg.ip);
           })(),
         );
       }
@@ -110,6 +132,56 @@ export class IpqsService {
       this.logger.error("IPQS execution failed", { error });
       return { result: false, error: msg };
     }
+  }
+
+  // ── Config normalizer ────────────────────────────────────────────────────────
+
+  /**
+   * Builds a fully-formed, safe config from whatever the caller provided.
+   * Rules:
+   *   - If a sub-check key is absent/undefined → disabled with all criteria off.
+   *   - If a sub-check is present but missing criteria → use all-disabled defaults.
+   *   - If no config at all → enable each sub-check when the corresponding field value exists.
+   */
+  private normalizeConfig(
+    raw: IpqsEvent["config"],
+    fields: { phone?: string; email?: string; ip_address?: string },
+  ): {
+    phone: IIpqsPhoneCheckConfig;
+    email: IIpqsEmailCheckConfig;
+    ip: IIpqsIpCheckConfig;
+  } {
+    const inferEnabled = (
+      subCfg: { enabled?: boolean } | undefined,
+      hasField: boolean,
+    ): boolean => {
+      if (subCfg === undefined || subCfg === null) {
+        // When no config at all, enable if the field value was provided
+        return raw === undefined || raw === null ? hasField : false;
+      }
+      return subCfg.enabled ?? hasField;
+    };
+
+    return {
+      phone: {
+        enabled: inferEnabled(raw?.phone, !!fields.phone),
+        criteria:
+          (raw?.phone as IIpqsPhoneCheckConfig | undefined)?.criteria ??
+          DEFAULT_PHONE_CRITERIA,
+      },
+      email: {
+        enabled: inferEnabled(raw?.email, !!fields.email),
+        criteria:
+          (raw?.email as IIpqsEmailCheckConfig | undefined)?.criteria ??
+          DEFAULT_EMAIL_CRITERIA,
+      },
+      ip: {
+        enabled: inferEnabled(raw?.ip, !!fields.ip_address),
+        criteria:
+          (raw?.ip as IIpqsIpCheckConfig | undefined)?.criteria ??
+          DEFAULT_IP_CRITERIA,
+      },
+    };
   }
 
   // ── Phone check ─────────────────────────────────────────────────────────────

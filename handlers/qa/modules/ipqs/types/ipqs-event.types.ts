@@ -11,9 +11,10 @@ export interface IpqsEvent {
   phone?: string;
   email?: string;
   ip_address?: string;
-  config: {
-    phone: IIpqsPhoneCheckConfig;
-    email: IIpqsEmailCheckConfig;
-    ip: IIpqsIpCheckConfig;
+  /** Per-check config. Sub-keys are optional; absent = disabled with all criteria off. */
+  config?: {
+    phone?: Partial<IIpqsPhoneCheckConfig>;
+    email?: Partial<IIpqsEmailCheckConfig>;
+    ip?: Partial<IIpqsIpCheckConfig>;
   };
 }
