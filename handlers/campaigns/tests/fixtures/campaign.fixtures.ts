@@ -28,9 +28,14 @@ export const mockCampaign: ICampaign = {
     },
     trusted_form: {
       enabled: true,
+      stage: 2,
+      gate: true,
+      claim: false,
     },
     ipqs: {
       enabled: true,
+      stage: 2,
+      gate: true,
       phone: {
         enabled: true,
         criteria: {
@@ -75,9 +80,14 @@ export const emptyCampaign: ICampaign = {
     },
     trusted_form: {
       enabled: true,
+      stage: 2,
+      gate: true,
+      claim: false,
     },
     ipqs: {
       enabled: false,
+      stage: 2,
+      gate: true,
       phone: {
         enabled: false,
         criteria: {
@@ -132,9 +142,14 @@ export const campaignWithAffiliate: ICampaign = {
     },
     trusted_form: {
       enabled: true,
+      stage: 2,
+      gate: true,
+      claim: false,
     },
     ipqs: {
       enabled: true,
+      stage: 2,
+      gate: true,
       phone: {
         enabled: true,
         criteria: {

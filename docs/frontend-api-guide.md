@@ -10,7 +10,9 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 - Move campaign to TEST once both client and affiliate are linked. Participant status starts as TEST; change to LIVE via participant update endpoints.
 - Optionally flip participant statuses (TEST ↔ LIVE or DISABLED) via participant update endpoints.
 - Move campaign to ACTIVE only when campaign is currently TEST and it has at least one LIVE client and one LIVE affiliate (DISABLED participants are ignored for the LIVE requirement).
-- Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`. `plugins.trusted_form.enabled=false` and `plugins.ipqs.enabled=false` on creation. `duplicate_check` is **always auto-enabled** when a campaign is promoted to ACTIVE — TrustedForm and IPQS are optional.
+- Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`. `plugins.trusted_form.enabled=false` and `plugins.ipqs.enabled=false` on creation. `duplicate_check` is **always auto-enabled** when a campaign is promoted to ACTIVE — TrustedForm and IPQS are optional. Each plugin has a `stage` (integer ≥ 2) that controls execution order and a `gate` flag that controls whether a failure halts the pipeline.
+- The campaign response includes `submit_url` and `submit_url_test` — display these to affiliates so they know exactly where to send leads.
+- Lead submission (`POST /leads`, `POST /leads/test`) returns a slim response containing only `id`, `test`, `duplicate`, `rejected`, `rejection_reason`, and `message`. Internal lead detail is only available via `GET /leads/{id}` (internal API).
 - Rotate keys if compromised: use the new key rotation endpoints to issue a fresh `campaign_key` for an affiliate or `client_key` for a linked client.
 - Deletion safeguards: campaigns can only be deleted in DRAFT/TEST when empty and without leads; clients/affiliates must be disabled in all campaigns before soft delete and cannot be hard deleted when campaigns have leads.
 - Internal API is protected by Bearer token auth — call `POST /v2/auth/login` to get a token, then send `Authorization: Bearer <id_token>` on all internal API requests. **Use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
@@ -297,17 +299,49 @@ Rules:
   "duplicate_check": {
     "enabled": true,
     "criteria": ["email"]
+  },
+  "trusted_form": {
+    "enabled": true,
+    "stage": 2,
+    "gate": true,
+    "claim": false,
+    "vendor": "SummitEdgeLegal"
+  },
+  "ipqs": {
+    "enabled": true,
+    "stage": 3,
+    "gate": true,
+    "phone": { "enabled": true },
+    "email": { "enabled": true }
   }
 }
 ```
 
 Rules:
 
-- `duplicate_check.enabled` toggles duplicate detection during lead intake.
-- `duplicate_check.criteria` supports `phone` and/or `email`.
 - `duplicate_check.enabled=true` requires at least one active criterion (`phone` or `email`).
-- When `duplicate_check.enabled=true`, duplicate matches are stored with `duplicate=true` and are marked `rejected=true` with `rejection_reason: "Duplicate lead detected"`.
+- `trusted_form.stage` and `ipqs.stage` must be **≥ 2** — stage 1 is reserved for `duplicate_check` (returns 400 if violated).
+- `gate` and `claim` must be booleans (returns 400 otherwise).
+- `trusted_form.claim=false` → certificate is validated only; the certificate is **not** claimed/retained. Set to `true` to also claim the certificate on successful validation.
+- `trusted_form.vendor` is optional; forwarded to TrustedForm during validation.
+- When `duplicate_check.enabled=true`, duplicate matches are stored with `duplicate=true` and the lead is saved as `rejected=true`.
 - When `duplicate_check.enabled=false`, duplicate-check does not reject leads.
+
+**QA pipeline execution model**
+
+Every lead submission runs through a configurable staged pipeline:
+
+1. **Stage 1 — `duplicate_check`** (hardcoded, always a gate): runs first. If a duplicate is detected the pipeline halts immediately and the lead is saved as rejected.
+2. **Stage 2+ — configurable plugins**: TrustedForm and IPQS each have a `stage` number (≥ 2). Stages are sorted ascending — lower numbers run before higher numbers. Plugins sharing the **same** stage number run **in parallel** (`Promise.all`). If any plugin in a stage has `gate: true` and its check fails, the pipeline halts and all later stages are skipped.
+
+**Gate vs. soft-gate:**
+
+| `gate` | On failure |
+| ------ | ---------- |
+| `true` (default) | Pipeline halts; later stages skipped; lead saved as `rejected=true`; `pipeline_halted=true` on the lead record. |
+| `false` | Failure is recorded (`trusted_form_result` / `ipqs_result`); pipeline continues to next stage; lead is **not** rejected by this plugin alone. |
+
+> **Always saved:** regardless of pipeline outcome the lead is always written to DynamoDB. When rejected, `rejected=true` and `rejection_reason` are populated with a human-readable message.
 
 **Submit test lead (external API)** `POST /leads/test`
 
@@ -333,6 +367,38 @@ Requirements: campaign status TEST; affiliate participant status TEST; `campaign
 Requirements: campaign status ACTIVE; affiliate participant status LIVE; `campaign_key` matches. If the affiliate is DISABLED, the lead is stored with `rejected=true`, `rejection_reason`, and `affiliate_status_at_intake`.
 
 No API key required — authentication is entirely via `campaign_id` + `campaign_key`.
+
+**Affiliate submission response** (`POST /leads` and `POST /leads/test`)
+
+Both endpoints return a slim response — internal QA details are not exposed to affiliates:
+
+```json
+{
+  "id": "LDABC12345",
+  "test": false,
+  "duplicate": false,
+  "rejected": false,
+  "rejection_reason": null,
+  "message": "Your lead has been received and accepted."
+}
+```
+
+When rejected:
+
+```json
+{
+  "id": "LDABC12345",
+  "test": false,
+  "duplicate": false,
+  "rejected": true,
+  "rejection_reason": "The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."
+}
+```
+
+- `message` is only present when `rejected=false`.
+- For test leads `message` reads: `"Your test lead has been received and accepted."`
+- The `submit_url` and `submit_url_test` fields on the campaign response give affiliates the exact URLs to POST to.
+
 **Internal lead reads/updates/deletes (internal API only)**
 
 - `GET /leads` — list all leads; supports `?campaign_id`, `?test`, `?includeDeleted=true`, `?limit`, `?lastEvaluatedKey`
@@ -342,7 +408,24 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
 
 `POST /leads` and `POST /leads/test` are intentionally **not** exposed on the internal API.
 
-**Lead shape** (response `data`)
+**Campaign response** (includes `submit_url`)
+
+All campaign endpoints (`GET /campaigns/{id}`, `GET /campaigns`, etc.) include `submit_url` and `submit_url_test` at the top level of the campaign object:
+
+```json
+{
+  "id": "CMABCDEFG",
+  "name": "Summer Campaign",
+  "status": "ACTIVE",
+  "plugins": { "..." : "..." },
+  "submit_url": "https://abc123.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
+  "submit_url_test": "https://abc123.execute-api.us-east-1.amazonaws.com/dev/v2/leads/test"
+}
+```
+
+Display these to affiliates so they know exactly where to submit leads.
+
+**Internal lead shape** (`GET /leads/{id}` response `data`)
 
 ```json
 {
@@ -360,6 +443,10 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
   "affiliate_status_at_intake": "TEST",
   "rejected": false,
   "rejection_reason": null,
+  "pipeline_halted": false,
+  "halt_stage": null,
+  "halt_plugin": null,
+  "halt_reason": null,
   "trusted_form_result": {
     "success": true,
     "cert_id": "6e573ab8abffbd1a3fdbbda781b177a3cf61c99a",
@@ -382,14 +469,37 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
 
 `trusted_form_result` is `null` when TrustedForm is disabled or no credential is linked.
 
+When the pipeline halts (`pipeline_halted=true`), the halt fields are populated:
+
+```json
+{
+  "pipeline_halted": true,
+  "halt_stage": 2,
+  "halt_plugin": "trusted_form",
+  "halt_reason": "The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."
+}
+```
+
 Rejection behavior:
 
 - `rejected=true` when affiliate is DISABLED for the campaign.
-- `rejected=true` when duplicate-check is enabled and a duplicate is detected (`rejection_reason: "Duplicate lead detected"`).
-- `rejected=true` when TrustedForm is enabled and certificate validation fails (`rejection_reason: "TrustedForm validation failed: <reason>"`).
-- `rejected=true` when IPQS is enabled and the fraud check fails (`rejection_reason: "IPQS fraud check failed (phone, email, ip_address)"` — only failing checks listed).
-- Multiple causes are combined with `; ` e.g. `"Duplicate lead detected; IPQS fraud check failed (email)"`.
+- `rejected=true` when duplicate-check detects a matching lead — `rejection_reason`: _"A matching lead has already been received for this contact."_
+- `rejected=true` when a QA plugin has `gate=true` and its check fails — `rejection_reason` is a human-readable message from the failing plugin.
 - `rejected=false` when none of the above apply.
+
+**Rejection message reference**
+
+| Trigger | `rejection_reason` value |
+| ------- | ------------------------ |
+| Affiliate disabled | _"This submission could not be accepted at this time. Please contact your account manager."_ |
+| Duplicate lead detected | _"A matching lead has already been received for this contact."_ |
+| TrustedForm — invalid/unknown error | _"The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."_ |
+| TrustedForm — certificate expired | _"The form certificate has expired. Please have the contact complete the form again and resubmit."_ |
+| TrustedForm — already claimed | _"This form certificate has already been used. Please have the contact complete the form again."_ |
+| IPQS — phone failed | _"The phone number provided did not pass our quality checks."_ |
+| IPQS — email failed | _"The email address provided did not pass our quality checks."_ |
+| IPQS — phone + email failed | _"The phone number and email address provided did not pass our quality checks."_ |
+| IPQS — all three failed | _"The phone number, email address and IP address provided did not pass our quality checks."_ |
 
 ## UI hints
 

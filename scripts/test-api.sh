@@ -2089,9 +2089,9 @@ run_tenant_config_tests() {
     print_section "PLUGINS: Enable TrustedForm + IPQS for lead tests"
     test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
         "Enable TF and IPQS for lead tests" \
-        '{"trusted_form":{"enabled":true},"ipqs":{"enabled":true,"phone":{"enabled":true},"email":{"enabled":true},"ip":{"enabled":true}}}' > /dev/null
+        '{"trusted_form":{"enabled":true,"stage":2,"gate":true,"claim":false},"ipqs":{"enabled":true,"stage":2,"gate":true,"phone":{"enabled":true},"email":{"enabled":true},"ip":{"enabled":true}}}' > /dev/null
     if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-        print_result 0 "TrustedForm + IPQS enabled for lead tests (HTTP $LAST_HTTP_STATUS)"
+        print_result 0 "TrustedForm (stage=2 gate=true claim=false) + IPQS (stage=2 gate=true) enabled (HTTP $LAST_HTTP_STATUS)"
     else
         print_result 1 "Failed to enable TF + IPQS for lead tests (HTTP $LAST_HTTP_STATUS)"
     fi
@@ -2104,12 +2104,18 @@ run_tenant_config_tests() {
             "Test lead with TrustedForm cert (TF enabled)" \
             "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-1@lms-test.local\",\"phone\":\"+15559990001\",\"trusted_form_cert_id\":\"832c886bc1dfb73412603c908c4d5f654906d443\"}}" \
             "external")
-        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-            local tf_result
-            tf_result=$(extract_json_value "$tf_lead_resp" "data.trusted_form_result")
-            print_result 0 "Lead accepted with TrustedForm enabled (HTTP $LAST_HTTP_STATUS) trusted_form_result=$(echo "$tf_result" | head -c 80)"
+        local tf_lead_rejected tf_lead_id tf_lead_msg
+        tf_lead_rejected=$(extract_json_value "$tf_lead_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+        tf_lead_id=$(extract_json_value "$tf_lead_resp" "data.id")
+        tf_lead_msg=$(extract_json_value "$tf_lead_resp" "data.message")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null && [ -n "$tf_lead_id" ]; then
+            if [ "$tf_lead_rejected" = "false" ] && [ -n "$tf_lead_msg" ]; then
+                print_result 0 "Slim response — id=$tf_lead_id rejected=$tf_lead_rejected message=$(echo "$tf_lead_msg" | head -c 60)"
+            else
+                print_result 1 "Lead unexpectedly rejected or missing message (rejected=$tf_lead_rejected message=$tf_lead_msg)"
+            fi
         else
-            print_result 1 "Lead rejected unexpectedly (HTTP $LAST_HTTP_STATUS)"
+            print_result 1 "Lead submission failed (HTTP $LAST_HTTP_STATUS) or missing id"
         fi
     else
         print_result 1 "Skipped TF lead test — no campaign_key"
@@ -2133,16 +2139,17 @@ run_tenant_config_tests() {
             "Test lead with TF cert (TF disabled — should skip TF, trusted_form_result absent/null)" \
             "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"tf-lead-2@lms-test.local\",\"phone\":\"+15559990002\",\"trusted_form_cert_id\":\"832c886bc1dfb73412603c908c4d5f654906d443\"}}" \
             "external")
-        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-            local tf_dis_result
-            tf_dis_result=$(extract_json_value "$tf_dis_resp" "data.trusted_form_result")
-            if [ -z "$tf_dis_result" ]; then
-                print_result 0 "Lead accepted + trusted_form_result is absent (TF correctly skipped)"
+        local tf_dis_rejected tf_dis_id
+        tf_dis_rejected=$(extract_json_value "$tf_dis_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+        tf_dis_id=$(extract_json_value "$tf_dis_resp" "data.id")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null && [ -n "$tf_dis_id" ]; then
+            if [ "$tf_dis_rejected" = "false" ]; then
+                print_result 0 "Lead accepted with TF disabled — slim response id=$tf_dis_id rejected=$tf_dis_rejected"
             else
-                print_result 1 "trusted_form_result present even though TF is disabled (result=$tf_dis_result)"
+                print_result 1 "Lead rejected even though TF is disabled (rejected=$tf_dis_rejected)"
             fi
         else
-            print_result 1 "Lead rejected unexpectedly (HTTP $LAST_HTTP_STATUS)"
+            print_result 1 "Lead submission failed (HTTP $LAST_HTTP_STATUS)"
         fi
     else
         print_result 1 "Skipped TF-disabled lead test — no campaign_key"
@@ -2201,6 +2208,138 @@ run_tenant_config_tests() {
         fi
     else
         print_result 1 "Skipped dup-disabled lead test — no campaign_key"
+    fi
+
+    # ── 22. Pipeline stage validation: stage=1 should be rejected (400) ──────
+    print_section "PLUGINS: Validation — stage=1 is reserved for duplicate_check (expect 400)"
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Set trusted_form.stage=1 — should fail with 400" \
+        '{"trusted_form":{"enabled":true,"stage":1}}' > /dev/null
+    if [ "$LAST_HTTP_STATUS" -eq 400 ]; then
+        print_result 0 "Correctly rejected stage=1 with HTTP 400"
+    else
+        print_result 1 "Expected 400 for stage=1 but got HTTP $LAST_HTTP_STATUS"
+    fi
+
+    # ── 23. Pipeline validation: gate must be boolean (expect 400) ────────────
+    print_section "PLUGINS: Validation — gate must be boolean (expect 400)"
+    local gate_val_resp
+    gate_val_resp=$(test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Set trusted_form.gate=yes (string) — should fail with 400" \
+        '{"trusted_form":{"enabled":true,"gate":"yes"}}')
+    if [ "$LAST_HTTP_STATUS" -eq 400 ]; then
+        print_result 0 "Correctly rejected non-boolean gate with HTTP 400"
+    else
+        print_result 1 "Expected 400 for gate=yes but got HTTP $LAST_HTTP_STATUS"
+    fi
+
+    # ── 24. Stage ordering: TF stage 2, IPQS stage 3 ─────────────────────────
+    print_section "PLUGINS: Stage ordering — TF stage 2, IPQS stage 3"
+    local stage_order_resp
+    stage_order_resp=$(test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Set TF stage=2, IPQS stage=3" \
+        '{"trusted_form":{"enabled":true,"stage":2,"gate":true,"claim":false},"ipqs":{"enabled":true,"stage":3,"gate":true,"phone":{"enabled":true}}}')
+    local so_tf_stage so_ipqs_stage
+    so_tf_stage=$(extract_json_value "$stage_order_resp" "data.plugins.trusted_form.stage")
+    so_ipqs_stage=$(extract_json_value "$stage_order_resp" "data.plugins.ipqs.stage")
+    if [ "$so_tf_stage" = "2" ] && [ "$so_ipqs_stage" = "3" ]; then
+        print_result 0 "Stage ordering saved: trusted_form.stage=$so_tf_stage ipqs.stage=$so_ipqs_stage"
+    else
+        print_result 1 "Stage ordering mismatch: trusted_form.stage=$so_tf_stage (expected 2) ipqs.stage=$so_ipqs_stage (expected 3)"
+    fi
+
+    # ── 25. Stage ordering reversed: IPQS stage 2, TF stage 3 ────────────────
+    print_section "PLUGINS: Stage ordering reversed — IPQS stage 2, TF stage 3"
+    local stage_rev_resp
+    stage_rev_resp=$(test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Set IPQS stage=2, TF stage=3" \
+        '{"trusted_form":{"enabled":true,"stage":3,"gate":true,"claim":false},"ipqs":{"enabled":true,"stage":2,"gate":true,"phone":{"enabled":true}}}')
+    local sr_tf_stage sr_ipqs_stage
+    sr_tf_stage=$(extract_json_value "$stage_rev_resp" "data.plugins.trusted_form.stage")
+    sr_ipqs_stage=$(extract_json_value "$stage_rev_resp" "data.plugins.ipqs.stage")
+    if [ "$sr_tf_stage" = "3" ] && [ "$sr_ipqs_stage" = "2" ]; then
+        print_result 0 "Reversed stage ordering saved: trusted_form.stage=$sr_tf_stage ipqs.stage=$sr_ipqs_stage"
+    else
+        print_result 1 "Reversed stage mismatch: trusted_form.stage=$sr_tf_stage (expected 3) ipqs.stage=$sr_ipqs_stage (expected 2)"
+    fi
+
+    # ── 26. Claim toggle: verify claim=false saves correctly ──────────────────
+    print_section "PLUGINS: claim=false saves correctly on trusted_form"
+    local claim_off_resp
+    claim_off_resp=$(test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Set trusted_form.claim=false" \
+        '{"trusted_form":{"enabled":true,"stage":2,"gate":true,"claim":false}}')
+    local claim_off_val
+    claim_off_val=$(extract_json_value "$claim_off_resp" "data.plugins.trusted_form.claim" | tr '[:upper:]' '[:lower:]')
+    if [ "$claim_off_val" = "false" ]; then
+        print_result 0 "trusted_form.claim=false saved correctly"
+    else
+        print_result 1 "Expected trusted_form.claim=false, got: $claim_off_val"
+    fi
+
+    # ── 27. Claim toggle: verify claim=true saves correctly ───────────────────
+    print_section "PLUGINS: claim=true saves correctly on trusted_form"
+    local claim_on_resp
+    claim_on_resp=$(test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Set trusted_form.claim=true" \
+        '{"trusted_form":{"enabled":true,"stage":2,"gate":true,"claim":true}}')
+    local claim_on_val
+    claim_on_val=$(extract_json_value "$claim_on_resp" "data.plugins.trusted_form.claim" | tr '[:upper:]' '[:lower:]')
+    if [ "$claim_on_val" = "true" ]; then
+        print_result 0 "trusted_form.claim=true saved correctly"
+    else
+        print_result 1 "Expected trusted_form.claim=true, got: $claim_on_val"
+    fi
+
+    # Restore claim=false for remaining tests
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/plugins" \
+        "Restore claim=false" \
+        '{"trusted_form":{"claim":false}}' > /dev/null
+
+    # ── 28. Slim response shape: verify only expected fields present ──────────
+    print_section "LEAD: Slim submission response — verify shape (no internal fields)"
+    if [ -n "$TC_CAMPAIGN_KEY" ]; then
+        local slim_resp
+        slim_resp=$(test_endpoint "POST" "/v2/leads/test" \
+            "Submit test lead and verify slim response shape" \
+            "{\"campaign_id\":\"$TC_CAMPAIGN_ID\",\"campaign_key\":\"$TC_CAMPAIGN_KEY\",\"payload\":{\"email\":\"slim-check@lms-test.local\"}}" \
+            "external")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            local slim_id slim_dup slim_rejected slim_rr
+            slim_id=$(extract_json_value "$slim_resp" "data.id")
+            slim_dup=$(extract_json_value "$slim_resp" "data.duplicate" | tr '[:upper:]' '[:lower:]')
+            slim_rejected=$(extract_json_value "$slim_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+            slim_rr=$(extract_json_value "$slim_resp" "data.rejection_reason")
+            # Verify internal fields are NOT present in the response data
+            local slim_tf_result slim_ipqs_result slim_edit_history
+            slim_tf_result=$(extract_json_value "$slim_resp" "data.trusted_form_result")
+            slim_ipqs_result=$(extract_json_value "$slim_resp" "data.ipqs_result")
+            slim_edit_history=$(extract_json_value "$slim_resp" "data.edit_history")
+            if [ -n "$slim_id" ] && [ -z "$slim_tf_result" ] && [ -z "$slim_ipqs_result" ] && [ -z "$slim_edit_history" ]; then
+                print_result 0 "Slim response verified — id=$slim_id rejected=$slim_rejected (no trusted_form_result/ipqs_result/edit_history)"
+            else
+                print_result 1 "Slim response check failed — id=$slim_id tf_result=$slim_tf_result ipqs_result=$slim_ipqs_result edit_history=$slim_edit_history"
+            fi
+        else
+            print_result 1 "Lead submission failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+    else
+        print_result 1 "Skipped slim response test — no campaign_key"
+    fi
+
+    # ── 29. Campaign GET response includes submit_url ─────────────────────────
+    print_section "CAMPAIGN: GET /campaigns/$TC_CAMPAIGN_ID — verify submit_url fields"
+    local camp_url_resp
+    camp_url_resp=$(test_endpoint "GET" "/campaigns/$TC_CAMPAIGN_ID" \
+        "Verify submit_url and submit_url_test in campaign response")
+    local camp_submit_url camp_submit_url_test
+    camp_submit_url=$(extract_json_value "$camp_url_resp" "data.submit_url")
+    camp_submit_url_test=$(extract_json_value "$camp_url_resp" "data.submit_url_test")
+    if [ -n "$camp_submit_url" ] && [ -n "$camp_submit_url_test" ]; then
+        print_result 0 "Campaign response includes submit_url=$camp_submit_url"
+        print_result 0 "Campaign response includes submit_url_test=$camp_submit_url_test"
+    else
+        print_result 1 "submit_url or submit_url_test missing from campaign response (submit_url=$camp_submit_url submit_url_test=$camp_submit_url_test)"
     fi
 
     echo -e "\n  ${MAGENTA}Tenant Config suite done.${NC}"

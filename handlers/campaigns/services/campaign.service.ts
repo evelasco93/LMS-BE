@@ -325,7 +325,14 @@ export class CampaignService {
     campaignId: string,
     request: LinkAffiliateRequest,
     actor?: RequestActor,
-  ): Promise<ServiceResult<{ campaign: ICampaign; campaign_key: string }>> {
+  ): Promise<
+    ServiceResult<{
+      campaign: ICampaign;
+      campaign_key: string;
+      submit_url: string;
+      submit_url_test: string;
+    }>
+  > {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
@@ -396,7 +403,16 @@ export class CampaignService {
         Item: campaign,
       });
 
-      return { result: true, data: { campaign, campaign_key } };
+      const leadsBase = this.constants.LEADS_BASE_URL;
+      return {
+        result: true,
+        data: {
+          campaign,
+          campaign_key,
+          submit_url: leadsBase,
+          submit_url_test: `${leadsBase}/test`,
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to link affiliate to campaign", error);
       return {
@@ -651,7 +667,7 @@ export class CampaignService {
       if (trustedFormRequest) {
         const tfFields = Object.keys(trustedFormRequest);
         const invalidTfFields = tfFields.filter(
-          (f) => !["enabled"].includes(f),
+          (f) => !["enabled", "stage", "gate", "claim", "vendor"].includes(f),
         );
         if (invalidTfFields.length > 0) {
           return {
@@ -668,6 +684,31 @@ export class CampaignService {
             error: "trusted_form.enabled must be a boolean",
           };
         }
+        if (trustedFormRequest.stage !== undefined) {
+          const s = Number(trustedFormRequest.stage);
+          if (!Number.isInteger(s) || s < 2) {
+            return {
+              result: false,
+              error:
+                "trusted_form.stage must be an integer >= 2 (stage 1 is reserved for duplicate_check)",
+            };
+          }
+        }
+        if (
+          trustedFormRequest.gate !== undefined &&
+          typeof trustedFormRequest.gate !== "boolean"
+        ) {
+          return { result: false, error: "trusted_form.gate must be a boolean" };
+        }
+        if (
+          trustedFormRequest.claim !== undefined &&
+          typeof trustedFormRequest.claim !== "boolean"
+        ) {
+          return {
+            result: false,
+            error: "trusted_form.claim must be a boolean",
+          };
+        }
       }
 
       // ── IPQS validation ───────────────────────────────────────────────────────
@@ -677,7 +718,7 @@ export class CampaignService {
       if (ipqsRequest) {
         const ipqsFields = Object.keys(ipqsRequest);
         const invalidIpqsFields = ipqsFields.filter(
-          (f) => !["enabled", "phone", "email", "ip"].includes(f),
+          (f) => !["enabled", "stage", "gate", "phone", "email", "ip"].includes(f),
         );
         if (invalidIpqsFields.length > 0) {
           return {
@@ -690,6 +731,22 @@ export class CampaignService {
           typeof ipqsRequest.enabled !== "boolean"
         ) {
           return { result: false, error: "ipqs.enabled must be a boolean" };
+        }
+        if (ipqsRequest.stage !== undefined) {
+          const s = Number(ipqsRequest.stage);
+          if (!Number.isInteger(s) || s < 2) {
+            return {
+              result: false,
+              error:
+                "ipqs.stage must be an integer >= 2 (stage 1 is reserved for duplicate_check)",
+            };
+          }
+        }
+        if (
+          ipqsRequest.gate !== undefined &&
+          typeof ipqsRequest.gate !== "boolean"
+        ) {
+          return { result: false, error: "ipqs.gate must be a boolean" };
         }
         for (const check of ["phone", "email", "ip"] as const) {
           const checkReq = ipqsRequest[check] as
@@ -726,6 +783,23 @@ export class CampaignService {
             trustedFormRequest?.enabled !== undefined
               ? (trustedFormRequest.enabled as boolean)
               : currentPlugins.trusted_form.enabled,
+          stage:
+            trustedFormRequest?.stage !== undefined
+              ? Number(trustedFormRequest.stage)
+              : currentPlugins.trusted_form.stage,
+          gate:
+            trustedFormRequest?.gate !== undefined
+              ? (trustedFormRequest.gate as boolean)
+              : currentPlugins.trusted_form.gate,
+          claim:
+            trustedFormRequest?.claim !== undefined
+              ? (trustedFormRequest.claim as boolean)
+              : currentPlugins.trusted_form.claim,
+          ...(trustedFormRequest?.vendor !== undefined
+            ? { vendor: trustedFormRequest.vendor as string }
+            : currentPlugins.trusted_form.vendor !== undefined
+              ? { vendor: currentPlugins.trusted_form.vendor }
+              : {}),
         },
         ipqs: this.mergeIpqsConfig(
           currentPlugins.ipqs,
@@ -745,11 +819,11 @@ export class CampaignService {
         };
       }
 
-      // ── Tenant-level guard: block enabling a plugin that is globally disabled ──
-      if (
-        nextPlugins.duplicate_check.enabled &&
-        !currentPlugins.duplicate_check.enabled
-      ) {
+      // ── Tenant-level guard: block re-enabling a globally-disabled plugin ──
+      // Only fires when the request *explicitly* sets enabled: true so we never
+      // block requests that aren't changing the enabled state, and we don't burn
+      // unnecessary DynamoDB reads on every plugin update.
+      if (duplicateCheck?.enabled === true) {
         const tenantAllows =
           await this.isTenantPluginEnabled("duplicate_check");
         if (!tenantAllows) {
@@ -761,10 +835,7 @@ export class CampaignService {
         }
       }
 
-      if (
-        nextPlugins.trusted_form.enabled &&
-        !currentPlugins.trusted_form.enabled
-      ) {
+      if (trustedFormRequest?.enabled === true) {
         const tenantAllows = await this.isTenantPluginEnabled("trusted_form");
         if (!tenantAllows) {
           return {
@@ -775,7 +846,7 @@ export class CampaignService {
         }
       }
 
-      if (nextPlugins.ipqs.enabled && !currentPlugins.ipqs.enabled) {
+      if (ipqsRequest?.enabled === true) {
         const tenantAllows = await this.isTenantPluginEnabled("ipqs");
         if (!tenantAllows) {
           return {
@@ -814,7 +885,14 @@ export class CampaignService {
     campaignId: string,
     affiliateId: string,
     actor?: RequestActor,
-  ): Promise<ServiceResult<{ campaign: ICampaign; campaign_key: string }>> {
+  ): Promise<
+    ServiceResult<{
+      campaign: ICampaign;
+      campaign_key: string;
+      submit_url: string;
+      submit_url_test: string;
+    }>
+  > {
     try {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign) {
@@ -863,7 +941,16 @@ export class CampaignService {
         affiliateId,
       });
 
-      return { result: true, data: { campaign, campaign_key } };
+      const leadsBase = this.constants.LEADS_BASE_URL;
+      return {
+        result: true,
+        data: {
+          campaign,
+          campaign_key,
+          submit_url: leadsBase,
+          submit_url_test: `${leadsBase}/test`,
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to rotate affiliate key", error);
       return {
@@ -878,8 +965,14 @@ export class CampaignService {
     affiliateId: string,
     request: UpdateParticipantStatusRequest,
     actor?: RequestActor,
-  ): Promise<ServiceResult<ICampaign>> {
-    return this.mutateAffiliate(
+  ): Promise<
+    ServiceResult<{
+      campaign: ICampaign;
+      submit_url: string;
+      submit_url_test: string;
+    }>
+  > {
+    const result = await this.mutateAffiliate(
       campaignId,
       affiliateId,
       (a) => {
@@ -888,6 +981,16 @@ export class CampaignService {
       actor,
       { recordRemoval: false },
     );
+    if (!result.result) return { result: false, error: result.error };
+    const leadsBase = this.constants.LEADS_BASE_URL;
+    return {
+      result: true,
+      data: {
+        campaign: result.data!,
+        submit_url: leadsBase,
+        submit_url_test: `${leadsBase}/test`,
+      },
+    };
   }
 
   async deleteAffiliate(
@@ -1154,13 +1257,29 @@ export class CampaignService {
     return campaign ?? null;
   }
 
-  async getCampaign(id: string): Promise<ServiceResult<ICampaign>> {
+  async getCampaign(
+    id: string,
+  ): Promise<
+    ServiceResult<{
+      campaign: ICampaign;
+      submit_url: string;
+      submit_url_test: string;
+    }>
+  > {
     try {
       const campaign = await this.getCampaignById(id);
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign with id ${id} not found` };
       }
-      return { result: true, data: this.normalizeParticipants(campaign) };
+      const leadsBase = this.constants.LEADS_BASE_URL;
+      return {
+        result: true,
+        data: {
+          campaign: this.normalizeParticipants(campaign),
+          submit_url: leadsBase,
+          submit_url_test: `${leadsBase}/test`,
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to get campaign", error);
       return {
@@ -1349,6 +1468,21 @@ export class CampaignService {
           typeof plugins?.trusted_form?.enabled === "boolean"
             ? plugins.trusted_form.enabled
             : defaults.trusted_form.enabled,
+        stage:
+          typeof plugins?.trusted_form?.stage === "number"
+            ? plugins.trusted_form.stage
+            : defaults.trusted_form.stage,
+        gate:
+          typeof plugins?.trusted_form?.gate === "boolean"
+            ? plugins.trusted_form.gate
+            : defaults.trusted_form.gate,
+        claim:
+          typeof plugins?.trusted_form?.claim === "boolean"
+            ? plugins.trusted_form.claim
+            : defaults.trusted_form.claim,
+        ...(plugins?.trusted_form?.vendor !== undefined
+          ? { vendor: plugins.trusted_form.vendor }
+          : {}),
       },
       ipqs: this.mergeIpqsConfig(plugins?.ipqs, undefined, defaults.ipqs),
     };
@@ -1362,7 +1496,13 @@ export class CampaignService {
   ): IIpqsPluginConfig {
     const base: IIpqsPluginConfig = current ?? defaults;
 
-    if (!patch) return base;
+    if (!patch) {
+      return {
+        ...base,
+        stage: base.stage ?? defaults.stage,
+        gate: typeof base.gate === "boolean" ? base.gate : defaults.gate,
+      };
+    }
 
     const patchPhone = patch.phone as
       | Partial<IIpqsPhoneCheckConfig>
@@ -1375,6 +1515,14 @@ export class CampaignService {
     return {
       enabled:
         typeof patch.enabled === "boolean" ? patch.enabled : base.enabled,
+      stage:
+        typeof patch.stage === "number"
+          ? patch.stage
+          : (base.stage ?? defaults.stage),
+      gate:
+        typeof patch.gate === "boolean"
+          ? patch.gate
+          : (typeof base.gate === "boolean" ? base.gate : defaults.gate),
       phone: patchPhone ? { ...base.phone, ...patchPhone } : base.phone,
       email: patchEmail ? { ...base.email, ...patchEmail } : base.email,
       ip: patchIp ? { ...base.ip, ...patchIp } : base.ip,
@@ -1410,7 +1558,8 @@ export class CampaignService {
     });
 
     const schema = schemas.find((s) => !s.is_deleted);
-    if (!schema) return false; // plugin not configured at tenant level
+    // Not configured at tenant level → permissive (no global rule = allow)
+    if (!schema) return true;
 
     // Step 2: find the matching plugin_setting and check enabled
     const settings = await this.dynamoDBUtil.queryAll<{
@@ -1439,9 +1588,14 @@ export class CampaignService {
       },
       trusted_form: {
         enabled: false,
+        stage: 2,
+        gate: true,
+        claim: false,
       },
       ipqs: {
         enabled: false,
+        stage: 2,
+        gate: true,
         phone: {
           enabled: false,
           criteria: {

@@ -124,6 +124,18 @@ iamStack.campaignsLambdaRole.addToPolicy(
   }),
 );
 
+// Tenant-level plugin guard: campaigns lambda queries tenant-settings to check if a plugin is globally enabled
+iamStack.campaignsLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:GetItem", "dynamodb:Query"],
+    resources: [
+      dataStack.tenantSettingsTable.tableArn,
+      `${dataStack.tenantSettingsTable.tableArn}/index/*`,
+    ],
+  }),
+);
+
 // ── Leads ─────────────────────────────────────────────────────────────────────
 iamStack.leadsLambdaRole.addToPolicy(
   new PolicyStatement({
@@ -170,6 +182,15 @@ iamStack.tenantConfigLambdaRole.addToPolicy(
       dataStack.tenantSettingsTable.tableArn,
       `${dataStack.tenantSettingsTable.tableArn}/index/*`,
     ],
+  }),
+);
+
+// Cascade: when a plugin is globally disabled, tenant-config lambda updates all campaigns
+iamStack.tenantConfigLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Scan"],
+    resources: [dataStack.campaignsTable.tableArn],
   }),
 );
 

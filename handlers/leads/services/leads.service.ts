@@ -15,6 +15,10 @@ import { ServiceResult } from "../types/common.types";
 import { ILead, IEditHistoryEntry } from "../interfaces/ILead.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
+import {
+  REJECTION_DUPLICATE,
+  REJECTION_AFFILIATE_DISABLED,
+} from "@shared/constants/rejection-messages.constants";
 
 interface CampaignAffiliate {
   affiliate_id: string;
@@ -80,6 +84,14 @@ interface QaOrchestratorResult {
     };
     error?: string;
   };
+  /** True when a gate plugin failed and halted the remaining pipeline stages */
+  pipeline_halted?: boolean;
+  /** Stage number where the pipeline was halted */
+  halt_stage?: number;
+  /** Name of the plugin that triggered the halt */
+  halt_plugin?: string;
+  /** Affiliate-readable rejection message from the halting plugin */
+  halt_reason?: string;
 }
 
 @injectable()
@@ -197,51 +209,21 @@ export class LeadsService {
         affiliateStatus === CampaignParticipantStatus.DISABLED;
       const rejectedByDuplicate = duplicateCheckEnabled && duplicateDetected;
 
-      // TrustedForm: reject the lead if TF ran and the certificate validation failed
-      const trustedFormFailed =
-        qaResult.trusted_form_result != null &&
-        qaResult.trusted_form_result.success === false;
-
-      // IPQS: reject the lead if IPQS ran and the overall fraud check failed
-      const ipqsFailed =
-        qaResult.ipqs_result != null && qaResult.ipqs_result.success === false;
-      const ipqsFailedChecks: string[] = [];
-      if (ipqsFailed) {
-        if (qaResult.ipqs_result?.phone?.success === false)
-          ipqsFailedChecks.push("phone");
-        if (qaResult.ipqs_result?.email?.success === false)
-          ipqsFailedChecks.push("email");
-        if (qaResult.ipqs_result?.ip?.success === false)
-          ipqsFailedChecks.push("ip_address");
-      }
+      // Plugin gate rejection: a configured plugin failed with gate=true.
+      // duplicate_check halt is handled separately via rejectedByDuplicate.
+      const pluginGateRejected =
+        qaResult.pipeline_halted === true &&
+        qaResult.halt_plugin !== "duplicate_check";
 
       const rejected =
-        rejectedByAffiliate ||
-        rejectedByDuplicate ||
-        trustedFormFailed ||
-        ipqsFailed;
+        rejectedByAffiliate || rejectedByDuplicate || pluginGateRejected;
 
       const rejectionReasons: string[] = [];
       if (rejectedByAffiliate)
-        rejectionReasons.push(
-          "Lead received while affiliate is DISABLED for this campaign",
-        );
-      if (rejectedByDuplicate) rejectionReasons.push("Duplicate lead detected");
-      if (trustedFormFailed) {
-        const tfError = qaResult.trusted_form_result?.error;
-        rejectionReasons.push(
-          tfError
-            ? `TrustedForm validation failed: ${tfError}`
-            : "TrustedForm validation failed",
-        );
-      }
-      if (ipqsFailed) {
-        const checks =
-          ipqsFailedChecks.length > 0
-            ? ` (${ipqsFailedChecks.join(", ")})`
-            : "";
-        rejectionReasons.push(`IPQS fraud check failed${checks}`);
-      }
+        rejectionReasons.push(REJECTION_AFFILIATE_DISABLED);
+      if (rejectedByDuplicate) rejectionReasons.push(REJECTION_DUPLICATE);
+      if (pluginGateRejected && qaResult.halt_reason)
+        rejectionReasons.push(qaResult.halt_reason);
 
       const rejectionReason =
         rejectionReasons.length > 0 ? rejectionReasons.join("; ") : undefined;
@@ -260,6 +242,14 @@ export class LeadsService {
           ? { trusted_form_result: qaResult.trusted_form_result }
           : {}),
         ...(qaResult.ipqs_result ? { ipqs_result: qaResult.ipqs_result } : {}),
+        ...(qaResult.pipeline_halted
+          ? {
+              pipeline_halted: true,
+              halt_stage: qaResult.halt_stage,
+              halt_plugin: qaResult.halt_plugin,
+              halt_reason: qaResult.halt_reason,
+            }
+          : {}),
         created_at: now,
         affiliate_status_at_intake: affiliateStatus,
         rejected,

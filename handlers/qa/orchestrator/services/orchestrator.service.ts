@@ -4,11 +4,23 @@ import { LambdaInvokeUtil } from "@shared/services/lambda-invoke.util";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { decrypt } from "@shared/utils/crypto.util";
+import {
+  REJECTION_DUPLICATE,
+  REJECTION_TRUSTED_FORM_INVALID,
+  REJECTION_TRUSTED_FORM_EXPIRED,
+  REJECTION_TRUSTED_FORM_ALREADY_CLAIMED,
+  REJECTION_IPQS_PHONE,
+  REJECTION_IPQS_EMAIL,
+  REJECTION_IPQS_IP,
+  buildIpqsRejectionMessage,
+} from "@shared/constants/rejection-messages.constants";
 import { OrchestratorConstants } from "../constants/orchestrator.constants";
 import {
   DuplicateCheckResult,
+  IpqsPluginConfig,
   IpqsResult,
   OrchestratorResponse,
+  TrustedFormPluginConfig,
   TrustedFormResult,
   TrustedFormValidateResponse,
 } from "../interfaces/IOrchestrator.interface";
@@ -35,6 +47,20 @@ interface PluginSettingLookup {
   is_deleted?: boolean;
 }
 
+/** Internal result shape for a single plugin task within a pipeline stage */
+interface StageTaskResult {
+  /** Plugin identifier: 'trusted_form' | 'ipqs' */
+  name: string;
+  /** Whether the plugin ran successfully */
+  success: boolean;
+  /** When true, a failure halts the rest of the pipeline */
+  gate: boolean;
+  /** Affiliate-readable reason populated when success=false and gate=true */
+  haltReason?: string;
+  trustedFormResult?: TrustedFormResult;
+  ipqsResult?: IpqsResult;
+}
+
 @injectable()
 export class OrchestratorService {
   constructor(
@@ -49,7 +75,7 @@ export class OrchestratorService {
   async execute(
     event: OrchestratorEvent,
   ): Promise<ServiceResult<OrchestratorResponse>> {
-    // ── 1. Duplicate check ────────────────────────────────────────────────────
+    // ── Stage 1: duplicate_check (hardcoded, always a gate) ──────────────────
     const duplicatePlugin = event.plugins?.duplicate_check;
     const duplicateEnabled = duplicatePlugin?.enabled ?? true;
 
@@ -93,116 +119,56 @@ export class OrchestratorService {
     const duplicate =
       matchedLeadIds.length > 0 || duplicateResult?.duplicate === true;
 
-    // ── 2. Plugin checks (parallel) ───────────────────────────────────────────
-    // Run all enabled plugins concurrently now that duplicate_check has completed.
-    const trustedFormPlugin = event.plugins?.trusted_form;
-    const trustedFormEnabled = trustedFormPlugin?.enabled ?? false;
-
-    const pluginPromises: Array<Promise<void>> = [];
-    let trustedFormResult: TrustedFormResult | undefined;
-    let ipqsResult: IpqsResult | undefined;
-
-    if (trustedFormEnabled && event.cert_id) {
-      pluginPromises.push(
-        (async () => {
-          if (!this.constants.TRUSTED_FORM_LAMBDA_NAME) {
-            this.logger.warn("TRUSTED_FORM_LAMBDA_NAME is not configured");
-            return;
-          }
-          const credentialsIdResult =
-            await this.resolveDefaultCredentialsId("trusted_form");
-          if (!credentialsIdResult) {
-            this.logger.warn(
-              "No active trusted_form credential found in tenant settings — skipping TrustedForm check",
-            );
-            return;
-          }
-          try {
-            trustedFormResult =
-              await this.lambdaInvokeUtil.invokeJson<TrustedFormResult>({
-                functionName: this.constants.TRUSTED_FORM_LAMBDA_NAME,
-                payload: {
-                  campaign_id: event.campaign_id,
-                  credentials_id: credentialsIdResult,
-                  cert_id: event.cert_id,
-                  phone: event.phone,
-                },
-              });
-          } catch (error) {
-            this.logger.error(
-              "QA orchestrator failed to run trusted_form plugin",
-              { error, campaignId: event.campaign_id },
-            );
-            trustedFormResult = {
-              success: false,
-              cert_id: event.cert_id ?? "",
-              error: "TrustedForm lambda invocation failed",
-            };
-          }
-        })(),
-      );
+    // Gate: duplicate found → halt pipeline at stage 1, skip stages 2+
+    if (duplicate && duplicateEnabled) {
+      return {
+        result: true,
+        data: {
+          duplicate: true,
+          duplicate_matches: { lead_ids: matchedLeadIds },
+          pipeline_halted: true,
+          halt_stage: 1,
+          halt_plugin: "duplicate_check",
+          halt_reason: REJECTION_DUPLICATE,
+          plugin_results: {
+            duplicate_check: {
+              enabled: true,
+              duplicate: true,
+              matched_lead_ids: matchedLeadIds,
+            },
+          },
+        },
+      };
     }
 
-    // ── IPQS plugin ─────────────────────────────────────────────────────────
-    const ipqsPlugin = event.plugins?.ipqs;
-    const ipqsEnabled = ipqsPlugin?.enabled ?? false;
+    // ── Stages 2+: configurable plugin pipeline ───────────────────────────────
+    const pipeline = this.buildPipeline(event);
+    const {
+      trustedFormResult,
+      ipqsResult,
+      pipelineHalted,
+      haltStage,
+      haltPlugin,
+      haltReason,
+    } = await this.runPipeline(pipeline);
 
-    if (ipqsEnabled && (event.phone || event.email || event.ip_address)) {
-      pluginPromises.push(
-        (async () => {
-          if (!this.constants.IPQS_LAMBDA_NAME) {
-            this.logger.warn("IPQS_LAMBDA_NAME is not configured");
-            return;
-          }
-          const credentialsIdResult =
-            await this.resolveDefaultCredentialsId("ipqs");
-          if (!credentialsIdResult) {
-            this.logger.warn(
-              "No active ipqs credential found in tenant settings — skipping IPQS check",
-            );
-            return;
-          }
-          try {
-            ipqsResult = await this.lambdaInvokeUtil.invokeJson<IpqsResult>({
-              functionName: this.constants.IPQS_LAMBDA_NAME,
-              payload: {
-                campaign_id: event.campaign_id,
-                credentials_id: credentialsIdResult,
-                phone: event.phone,
-                email: event.email,
-                ip_address: event.ip_address,
-                config: {
-                  phone: ipqsPlugin?.phone,
-                  email: ipqsPlugin?.email,
-                  ip: ipqsPlugin?.ip,
-                },
-              },
-            });
-          } catch (error) {
-            this.logger.error("QA orchestrator failed to run ipqs plugin", {
-              error,
-              campaignId: event.campaign_id,
-            });
-            ipqsResult = {
-              success: false,
-              error: "IPQS lambda invocation failed",
-            };
-          }
-        })(),
-      );
-    }
+    // ── Assemble response ─────────────────────────────────────────────────────
+    const trustedFormEnabled = event.plugins?.trusted_form?.enabled ?? false;
+    const ipqsEnabled = event.plugins?.ipqs?.enabled ?? false;
 
-    // Await all parallel plugin tasks
-    await Promise.all(pluginPromises);
-
-    // ── 3. Assemble response ──────────────────────────────────────────────────
     const response: OrchestratorResponse = {
       duplicate,
-      duplicate_matches: {
-        lead_ids: matchedLeadIds,
-      },
+      duplicate_matches: { lead_ids: matchedLeadIds },
       ...(trustedFormResult ? { trusted_form_result: trustedFormResult } : {}),
       ...(ipqsResult ? { ipqs_result: ipqsResult } : {}),
+      ...(pipelineHalted
+        ? {
+            pipeline_halted: true,
+            halt_stage: haltStage,
+            halt_plugin: haltPlugin,
+            halt_reason: haltReason,
+          }
+        : {}),
       plugin_results: {
         duplicate_check: {
           enabled: duplicateEnabled,
@@ -231,6 +197,232 @@ export class OrchestratorService {
     };
 
     return { result: true, data: response };
+  }
+
+  /**
+   * Groups enabled plugins into stages (sorted ascending by stage number).
+   * Stage 1 (duplicate_check) is always handled first in execute().
+   * All other plugins use their configured stage number (minimum 2).
+   */
+  private buildPipeline(
+    event: OrchestratorEvent,
+  ): Map<number, Array<() => Promise<StageTaskResult>>> {
+    const stages = new Map<number, Array<() => Promise<StageTaskResult>>>();
+
+    const trustedFormPlugin = event.plugins?.trusted_form;
+    if (trustedFormPlugin?.enabled && event.cert_id) {
+      const stageNum = trustedFormPlugin.stage ?? 2;
+      if (!stages.has(stageNum)) stages.set(stageNum, []);
+      stages
+        .get(stageNum)!
+        .push(() => this.runTrustedFormTask(event, trustedFormPlugin));
+    }
+
+    const ipqsPlugin = event.plugins?.ipqs;
+    if (ipqsPlugin?.enabled && (event.phone || event.email || event.ip_address)) {
+      const stageNum = ipqsPlugin.stage ?? 2;
+      if (!stages.has(stageNum)) stages.set(stageNum, []);
+      stages.get(stageNum)!.push(() => this.runIpqsTask(event, ipqsPlugin));
+    }
+
+    // Return stages sorted ascending so lower stage numbers run first
+    return new Map([...stages.entries()].sort(([a], [b]) => a - b));
+  }
+
+  /**
+   * Executes stages in order. Within each stage all tasks run in parallel.
+   * If any gate=true task fails, the pipeline halts and remaining stages are
+   * skipped. Results from completed stages are always accumulated and returned.
+   */
+  private async runPipeline(
+    pipeline: Map<number, Array<() => Promise<StageTaskResult>>>,
+  ): Promise<{
+    trustedFormResult?: TrustedFormResult;
+    ipqsResult?: IpqsResult;
+    pipelineHalted: boolean;
+    haltStage?: number;
+    haltPlugin?: string;
+    haltReason?: string;
+  }> {
+    let trustedFormResult: TrustedFormResult | undefined;
+    let ipqsResult: IpqsResult | undefined;
+    let pipelineHalted = false;
+    let haltStage: number | undefined;
+    let haltPlugin: string | undefined;
+    let haltReason: string | undefined;
+
+    for (const [stageNum, tasks] of pipeline) {
+      // All tasks within a stage run concurrently
+      const stageResults = await Promise.all(tasks.map((t) => t()));
+
+      // Collect plugin results from this stage before checking for halts
+      for (const r of stageResults) {
+        if (r.trustedFormResult) trustedFormResult = r.trustedFormResult;
+        if (r.ipqsResult) ipqsResult = r.ipqsResult;
+      }
+
+      // First gate=true task that failed halts the pipeline
+      const gateFailure = stageResults.find((r) => r.gate && !r.success);
+      if (gateFailure) {
+        pipelineHalted = true;
+        haltStage = stageNum;
+        haltPlugin = gateFailure.name;
+        haltReason = gateFailure.haltReason;
+        break;
+      }
+    }
+
+    return {
+      trustedFormResult,
+      ipqsResult,
+      pipelineHalted,
+      haltStage,
+      haltPlugin,
+      haltReason,
+    };
+  }
+
+  /** Runs the TrustedForm plugin task and returns a StageTaskResult. */
+  private async runTrustedFormTask(
+    event: OrchestratorEvent,
+    plugin: TrustedFormPluginConfig,
+  ): Promise<StageTaskResult> {
+    const gate = plugin.gate ?? true;
+
+    if (!this.constants.TRUSTED_FORM_LAMBDA_NAME) {
+      this.logger.warn("TRUSTED_FORM_LAMBDA_NAME is not configured — skipping");
+      return { name: "trusted_form", success: true, gate };
+    }
+
+    const credentialsId =
+      await this.resolveDefaultCredentialsId("trusted_form");
+    if (!credentialsId) {
+      this.logger.warn(
+        "No active trusted_form credential found — skipping TrustedForm check",
+      );
+      return { name: "trusted_form", success: true, gate };
+    }
+
+    try {
+      const trustedFormResult =
+        await this.lambdaInvokeUtil.invokeJson<TrustedFormResult>({
+          functionName: this.constants.TRUSTED_FORM_LAMBDA_NAME,
+          payload: {
+            campaign_id: event.campaign_id,
+            credentials_id: credentialsId,
+            cert_id: event.cert_id,
+            phone: event.phone,
+            vendor: plugin.vendor,
+            claim: plugin.claim ?? false,
+          },
+        });
+
+      const success = trustedFormResult?.success !== false;
+      const haltReason = !success
+        ? this.mapTrustedFormToHaltReason(trustedFormResult)
+        : undefined;
+
+      return { name: "trusted_form", success, gate, haltReason, trustedFormResult };
+    } catch (error) {
+      this.logger.error("QA orchestrator failed to run trusted_form plugin", {
+        error,
+        campaignId: event.campaign_id,
+      });
+      const fallbackResult: TrustedFormResult = {
+        success: false,
+        cert_id: event.cert_id ?? "",
+        error: "TrustedForm lambda invocation failed",
+      };
+      return {
+        name: "trusted_form",
+        success: false,
+        gate,
+        haltReason: REJECTION_TRUSTED_FORM_INVALID,
+        trustedFormResult: fallbackResult,
+      };
+    }
+  }
+
+  /** Runs the IPQS plugin task and returns a StageTaskResult. */
+  private async runIpqsTask(
+    event: OrchestratorEvent,
+    plugin: IpqsPluginConfig,
+  ): Promise<StageTaskResult> {
+    const gate = plugin.gate ?? true;
+
+    if (!this.constants.IPQS_LAMBDA_NAME) {
+      this.logger.warn("IPQS_LAMBDA_NAME is not configured — skipping");
+      return { name: "ipqs", success: true, gate };
+    }
+
+    const credentialsId = await this.resolveDefaultCredentialsId("ipqs");
+    if (!credentialsId) {
+      this.logger.warn(
+        "No active ipqs credential found — skipping IPQS check",
+      );
+      return { name: "ipqs", success: true, gate };
+    }
+
+    try {
+      const ipqsResult = await this.lambdaInvokeUtil.invokeJson<IpqsResult>({
+        functionName: this.constants.IPQS_LAMBDA_NAME,
+        payload: {
+          campaign_id: event.campaign_id,
+          credentials_id: credentialsId,
+          phone: event.phone,
+          email: event.email,
+          ip_address: event.ip_address,
+          config: {
+            phone: plugin.phone,
+            email: plugin.email,
+            ip: plugin.ip,
+          },
+        },
+      });
+
+      const success = ipqsResult?.success !== false;
+      let haltReason: string | undefined;
+      if (!success) {
+        const failedChecks: string[] = [];
+        if (ipqsResult?.phone?.success === false)
+          failedChecks.push(REJECTION_IPQS_PHONE);
+        if (ipqsResult?.email?.success === false)
+          failedChecks.push(REJECTION_IPQS_EMAIL);
+        if (ipqsResult?.ip?.success === false)
+          failedChecks.push(REJECTION_IPQS_IP);
+        haltReason = buildIpqsRejectionMessage(failedChecks);
+      }
+
+      return { name: "ipqs", success, gate, haltReason, ipqsResult };
+    } catch (error) {
+      this.logger.error("QA orchestrator failed to run ipqs plugin", {
+        error,
+        campaignId: event.campaign_id,
+      });
+      const fallbackResult: IpqsResult = {
+        success: false,
+        error: "IPQS lambda invocation failed",
+      };
+      return {
+        name: "ipqs",
+        success: false,
+        gate,
+        haltReason: buildIpqsRejectionMessage([]),
+        ipqsResult: fallbackResult,
+      };
+    }
+  }
+
+  /**
+   * Maps a TrustedForm failure result to an affiliate-readable rejection message
+   * using the raw outcome/error values from TrustedForm's API response.
+   */
+  private mapTrustedFormToHaltReason(result: TrustedFormResult): string {
+    const error = (result.error ?? "").toLowerCase();
+    if (error.includes("expired")) return REJECTION_TRUSTED_FORM_EXPIRED;
+    if (error.includes("retained") || error.includes("claimed"))
+      return REJECTION_TRUSTED_FORM_ALREADY_CLAIMED;
+    return REJECTION_TRUSTED_FORM_INVALID;
   }
 
   /**

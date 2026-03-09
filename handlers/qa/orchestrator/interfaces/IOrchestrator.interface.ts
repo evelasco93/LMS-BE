@@ -5,6 +5,10 @@ export interface DuplicateCheckPluginConfig {
 
 export interface TrustedFormPluginConfig {
   enabled: boolean;
+  stage?: number;
+  gate?: boolean;
+  claim?: boolean;
+  vendor?: string;
 }
 
 export interface IpqsCheckConfig {
@@ -14,6 +18,8 @@ export interface IpqsCheckConfig {
 
 export interface IpqsPluginConfig {
   enabled: boolean;
+  stage?: number;
+  gate?: boolean;
   phone?: IpqsCheckConfig;
   email?: IpqsCheckConfig;
   ip?: IpqsCheckConfig;
@@ -73,6 +79,14 @@ export interface TrustedFormValidateResponse {
 export interface OrchestratorResponse extends DuplicateCheckResult {
   trusted_form_result?: TrustedFormResult;
   ipqs_result?: IpqsResult;
+  /** True when a gate plugin failed and halted the remaining pipeline stages */
+  pipeline_halted?: boolean;
+  /** Stage number where the pipeline was halted */
+  halt_stage?: number;
+  /** Name of the plugin that triggered the halt */
+  halt_plugin?: string;
+  /** Affiliate-readable reason for the halt (sourced from rejection-messages constants) */
+  halt_reason?: string;
   plugin_results: {
     duplicate_check: {
       enabled: boolean;

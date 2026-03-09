@@ -1558,11 +1558,11 @@
         },
         "responses": {
           "200": {
-            "description": "Lead processed (accepted or stored as rejected based on affiliate status / duplicate_check policy)",
+            "description": "Lead processed. The lead is always saved to the database. Check `rejected` and `rejection_reason` to determine whether it was accepted.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LeadResponse"
+                  "$ref": "#/components/schemas/LeadSubmissionResponse"
                 }
               }
             }
@@ -1837,11 +1837,11 @@
         },
         "responses": {
           "200": {
-            "description": "Test lead processed (accepted or stored as rejected based on affiliate status / duplicate_check policy)",
+            "description": "Test lead processed. The lead is always saved with test=true. Check `rejected` and `rejection_reason` to determine acceptance.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LeadResponse"
+                  "$ref": "#/components/schemas/LeadSubmissionResponse"
                 }
               }
             }
@@ -3088,6 +3088,16 @@
                 }
               }
             }
+          },
+          "submit_url": {
+            "type": "string",
+            "description": "Live lead submission endpoint for this campaign. Affiliates POST lead payloads to this URL using their campaign_key.",
+            "example": "https://api.example.com/dev/v2/leads"
+          },
+          "submit_url_test": {
+            "type": "string",
+            "description": "Test lead submission endpoint. Same as submit_url with /test appended. Leads posted here are stored with test=true and never forwarded to clients.",
+            "example": "https://api.example.com/dev/v2/leads/test"
           }
         }
       },
@@ -3225,6 +3235,22 @@
           },
           "ipqs_result": {
             "$ref": "#/components/schemas/IpqsResult"
+          },
+          "pipeline_halted": {
+            "type": "boolean",
+            "description": "True when the QA pipeline was halted by a gate failure in stage 2+. Always false when the lead was rejected purely as a duplicate."
+          },
+          "halt_stage": {
+            "type": "integer",
+            "description": "The pipeline stage number where the gate failure occurred (e.g. 2). Populated only when pipeline_halted=true."
+          },
+          "halt_plugin": {
+            "type": "string",
+            "description": "The plugin name that triggered the gate failure (e.g. trusted_form, ipqs). Populated only when pipeline_halted=true."
+          },
+          "halt_reason": {
+            "type": "string",
+            "description": "Human-readable affiliate-facing rejection message produced by the halting plugin. Populated only when pipeline_halted=true."
           }
         }
       },
@@ -3357,6 +3383,37 @@
           }
         }
       },
+      "TrustedFormPluginConfig": {
+        "type": "object",
+        "description": "TrustedForm plugin configuration. When enabled=true the cert_id submitted with each lead will be validated against the TrustedForm API. Use claim=true to also retain (claim) the certificate on successful validation.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Master toggle — must be true for TrustedForm validation to run",
+            "default": false
+          },
+          "stage": {
+            "type": "integer",
+            "minimum": 2,
+            "default": 2,
+            "description": "Pipeline stage number (minimum 2; stage 1 is reserved for duplicate_check). Lower numbers run first. Plugins sharing the same stage number run in parallel."
+          },
+          "gate": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true, a TrustedForm failure halts the pipeline and the lead is saved as rejected. When false, failure is recorded but the pipeline continues."
+          },
+          "claim": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, a successful validation is immediately followed by a claim (retain) call to TrustedForm. Set to false if you only need to validate without consuming the certificate."
+          },
+          "vendor": {
+            "type": "string",
+            "description": "Optional vendor name forwarded to the TrustedForm API during validation."
+          }
+        }
+      },
       "IpqsPluginConfig": {
         "type": "object",
         "description": "IPQS plugin configuration. When enabled=true, any sub-check with enabled=true will run. All criteria defaults are applied automatically when not provided.",
@@ -3365,6 +3422,17 @@
             "type": "boolean",
             "description": "Master toggle — must be true for any sub-check to run",
             "default": false
+          },
+          "stage": {
+            "type": "integer",
+            "minimum": 2,
+            "default": 2,
+            "description": "Pipeline stage number (minimum 2). Lower numbers run first. Plugins sharing the same stage number run in parallel."
+          },
+          "gate": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true, an IPQS failure halts the pipeline and the lead is saved as rejected. When false, failure is recorded but the pipeline continues."
           },
           "phone": { "$ref": "#/components/schemas/IpqsPhoneCheckConfig" },
           "email": { "$ref": "#/components/schemas/IpqsEmailCheckConfig" },
@@ -3378,10 +3446,7 @@
             "$ref": "#/components/schemas/DuplicateCheckPluginConfig"
           },
           "trusted_form": {
-            "type": "object",
-            "properties": {
-              "enabled": { "type": "boolean" }
-            }
+            "$ref": "#/components/schemas/TrustedFormPluginConfig"
           },
           "ipqs": {
             "$ref": "#/components/schemas/IpqsPluginConfig"
@@ -3524,10 +3589,7 @@
             }
           },
           "trusted_form": {
-            "type": "object",
-            "properties": {
-              "enabled": { "type": "boolean" }
-            }
+            "$ref": "#/components/schemas/TrustedFormPluginConfig"
           },
           "ipqs": {
             "$ref": "#/components/schemas/IpqsPluginConfig"
@@ -3698,6 +3760,38 @@
           },
           "data": {
             "$ref": "#/components/schemas/Lead"
+          }
+        }
+      },
+      "LeadSubmissionResponse": {
+        "type": "object",
+        "description": "Slim response returned to affiliates on POST /leads and POST /leads/test. Does not include internal QA details (TrustedForm/IPQS results, edit history, etc.).",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique lead ID assigned at intake",
+            "example": "LDABC12345"
+          },
+          "test": {
+            "type": "boolean",
+            "description": "True when this was submitted to the test endpoint"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "True when a matching lead already exists for this campaign based on the duplicate_check criteria"
+          },
+          "rejected": {
+            "type": "boolean",
+            "description": "True when the lead was not accepted (duplicate, affiliate disabled, or QA gate failure)"
+          },
+          "rejection_reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Human-readable reason the lead was rejected. Null when rejected=false."
+          },
+          "message": {
+            "type": "string",
+            "description": "Confirmation message when the lead was accepted (e.g. 'Your lead has been received and accepted.'). Omitted when rejected=true."
           }
         }
       },

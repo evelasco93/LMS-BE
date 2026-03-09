@@ -71,6 +71,14 @@ export interface IDuplicateCheckPluginConfig {
 
 export interface ITrustedFormPluginConfig {
   enabled: boolean;
+  /** Pipeline execution stage — must be >= 2 (stage 1 is reserved for duplicate_check). Default: 2 */
+  stage: number;
+  /** When true, a failure at this plugin halts the pipeline and rejects the lead. Default: true */
+  gate: boolean;
+  /** When true, the TrustedForm certificate will be claimed after successful validation. Default: false */
+  claim: boolean;
+  /** Optional vendor name passed to TrustedForm during certificate claim */
+  vendor?: string;
 }
 
 // ── IPQS plugin types ─────────────────────────────────────────────────────────
@@ -134,6 +142,10 @@ export interface IIpqsIpCheckConfig {
 export interface IIpqsPluginConfig {
   /** Master toggle — must be true for any sub-check to run */
   enabled: boolean;
+  /** Pipeline execution stage — must be >= 2 (stage 1 is reserved for duplicate_check). Default: 2 */
+  stage: number;
+  /** When true, a failure at this plugin halts the pipeline and rejects the lead. Default: true */
+  gate: boolean;
   phone: IIpqsPhoneCheckConfig;
   email: IIpqsEmailCheckConfig;
   ip: IIpqsIpCheckConfig;

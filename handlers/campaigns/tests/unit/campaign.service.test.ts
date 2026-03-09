@@ -200,10 +200,10 @@ describe("CampaignService", () => {
       );
 
       expect(result.result).toBe(true);
-      expect(result.data?.affiliates[0].status).toBe(
+      expect(result.data?.campaign.affiliates[0].status).toBe(
         CampaignParticipantStatus.LIVE,
       );
-      expect(result.data?.affiliates[0].added_at).toBe("t0");
+      expect(result.data?.campaign.affiliates[0].added_at).toBe("t0");
     });
 
     it("deletes client from campaign", async () => {

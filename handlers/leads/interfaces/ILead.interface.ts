@@ -51,6 +51,14 @@ export interface ILead {
   affiliate_status_at_intake?: string;
   rejected?: boolean;
   rejection_reason?: string;
+  /** True when a QA pipeline gate plugin failed and halted processing */
+  pipeline_halted?: boolean;
+  /** Stage number where the pipeline was halted (1 = duplicate_check, 2+ = configurable plugins) */
+  halt_stage?: number;
+  /** Name of the plugin that triggered the halt */
+  halt_plugin?: string;
+  /** Affiliate-readable reason for the halt */
+  halt_reason?: string;
   created_by?: RequestActor;
   updated_at?: string;
   updated_by?: RequestActor;

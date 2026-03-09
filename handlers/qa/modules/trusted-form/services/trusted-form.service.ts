@@ -103,7 +103,22 @@ export class TrustedFormService {
         };
       }
 
-      // 4. Claim
+      // 4. Claim — only when caller explicitly sets claim: true
+      if (event.claim !== true) {
+        this.logger.info("TrustedForm validate-only (claim=false)", {
+          cert_id: cleanCertId,
+          outcome: validateOutcome,
+        });
+        return {
+          result: true,
+          data: {
+            success: true,
+            cert_id: cleanCertId,
+            outcome: validateOutcome ?? "success",
+            phone: cleanPhone,
+          },
+        };
+      }
       const claimResponse = await this.callClaim(
         cleanCertId,
         cleanPhone,
