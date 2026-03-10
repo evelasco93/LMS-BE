@@ -48,6 +48,7 @@ export interface IServicesStackConfig {
   qaDuplicateCheck: IServiceConfig;
   qaTrustedForm: IServiceConfig;
   qaIpqs: IServiceConfig;
+  qaCriteriaValidation: IServiceConfig;
 }
 
 /**

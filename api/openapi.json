@@ -1524,6 +1524,283 @@
         }
       }
     },
+    "/campaigns/{id}/criteria": {
+      "get": {
+        "summary": "List base criteria fields for a campaign",
+        "description": "Returns all criteria fields defined on the campaign in their configured order.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "responses": {
+          "200": {
+            "description": "Criteria fields list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaListResponse"
+                }
+              }
+            }
+          },
+          "404": { "description": "Campaign not found" }
+        }
+      },
+      "post": {
+        "summary": "Add a criteria field to a campaign",
+        "description": "Appends a new field to the campaign's base_criteria array. Required fields gate lead intake — leads missing a required field are saved as rejected.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCriteriaFieldRequest"
+              },
+              "examples": {
+                "textField": {
+                  "summary": "Required text field with state_mapping",
+                  "value": {
+                    "field_label": "State",
+                    "field_name": "state",
+                    "data_type": "Text",
+                    "required": true,
+                    "description": "US state — abbreviations are expanded to full names at intake",
+                    "state_mapping": "abbr_to_name"
+                  }
+                },
+                "listField": {
+                  "summary": "Optional list field with options",
+                  "value": {
+                    "field_label": "Lead Source",
+                    "field_name": "lead_source",
+                    "data_type": "List",
+                    "required": false,
+                    "options": [
+                      { "label": "Google", "value": "google" },
+                      { "label": "Facebook", "value": "facebook" }
+                    ]
+                  }
+                },
+                "valueMapping": {
+                  "summary": "Field with value mappings",
+                  "value": {
+                    "field_label": "Gender",
+                    "field_name": "gender",
+                    "data_type": "Text",
+                    "required": false,
+                    "value_mappings": [
+                      { "from": ["M", "male", "m"], "to": "Male" },
+                      { "from": ["F", "female", "f"], "to": "Female" }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Criteria field created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaFieldResponse"
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Campaign not found" }
+        }
+      }
+    },
+    "/campaigns/{id}/criteria/reorder": {
+      "put": {
+        "summary": "Reorder criteria fields",
+        "description": "Replaces the order of all criteria fields on a campaign. Supply the complete ordered list of field IDs — all existing field IDs must be present.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["field_ids"],
+                "properties": {
+                  "field_ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Complete ordered list of criteria field IDs (CF-prefixed). Must include every existing field ID.",
+                    "example": ["CF000002", "CF000001", "CF000003"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fields reordered — returns the updated criteria list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — field_ids does not match the campaign's current field set"
+          },
+          "404": { "description": "Campaign not found" }
+        }
+      }
+    },
+    "/campaigns/{id}/criteria/{fieldId}": {
+      "get": {
+        "summary": "Get a single criteria field",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/CriteriaFieldId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Criteria field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaFieldResponse"
+                }
+              }
+            }
+          },
+          "404": { "description": "Campaign or field not found" }
+        }
+      },
+      "put": {
+        "summary": "Update a criteria field",
+        "description": "Partially updates a criteria field. All fields are optional — only supplied fields are changed. To remove state_mapping, send `\"state_mapping\": null`.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/CriteriaFieldId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCriteriaFieldRequest"
+              },
+              "examples": {
+                "updateRequired": {
+                  "value": {
+                    "required": true,
+                    "description": "Two-letter state abbreviation"
+                  }
+                },
+                "disableStateMapping": {
+                  "value": { "state_mapping": null }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Criteria field updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaFieldResponse"
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Campaign or field not found" }
+        }
+      },
+      "delete": {
+        "summary": "Remove a criteria field from a campaign",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/CriteriaFieldId" }
+        ],
+        "responses": {
+          "200": { "description": "Field removed" },
+          "404": { "description": "Campaign or field not found" }
+        }
+      }
+    },
+    "/campaigns/{id}/criteria/{fieldId}/value-mappings": {
+      "put": {
+        "summary": "Set (replace) value mappings on a criteria field",
+        "description": "Fully replaces the value_mappings array on the specified field. Send an empty array to clear all mappings. Each mapping maps one or more raw input values (`from`) to a canonical stored value (`to`). Matching is case-insensitive.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/CriteriaFieldId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetValueMappingsRequest"
+              },
+              "examples": {
+                "stateMappings": {
+                  "value": {
+                    "value_mappings": [
+                      { "from": ["CA", "ca", "calif"], "to": "California" },
+                      { "from": ["TX", "tx", "tex"], "to": "Texas" },
+                      { "from": ["NY", "ny", "new york"], "to": "New York" }
+                    ]
+                  }
+                },
+                "genderMappings": {
+                  "value": {
+                    "value_mappings": [
+                      { "from": ["M", "male", "m"], "to": "Male" },
+                      { "from": ["F", "female", "f"], "to": "Female" }
+                    ]
+                  }
+                },
+                "clearMappings": {
+                  "summary": "Clear all value mappings",
+                  "value": { "value_mappings": [] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Value mappings replaced — returns the updated field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaFieldResponse"
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Campaign or field not found" }
+        }
+      }
+    },
     "/leads": {
       "post": {
         "summary": "Submit live lead (EXTERNAL API; campaign must be ACTIVE; affiliate campaign_status must be LIVE)",
@@ -3098,6 +3375,11 @@
             "type": "string",
             "description": "Test lead submission endpoint. Same as submit_url with /test appended. Leads posted here are stored with test=true and never forwarded to clients.",
             "example": "https://api.example.com/dev/v2/leads/test"
+          },
+          "base_criteria": {
+            "type": "array",
+            "description": "Ordered list of criteria fields that define the expected lead payload shape. Required fields gate intake — leads missing a required field are saved with rejected=true.",
+            "items": { "$ref": "#/components/schemas/BaseCriteriaField" }
           }
         }
       },
@@ -4457,9 +4739,237 @@
             "format": "date-time"
           }
         }
+      },
+      "BaseCriteriaDataType": {
+        "type": "string",
+        "enum": ["Text", "Number", "Boolean", "Date", "List"],
+        "description": "Supported data types for a base criteria field"
+      },
+      "IFieldOption": {
+        "type": "object",
+        "description": "A selectable option for a List-type criteria field",
+        "required": ["label", "value"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Human-readable label shown in the UI",
+            "example": "Google"
+          },
+          "value": {
+            "type": "string",
+            "description": "Machine-readable value stored on the lead payload",
+            "example": "google"
+          }
+        }
+      },
+      "IValueMapping": {
+        "type": "object",
+        "description": "Maps one or more raw input values to a single canonical stored value. Matching is case-insensitive.",
+        "required": ["from", "to"],
+        "properties": {
+          "from": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of raw input values that should be normalised to `to`",
+            "example": ["CA", "ca", "calif"]
+          },
+          "to": {
+            "type": "string",
+            "description": "Canonical value stored on the lead after normalisation",
+            "example": "California"
+          }
+        }
+      },
+      "BaseCriteriaField": {
+        "type": "object",
+        "description": "A single criteria field on a campaign. Required fields gate lead intake.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "CF-prefixed auto-generated identifier",
+            "example": "CF000001"
+          },
+          "order": {
+            "type": "integer",
+            "description": "Display / evaluation order (0-based). Use PUT /criteria/reorder to change order.",
+            "example": 0
+          },
+          "field_label": {
+            "type": "string",
+            "description": "Human-readable label shown in the UI",
+            "example": "State"
+          },
+          "field_name": {
+            "type": "string",
+            "description": "snake_case key used inside the lead payload",
+            "example": "state"
+          },
+          "data_type": {
+            "$ref": "#/components/schemas/BaseCriteriaDataType"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "When true, leads missing this field are rejected at intake",
+            "example": true
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional free-text description for operators / affiliates",
+            "example": "Two-letter US state abbreviation"
+          },
+          "options": {
+            "type": "array",
+            "description": "Selectable options — only used when data_type is List",
+            "items": { "$ref": "#/components/schemas/IFieldOption" }
+          },
+          "value_mappings": {
+            "type": "array",
+            "description": "Optional input-normalisation rules. Each entry maps a set of raw input values to a canonical stored value. Applied before required-field validation.",
+            "items": { "$ref": "#/components/schemas/IValueMapping" }
+          },
+          "state_mapping": {
+            "type": "string",
+            "enum": ["abbr_to_name", "name_to_abbr"],
+            "nullable": true,
+            "description": "Built-in US state normalisation preset. `abbr_to_name` converts \"CA\" → \"California\"; `name_to_abbr` converts \"California\" → \"CA\". Omit or set null to disable."
+          },
+          "client_override": {
+            "type": "boolean",
+            "description": "When true, the client can override this field's value after intake",
+            "example": false
+          },
+          "affiliate_override": {
+            "type": "boolean",
+            "description": "When true, the affiliate can provide an override value for this field",
+            "example": false
+          },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "created_by": { "$ref": "#/components/schemas/RequestActor" },
+          "updated_by": {
+            "allOf": [{ "$ref": "#/components/schemas/RequestActor" }],
+            "nullable": true
+          }
+        }
+      },
+      "AddCriteriaFieldRequest": {
+        "type": "object",
+        "description": "Request body for adding a criteria field to a campaign",
+        "required": ["field_label", "field_name", "data_type"],
+        "properties": {
+          "field_label": {
+            "type": "string",
+            "example": "State"
+          },
+          "field_name": {
+            "type": "string",
+            "description": "snake_case key. Must be unique within the campaign.",
+            "example": "state"
+          },
+          "data_type": {
+            "$ref": "#/components/schemas/BaseCriteriaDataType"
+          },
+          "required": {
+            "type": "boolean",
+            "default": false
+          },
+          "description": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IFieldOption" },
+            "description": "Required when data_type is List"
+          },
+          "value_mappings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IValueMapping" }
+          },
+          "state_mapping": {
+            "type": "string",
+            "enum": ["abbr_to_name", "name_to_abbr"],
+            "description": "Built-in US state normalisation preset. Omit to disable."
+          },
+          "client_override": {
+            "type": "boolean",
+            "default": false
+          },
+          "affiliate_override": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "UpdateCriteriaFieldRequest": {
+        "type": "object",
+        "description": "Request body for updating a criteria field. All fields are optional.",
+        "properties": {
+          "field_label": { "type": "string" },
+          "field_name": { "type": "string" },
+          "data_type": { "$ref": "#/components/schemas/BaseCriteriaDataType" },
+          "required": { "type": "boolean" },
+          "description": { "type": "string" },
+          "options": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IFieldOption" }
+          },
+          "value_mappings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IValueMapping" }
+          },
+          "state_mapping": {
+            "type": "string",
+            "enum": ["abbr_to_name", "name_to_abbr"],
+            "nullable": true,
+            "description": "Set to null to remove the existing state_mapping."
+          },
+          "client_override": { "type": "boolean" },
+          "affiliate_override": { "type": "boolean" }
+        }
+      },
+      "SetValueMappingsRequest": {
+        "type": "object",
+        "description": "Fully replaces the value_mappings array on a criteria field. Send an empty array to clear all mappings.",
+        "required": ["value_mappings"],
+        "properties": {
+          "value_mappings": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IValueMapping" },
+            "description": "New complete set of value mappings. Replaces any existing mappings.",
+            "example": [
+              { "from": ["CA", "ca", "calif"], "to": "California" },
+              { "from": ["TX", "tx", "tex"], "to": "Texas" }
+            ]
+          }
+        }
+      },
+      "BaseCriteriaListResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BaseCriteriaField" }
+          }
+        }
+      },
+      "BaseCriteriaFieldResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "data": { "$ref": "#/components/schemas/BaseCriteriaField" }
+        }
       }
     },
     "parameters": {
+      "CriteriaFieldId": {
+        "name": "fieldId",
+        "in": "path",
+        "required": true,
+        "description": "CF-prefixed criteria field ID",
+        "schema": { "type": "string" },
+        "example": "CF000001"
+      },
       "CredentialId": {
         "name": "id",
         "in": "path",

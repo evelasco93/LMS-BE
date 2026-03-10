@@ -1120,6 +1120,164 @@ run_campaigns_leads_tests() {
         print_result 1 "Live lead unexpectedly accepted while TEST (HTTP $LAST_HTTP_STATUS)"
     fi
 
+    # ── BASE CRITERIA ──────────────────────────────────────────────────────────
+    # Criteria fields define the expected lead payload structure.
+    # Required fields gate intake; value_mappings normalise raw input.
+    local CRITERIA_FIELD_ID CRITERIA_FIELD_ID_2
+
+    print_section "CRITERIA [C1]: POST /campaigns/$CAMPAIGN_ID/criteria — add required 'state' Text field"
+    local crit_state_resp
+    crit_state_resp=$(test_endpoint "POST" "/campaigns/$CAMPAIGN_ID/criteria" \
+        "Add required Text field: state (with state_mapping=abbr_to_name)" \
+        '{"field_label":"State","field_name":"state","data_type":"Text","required":true,"description":"US state abbreviation","state_mapping":"abbr_to_name"}')
+    CRITERIA_FIELD_ID=$(extract_json_value "$crit_state_resp" "data.id")
+    if [ -n "$CRITERIA_FIELD_ID" ]; then
+        print_result 0 "Criteria field created: $CRITERIA_FIELD_ID"
+    else
+        print_result 1 "Failed to create required criteria field 'state'"
+        print_json "$crit_state_resp"
+    fi
+
+    print_section "CRITERIA [C1]: POST /campaigns/$CAMPAIGN_ID/criteria — add optional 'city' Text field"
+    local crit_city_resp
+    crit_city_resp=$(test_endpoint "POST" "/campaigns/$CAMPAIGN_ID/criteria" \
+        "Add optional Text field: city" \
+        '{"field_label":"City","field_name":"city","data_type":"Text","required":false}')
+    CRITERIA_FIELD_ID_2=$(extract_json_value "$crit_city_resp" "data.id")
+    if [ -n "$CRITERIA_FIELD_ID_2" ]; then
+        print_result 0 "Optional criteria field created: $CRITERIA_FIELD_ID_2"
+    else
+        print_result 1 "Failed to create optional criteria field 'city'"
+        print_json "$crit_city_resp"
+    fi
+
+    print_section "CRITERIA [C1]: GET /campaigns/$CAMPAIGN_ID/criteria — list fields"
+    local crit_list_resp
+    crit_list_resp=$(test_endpoint "GET" "/campaigns/$CAMPAIGN_ID/criteria" \
+        "List criteria fields for campaign 1")
+    local crit_count
+    crit_count=$(echo "$crit_list_resp" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    items=d.get('data',[])
+    print(len(items))
+except: print(0)
+" 2>/dev/null)
+    if [ "${crit_count:-0}" -ge 2 ] 2>/dev/null; then
+        print_result 0 "Criteria list returned $crit_count field(s)"
+    else
+        print_result 1 "Expected ≥2 criteria fields, got: $crit_count"
+        print_json "$crit_list_resp"
+    fi
+
+    if [ -n "$CRITERIA_FIELD_ID" ]; then
+        print_section "CRITERIA [C1]: GET /campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID — get single field"
+        local crit_get_resp
+        crit_get_resp=$(test_endpoint "GET" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID" \
+            "Get single criteria field by id")
+        local crit_label
+        crit_label=$(extract_json_value "$crit_get_resp" "data.field_label")
+        if [ "$crit_label" = "State" ]; then
+            print_result 0 "Criteria field retrieved: field_label=$crit_label"
+        else
+            print_result 1 "Criteria field label mismatch (got: $crit_label expected: State)"
+            print_json "$crit_get_resp"
+        fi
+
+        print_section "CRITERIA [C1]: PUT /campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID — update description"
+        local crit_upd_resp
+        crit_upd_resp=$(test_endpoint "PUT" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID" \
+            "Update criteria field description" \
+            '{"description":"Two-letter state abbreviation (expanded to full name at intake)"}')
+        local crit_upd_desc
+        crit_upd_desc=$(extract_json_value "$crit_upd_resp" "data.description")
+        if echo "$crit_upd_desc" | grep -qi "abbreviation"; then
+            print_result 0 "Criteria field updated — description: $(echo "$crit_upd_desc" | head -c 70)"
+        else
+            print_result 1 "Criteria field update may have failed (description=$crit_upd_desc)"
+        fi
+
+        print_section "CRITERIA [C1]: PUT /campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID/value-mappings"
+        local crit_vm_resp
+        crit_vm_resp=$(test_endpoint "PUT" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID/value-mappings" \
+            "Set value mappings for state field (CA→California, TX→Texas, NY→New York)" \
+            '{"value_mappings":[{"from":["CA","ca","calif"],"to":"California"},{"from":["TX","tx","tex"],"to":"Texas"},{"from":["NY","ny","new york"],"to":"New York"}]}')
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Value mappings set (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Value mappings update failed (HTTP $LAST_HTTP_STATUS)"
+            print_json "$crit_vm_resp"
+        fi
+    fi
+
+    # ── Criteria-validation rejection: lead missing the required 'state' field ─
+    print_section "CRITERIA [C1]: Send lead WITHOUT required 'state' → must be rejected"
+    local crit_rej_resp
+    crit_rej_resp=$(test_endpoint "POST" "/v2/leads/test" \
+        "Test lead missing required 'state' field — expect rejected=true" \
+        "{\"campaign_id\":\"$CAMPAIGN_ID\",\"campaign_key\":\"$CAMPAIGN_KEY\",\"payload\":{\"email\":\"no-state@example.com\",\"phone\":\"+15553339999\",\"name\":\"Criteria Reject Test\"}}" \
+        "external")
+    local crit_rej_rejected crit_rej_reason
+    crit_rej_rejected=$(extract_json_value "$crit_rej_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+    crit_rej_reason=$(extract_json_value "$crit_rej_resp" "data.rejection_reason")
+    if [ "$crit_rej_rejected" = "true" ] && echo "$crit_rej_reason" | grep -qi "Missing required field"; then
+        print_result 0 "Lead correctly rejected — rejection_reason: $crit_rej_reason"
+    else
+        print_result 1 "Expected criteria-validation rejection (rejected=$crit_rej_rejected reason=$crit_rej_reason)"
+        print_json "$crit_rej_resp"
+    fi
+
+    print_section "CRITERIA [C1]: Send lead WITH required 'state' field → must be accepted"
+    local crit_acc_resp
+    crit_acc_resp=$(test_endpoint "POST" "/v2/leads/test" \
+        "Test lead WITH required 'state' field — expect accepted" \
+        "{\"campaign_id\":\"$CAMPAIGN_ID\",\"campaign_key\":\"$CAMPAIGN_KEY\",\"payload\":{\"email\":\"with-state@example.com\",\"phone\":\"+15553338888\",\"name\":\"Criteria Accept Test\",\"state\":\"CA\"}}" \
+        "external")
+    local crit_acc_rejected
+    crit_acc_rejected=$(extract_json_value "$crit_acc_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
+    if [ "$crit_acc_rejected" = "false" ] || [ -z "$crit_acc_rejected" ]; then
+        print_result 0 "Lead with required field accepted (rejected=$crit_acc_rejected)"
+    else
+        print_result 1 "Lead with required field unexpectedly rejected (rejected=$crit_acc_rejected)"
+        print_json "$crit_acc_resp"
+    fi
+
+    if [ -n "$CRITERIA_FIELD_ID" ] && [ -n "$CRITERIA_FIELD_ID_2" ]; then
+        print_section "CRITERIA [C1]: PUT /campaigns/$CAMPAIGN_ID/criteria/reorder — city first, state second"
+        local crit_reorder_resp
+        crit_reorder_resp=$(test_endpoint "PUT" "/campaigns/$CAMPAIGN_ID/criteria/reorder" \
+            "Reorder criteria fields (city first, state second)" \
+            "{\"field_ids\":[\"$CRITERIA_FIELD_ID_2\",\"$CRITERIA_FIELD_ID\"]}")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Criteria fields reordered (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Criteria reorder failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+    fi
+
+    if [ -n "$CRITERIA_FIELD_ID_2" ]; then
+        print_section "CRITERIA [C1]: DELETE /campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID_2 — remove optional city field"
+        test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID_2" \
+            "Delete optional 'city' criteria field" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Optional criteria field deleted (HTTP $LAST_HTTP_STATUS)"
+        else
+            print_result 1 "Criteria field delete failed (HTTP $LAST_HTTP_STATUS)"
+        fi
+    fi
+
+    # Clean up required field to avoid affecting downstream safeguard tests
+    if [ -n "$CRITERIA_FIELD_ID" ]; then
+        test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID" \
+            "Clean up required 'state' criteria field (so later lead tests are not rejected)" > /dev/null
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Required criteria field cleaned up"
+        else
+            print_result 1 "Failed to clean up required criteria field (HTTP $LAST_HTTP_STATUS)"
+        fi
+    fi
+
     # ── SAFEGUARD: Participant removal blocked when campaign has leads ─────────
     print_section "SAFEGUARD [C1]: Remove affiliate 1 while campaign has leads → must fail"
     test_endpoint "DELETE" "/campaigns/$CAMPAIGN_ID/affiliates/$AFFILIATE_ID" \

@@ -157,6 +157,89 @@ export interface ICampaignPlugins {
   duplicate_check: IDuplicateCheckPluginConfig;
   trusted_form: ITrustedFormPluginConfig;
   ipqs: IIpqsPluginConfig;
+  /** Audit trail of every plugin configuration change */
+  plugin_history?: IEditHistoryEntry[];
+}
+
+// ── Base Criteria ─────────────────────────────────────────────────────────────
+
+export type BaseCriteriaDataType =
+  | "List"
+  | "US State"
+  | "Text"
+  | "Number"
+  | "Date"
+  | "Boolean";
+
+export interface IFieldOption {
+  /** Internal value sent in the lead payload */
+  value: string;
+  /** Human-readable display label shown to the affiliate */
+  label: string;
+}
+
+/**
+ * Maps one or more incoming raw values (case-insensitive) to a single canonical value.
+ * E.g. { from: ["RAPE", "sexual assault"], to: "abuse" }
+ */
+export interface IValueMapping {
+  /** Raw incoming values that should be normalized (matched case-insensitively) */
+  from: string[];
+  /** The canonical value to store in the lead payload after normalization */
+  to: string;
+}
+
+export interface IBaseCriteriaField {
+  id: string;
+  /** 1-based display order of this field */
+  order: number;
+  /** Human-readable label shown in the UI (e.g. "Rideshare Abuse") */
+  field_label: string;
+  /** Snake-case key used in the lead payload (e.g. "rideshare_abuse") */
+  field_name: string;
+  data_type: BaseCriteriaDataType;
+  required: boolean;
+  description?: string;
+  /** Applicable only when data_type === "List" */
+  options?: IFieldOption[];
+  /**
+   * Value mappings applied to incoming lead payloads before storage.
+   * Each entry maps one or more raw values → a single canonical value (case-insensitive).
+   */
+  value_mappings?: IValueMapping[];
+  /**
+   * When set, automatically normalises state values on this field using the chosen direction:
+   * - `"abbr_to_name"` — "CA" → "California"
+   * - `"name_to_abbr"` — "California" → "CA"
+   * Uses built-in presets — no need to supply a manual `value_mappings` array.
+   */
+  state_mapping?: "abbr_to_name" | "name_to_abbr";
+  /** When true, a linked client may override this field's definition */
+  client_override: boolean;
+  /** When true, a linked affiliate may override this field's definition */
+  affiliate_override: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+}
+
+export type BaseCriteriaHistoryEvent =
+  | "field_added"
+  | "field_updated"
+  | "field_removed"
+  | "fields_reordered";
+
+export interface IBaseCriteriaHistoryEntry {
+  event: BaseCriteriaHistoryEvent;
+  /** ID of the field that was added/updated/removed (absent for reorder) */
+  field_id?: string;
+  /** Key of the field at time of event */
+  field_name?: string;
+  /** Per-field diffs recorded for field_updated events */
+  changes?: IEditHistoryEntry[];
+  changed_at: string;
+  changed_by?: RequestActor;
 }
 
 export interface ICampaign {
@@ -171,6 +254,10 @@ export interface ICampaign {
   status_history: ICampaignStatusChange[];
   ever_linked_participants?: boolean;
   has_received_leads?: boolean;
+  /** Base criteria fields that every lead must satisfy for this campaign */
+  base_criteria?: IBaseCriteriaField[];
+  /** Full audit trail of all base criteria changes */
+  base_criteria_history?: IBaseCriteriaHistoryEntry[];
   created_at: string;
   updated_at: string;
   created_by?: RequestActor;

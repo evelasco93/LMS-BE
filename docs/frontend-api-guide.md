@@ -336,10 +336,10 @@ Every lead submission runs through a configurable staged pipeline:
 
 **Gate vs. soft-gate:**
 
-| `gate` | On failure |
-| ------ | ---------- |
-| `true` (default) | Pipeline halts; later stages skipped; lead saved as `rejected=true`; `pipeline_halted=true` on the lead record. |
-| `false` | Failure is recorded (`trusted_form_result` / `ipqs_result`); pipeline continues to next stage; lead is **not** rejected by this plugin alone. |
+| `gate`           | On failure                                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true` (default) | Pipeline halts; later stages skipped; lead saved as `rejected=true`; `pipeline_halted=true` on the lead record.                               |
+| `false`          | Failure is recorded (`trusted_form_result` / `ipqs_result`); pipeline continues to next stage; lead is **not** rejected by this plugin alone. |
 
 > **Always saved:** regardless of pipeline outcome the lead is always written to DynamoDB. When rejected, `rejected=true` and `rejection_reason` are populated with a human-readable message.
 
@@ -417,7 +417,7 @@ All campaign endpoints (`GET /campaigns/{id}`, `GET /campaigns`, etc.) include `
   "id": "CMABCDEFG",
   "name": "Summer Campaign",
   "status": "ACTIVE",
-  "plugins": { "..." : "..." },
+  "plugins": { "...": "..." },
   "submit_url": "https://abc123.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
   "submit_url_test": "https://abc123.execute-api.us-east-1.amazonaws.com/dev/v2/leads/test"
 }
@@ -489,17 +489,180 @@ Rejection behavior:
 
 **Rejection message reference**
 
-| Trigger | `rejection_reason` value |
-| ------- | ------------------------ |
-| Affiliate disabled | _"This submission could not be accepted at this time. Please contact your account manager."_ |
-| Duplicate lead detected | _"A matching lead has already been received for this contact."_ |
+| Trigger                             | `rejection_reason` value                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Affiliate disabled                  | _"This submission could not be accepted at this time. Please contact your account manager."_                 |
+| Duplicate lead detected             | _"A matching lead has already been received for this contact."_                                              |
 | TrustedForm — invalid/unknown error | _"The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."_ |
-| TrustedForm — certificate expired | _"The form certificate has expired. Please have the contact complete the form again and resubmit."_ |
-| TrustedForm — already claimed | _"This form certificate has already been used. Please have the contact complete the form again."_ |
-| IPQS — phone failed | _"The phone number provided did not pass our quality checks."_ |
-| IPQS — email failed | _"The email address provided did not pass our quality checks."_ |
-| IPQS — phone + email failed | _"The phone number and email address provided did not pass our quality checks."_ |
-| IPQS — all three failed | _"The phone number, email address and IP address provided did not pass our quality checks."_ |
+| TrustedForm — certificate expired   | _"The form certificate has expired. Please have the contact complete the form again and resubmit."_          |
+| TrustedForm — already claimed       | _"This form certificate has already been used. Please have the contact complete the form again."_            |
+| IPQS — phone failed                 | _"The phone number provided did not pass our quality checks."_                                               |
+| IPQS — email failed                 | _"The email address provided did not pass our quality checks."_                                              |
+| IPQS — phone + email failed         | _"The phone number and email address provided did not pass our quality checks."_                             |
+| IPQS — all three failed             | _"The phone number, email address and IP address provided did not pass our quality checks."_                 |
+
+## Base Criteria
+
+Campaign base criteria define the expected lead payload structure. Each field has a `field_name` (snake_case key inside `payload`), a `data_type`, and a `required` flag. **Required fields gate lead intake** — a lead missing a required field is saved with `rejected=true` and a `rejection_reason` of `"Missing required field: {field_label}"` (or the plural form when multiple fields are absent). This check fires **before** duplicate-check and all QA plugins.
+
+Criteria are managed via the internal API (Bearer token required on all endpoints below).
+
+### Endpoints
+
+| Method   | Path                                                | Description                                             |
+| -------- | --------------------------------------------------- | ------------------------------------------------------- |
+| `GET`    | `/campaigns/{id}/criteria`                          | List all criteria fields (in order)                     |
+| `POST`   | `/campaigns/{id}/criteria`                          | Add a criteria field                                    |
+| `PUT`    | `/campaigns/{id}/criteria/reorder`                  | Reorder all criteria fields                             |
+| `GET`    | `/campaigns/{id}/criteria/{fieldId}`                | Get a single criteria field                             |
+| `PUT`    | `/campaigns/{id}/criteria/{fieldId}`                | Update a criteria field (partial — all fields optional) |
+| `DELETE` | `/campaigns/{id}/criteria/{fieldId}`                | Remove a criteria field                                 |
+| `PUT`    | `/campaigns/{id}/criteria/{fieldId}/value-mappings` | Set (replace) value mappings on a field                 |
+
+### Criteria field shape
+
+```json
+{
+  "id": "CF000001",
+  "order": 0,
+  "field_label": "State",
+  "field_name": "state",
+  "data_type": "Text",
+  "required": true,
+  "description": "Two-letter US state abbreviation",
+  "options": null,
+  "value_mappings": [
+    { "from": ["CA", "ca", "calif"], "to": "California" },
+    { "from": ["TX", "tx", "tex"], "to": "Texas" }
+  ],
+  "state_mapping": "abbr_to_name",
+  "client_override": false,
+  "affiliate_override": false,
+  "created_at": "2024-01-01T00:00:00.000Z",
+  "updated_at": "2024-01-01T00:00:00.000Z",
+  "created_by": { "username": "admin@example.com" },
+  "updated_by": null
+}
+```
+
+| Field                | Type                                                          | Description                                                               |
+| -------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `id`                 | string (CF-prefix)                                            | Auto-generated identifier                                                 |
+| `order`              | integer                                                       | Position in the criteria list (0-based). Change via the reorder endpoint. |
+| `field_label`        | string                                                        | Human-readable label used in rejection messages and UI                    |
+| `field_name`         | string (snake_case)                                           | Key inside `payload` — e.g. `"state"` maps to `payload.state`             |
+| `data_type`          | `"Text"` \| `"Number"` \| `"Boolean"` \| `"Date"` \| `"List"` | Determines which type validation is applied at intake                     |
+| `required`           | boolean                                                       | When `true`, leads without this field are rejected before QA plugins run  |
+| `description`        | string \| null                                                | Free-text description for operators or affiliate documentation            |
+| `options`            | array \| null                                                 | Selectable options — only meaningful when `data_type` is `"List"`         |
+| `value_mappings`     | array \| null                                                 | Input normalisation rules — see below                                     |
+| `state_mapping`      | `"abbr_to_name"` \| `"name_to_abbr"` \| `null`                | Built-in US state preset — see below                                      |
+| `client_override`    | boolean                                                       | Whether the client can override this field's value post-intake            |
+| `affiliate_override` | boolean                                                       | Whether the affiliate can supply an override value for this field         |
+
+### Adding a field
+
+**`POST /campaigns/{id}/criteria`**
+
+Required fields in the body: `field_label`, `field_name` (snake_case, unique within the campaign), `data_type`.
+
+```json
+{
+  "field_label": "State",
+  "field_name": "state",
+  "data_type": "Text",
+  "required": true,
+  "description": "US state — abbreviations are normalised to full names at intake",
+  "state_mapping": "abbr_to_name"
+}
+```
+
+For a `List` field, include an `options` array:
+
+```json
+{
+  "field_label": "Lead Source",
+  "field_name": "lead_source",
+  "data_type": "List",
+  "required": false,
+  "options": [
+    { "label": "Google", "value": "google" },
+    { "label": "Facebook", "value": "facebook" },
+    { "label": "Email", "value": "email" }
+  ]
+}
+```
+
+### Updating a field
+
+**`PUT /campaigns/{id}/criteria/{fieldId}`** — all fields are optional (partial update):
+
+```json
+{ "required": true, "description": "Two-letter state abbreviation" }
+```
+
+To remove a `state_mapping`, send `"state_mapping": null`.
+
+### Reordering fields
+
+**`PUT /campaigns/{id}/criteria/reorder`** — supply the complete ordered list of all field IDs:
+
+```json
+{ "field_ids": ["CF000002", "CF000001", "CF000003"] }
+```
+
+Every existing field ID must be present; extra or missing IDs return a 400.
+
+### Value mappings
+
+Value mappings normalise raw affiliate input to canonical stored values **before** required-field validation runs. Each mapping rule has a `from` array (raw values, matched case-insensitively) and a single `to` value (what gets stored on the lead).
+
+**`PUT /campaigns/{id}/criteria/{fieldId}/value-mappings`** — fully replaces the existing mappings:
+
+```json
+{
+  "value_mappings": [
+    { "from": ["M", "male", "m"], "to": "Male" },
+    { "from": ["F", "female", "f"], "to": "Female" }
+  ]
+}
+```
+
+Send `{ "value_mappings": [] }` to clear all mappings.
+
+> **Order matters:** if a raw value matches multiple `from` arrays, the first matching rule wins.
+
+### US state mapping preset (`state_mapping`)
+
+Instead of manually listing all 50 state mappings, set `state_mapping` on a Text field to activate a built-in preset:
+
+| Value            | Direction                | Example                 |
+| ---------------- | ------------------------ | ----------------------- |
+| `"abbr_to_name"` | Abbreviation → full name | `"CA"` → `"California"` |
+| `"name_to_abbr"` | Full name → abbreviation | `"California"` → `"CA"` |
+
+The preset covers all 50 US states. It runs in addition to any custom `value_mappings` defined on the field (custom mappings are applied first). To disable, update the field with `"state_mapping": null`.
+
+### Criteria-validation rejection messages
+
+When a lead is rejected by criteria validation the response includes:
+
+```json
+{
+  "id": "LDABC12345",
+  "rejected": true,
+  "rejection_reason": "Missing required field: State"
+}
+```
+
+| Scenario                         | `rejection_reason`                              |
+| -------------------------------- | ----------------------------------------------- |
+| One required field missing       | `"Missing required field: {field_label}"`       |
+| Multiple required fields missing | `"Missing required fields: {label1}, {label2}"` |
+
+Criteria validation **fails open** — if the criteria-validation lambda itself errors, the lead is allowed through (not rejected). This ensures a lambda cold-start or transient error never silently drops a lead.
+
+> **Intake order:** criteria-validation → duplicate-check → QA plugins (TrustedForm, IPQS). A criteria-validation rejection does not run the QA pipeline.
 
 ## UI hints
 

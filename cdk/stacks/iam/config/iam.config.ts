@@ -66,6 +66,13 @@ export const iamConfig: IIamStackConfig = {
       managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
       inlinePolicies: [],
     },
+    qaCriteriaValidation: {
+      name: nameBuilder.role("qa-criteria-validation-lambda"),
+      description: "Execution role for QA Criteria Validation Lambda",
+      servicePrincipal: "lambda.amazonaws.com",
+      managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
+      inlinePolicies: [],
+    },
     auth: {
       name: nameBuilder.role("auth-lambda"),
       description: "Execution role for Auth Lambda",

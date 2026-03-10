@@ -6,4 +6,5 @@ export enum EntityPrefix {
   CREDENTIAL = "CR",
   CREDENTIAL_SCHEMA = "CS",
   PLUGIN_SETTING = "PG",
+  CRITERIA_FIELD = "CF",
 }

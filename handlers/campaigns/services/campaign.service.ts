@@ -5,28 +5,37 @@ import { IdGenerator } from "@shared/generators/id.generator";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 import { CampaignConstants } from "../constants/campaign.constants";
 import {
+  BaseCriteriaDataType,
+  IBaseCriteriaField,
+  IBaseCriteriaHistoryEntry,
   ICampaign,
   ICampaignAffiliate,
   ICampaignClient,
   ICampaignPlugins,
   ICampaignStatusChange,
+  IEditHistoryEntry,
+  IFieldOption,
   IIpqsEmailCheckConfig,
   IIpqsIpCheckConfig,
   IIpqsPhoneCheckConfig,
   IIpqsPluginConfig,
   IParticipantHistoryEntry,
-  IEditHistoryEntry,
+  IValueMapping,
 } from "../interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
 import {
+  AddCriteriaFieldRequest,
   CreateCampaignRequest,
   LinkAffiliateRequest,
   LinkClientRequest,
   ListCampaignsQuery,
+  ReorderCriteriaRequest,
+  SetValueMappingsRequest,
+  UpdateCampaignPluginsRequest,
   UpdateCampaignRequest,
   UpdateCampaignStatusRequest,
-  UpdateCampaignPluginsRequest,
+  UpdateCriteriaFieldRequest,
   UpdateParticipantStatusRequest,
 } from "../types/campaign-request.types";
 import { ServiceResult } from "../types/common.types";
@@ -865,6 +874,51 @@ export class CampaignService {
       campaign.updated_at = new Date().toISOString();
       campaign.updated_by = actor;
 
+      // ── Record plugin history (diff current vs next) ──────────────────────
+      const now = new Date().toISOString();
+      const pluginHistoryEntries: IEditHistoryEntry[] = [];
+      const diffFields = <T extends object>(
+        prefix: string,
+        before: T,
+        after: T,
+        keys: (keyof T)[],
+      ) => {
+        for (const key of keys) {
+          if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+            pluginHistoryEntries.push({
+              field: `${prefix}.${String(key)}`,
+              previous_value: before[key],
+              new_value: after[key],
+              changed_at: now,
+              changed_by: actor,
+            });
+          }
+        }
+      };
+      diffFields(
+        "duplicate_check",
+        currentPlugins.duplicate_check,
+        nextPlugins.duplicate_check,
+        ["enabled", "criteria"],
+      );
+      diffFields(
+        "trusted_form",
+        currentPlugins.trusted_form,
+        nextPlugins.trusted_form,
+        ["enabled", "stage", "gate", "claim", "vendor"],
+      );
+      diffFields("ipqs", currentPlugins.ipqs, nextPlugins.ipqs, [
+        "enabled",
+        "stage",
+        "gate",
+      ]);
+      if (pluginHistoryEntries.length > 0) {
+        campaign.plugins.plugin_history = [
+          ...(campaign.plugins.plugin_history ?? []),
+          ...pluginHistoryEntries,
+        ];
+      }
+
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
@@ -1385,6 +1439,663 @@ export class CampaignService {
         error: error.message || "Failed to delete campaign",
       };
     }
+  }
+
+  // ── Base Criteria ─────────────────────────────────────────────────────────
+
+  private static readonly VALID_DATA_TYPES: BaseCriteriaDataType[] = [
+    "List",
+    "US State",
+    "Text",
+    "Number",
+    "Date",
+    "Boolean",
+  ];
+
+  async getCriteria(
+    campaignId: string,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      return { result: true, data: campaign.base_criteria ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to get campaign criteria", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get criteria",
+      };
+    }
+  }
+
+  async addCriteriaField(
+    campaignId: string,
+    request: AddCriteriaFieldRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const fieldLabel = (request.field_label ?? "").trim();
+      const fieldName = (request.field_name ?? "").trim();
+      if (!fieldLabel) {
+        return { result: false, error: "field_label is required" };
+      }
+      if (!fieldName) {
+        return { result: false, error: "field_name is required" };
+      }
+      if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
+        return {
+          result: false,
+          error:
+            "field_name must be snake_case (lowercase letters, digits, underscores; must start with a letter)",
+        };
+      }
+      if (!CampaignService.VALID_DATA_TYPES.includes(request.data_type)) {
+        return {
+          result: false,
+          error: `Invalid data_type. Must be one of: ${CampaignService.VALID_DATA_TYPES.join(", ")}`,
+        };
+      }
+
+      const existing = campaign.base_criteria ?? [];
+      if (existing.some((f) => f.field_name === fieldName)) {
+        return {
+          result: false,
+          error: `A criteria field with field_name "${fieldName}" already exists`,
+        };
+      }
+
+      if (request.options !== undefined) {
+        const optionsError = this.validateFieldOptions(request.options);
+        if (optionsError) return { result: false, error: optionsError };
+      }
+
+      if (request.value_mappings !== undefined) {
+        const mappingsError = this.validateValueMappings(
+          request.value_mappings,
+        );
+        if (mappingsError) return { result: false, error: mappingsError };
+      }
+
+      const now = new Date().toISOString();
+      const newField: IBaseCriteriaField = {
+        id: IdGenerator.generate("CF"),
+        order: existing.length + 1,
+        field_label: fieldLabel,
+        field_name: fieldName,
+        data_type: request.data_type,
+        required: request.required ?? false,
+        ...(request.description !== undefined
+          ? { description: request.description }
+          : {}),
+        ...(request.options !== undefined ? { options: request.options } : {}),
+        ...(request.value_mappings?.length
+          ? { value_mappings: request.value_mappings }
+          : {}),
+        ...(request.state_mapping
+          ? { state_mapping: request.state_mapping }
+          : {}),
+        client_override: request.client_override ?? false,
+        affiliate_override: request.affiliate_override ?? false,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      const updatedCriteria = [...existing, newField];
+      const historyEntry: IBaseCriteriaHistoryEntry = {
+        event: "field_added",
+        field_id: newField.id,
+        field_name: newField.field_name,
+        changed_at: now,
+        changed_by: actor,
+      };
+
+      campaign.base_criteria = updatedCriteria;
+      campaign.base_criteria_history = [
+        ...(campaign.base_criteria_history ?? []),
+        historyEntry,
+      ];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Criteria field added", {
+        campaignId,
+        fieldId: newField.id,
+        fieldName,
+      });
+
+      return { result: true, data: updatedCriteria };
+    } catch (error: any) {
+      this.logger.error("Failed to add criteria field", error);
+      return {
+        result: false,
+        error: error.message || "Failed to add criteria field",
+      };
+    }
+  }
+
+  async updateCriteriaField(
+    campaignId: string,
+    fieldId: string,
+    request: UpdateCriteriaFieldRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const existing = campaign.base_criteria ?? [];
+      const fieldIndex = existing.findIndex((f) => f.id === fieldId);
+      if (fieldIndex === -1) {
+        return { result: false, error: `Criteria field ${fieldId} not found` };
+      }
+
+      const field = { ...existing[fieldIndex] };
+      const changes: IEditHistoryEntry[] = [];
+      const now = new Date().toISOString();
+
+      if (
+        request.field_name !== undefined &&
+        request.field_name.trim() !== field.field_name
+      ) {
+        const newName = request.field_name.trim();
+        if (!/^[a-z][a-z0-9_]*$/.test(newName)) {
+          return {
+            result: false,
+            error:
+              "field_name must be snake_case (lowercase letters, digits, underscores; must start with a letter)",
+          };
+        }
+        if (
+          existing.some((f) => f.id !== fieldId && f.field_name === newName)
+        ) {
+          return {
+            result: false,
+            error: `A criteria field with field_name "${newName}" already exists`,
+          };
+        }
+        changes.push({
+          field: "field_name",
+          previous_value: field.field_name,
+          new_value: newName,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.field_name = newName;
+      }
+
+      if (
+        request.field_label !== undefined &&
+        request.field_label.trim() !== field.field_label
+      ) {
+        const newLabel = request.field_label.trim();
+        if (!newLabel) {
+          return { result: false, error: "field_label cannot be empty" };
+        }
+        changes.push({
+          field: "field_label",
+          previous_value: field.field_label,
+          new_value: newLabel,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.field_label = newLabel;
+      }
+
+      if (
+        request.data_type !== undefined &&
+        request.data_type !== field.data_type
+      ) {
+        if (!CampaignService.VALID_DATA_TYPES.includes(request.data_type)) {
+          return {
+            result: false,
+            error: `Invalid data_type. Must be one of: ${CampaignService.VALID_DATA_TYPES.join(", ")}`,
+          };
+        }
+        changes.push({
+          field: "data_type",
+          previous_value: field.data_type,
+          new_value: request.data_type,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.data_type = request.data_type;
+      }
+
+      if (
+        request.required !== undefined &&
+        request.required !== field.required
+      ) {
+        changes.push({
+          field: "required",
+          previous_value: field.required,
+          new_value: request.required,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.required = request.required;
+      }
+
+      if (request.description !== undefined) {
+        const newDesc = request.description || undefined;
+        if (newDesc !== field.description) {
+          changes.push({
+            field: "description",
+            previous_value: field.description,
+            new_value: newDesc,
+            changed_at: now,
+            changed_by: actor,
+          });
+          field.description = newDesc;
+        }
+      }
+
+      if (request.options !== undefined) {
+        const optionsError = this.validateFieldOptions(request.options);
+        if (optionsError) return { result: false, error: optionsError };
+        if (
+          JSON.stringify(request.options) !==
+          JSON.stringify(field.options ?? [])
+        ) {
+          changes.push({
+            field: "options",
+            previous_value: field.options,
+            new_value: request.options,
+            changed_at: now,
+            changed_by: actor,
+          });
+          field.options =
+            request.options.length > 0 ? request.options : undefined;
+        }
+      }
+
+      if (
+        request.client_override !== undefined &&
+        request.client_override !== field.client_override
+      ) {
+        changes.push({
+          field: "client_override",
+          previous_value: field.client_override,
+          new_value: request.client_override,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.client_override = request.client_override;
+      }
+
+      if (
+        request.affiliate_override !== undefined &&
+        request.affiliate_override !== field.affiliate_override
+      ) {
+        changes.push({
+          field: "affiliate_override",
+          previous_value: field.affiliate_override,
+          new_value: request.affiliate_override,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.affiliate_override = request.affiliate_override;
+      }
+
+      if (request.value_mappings !== undefined) {
+        const mappingsError = this.validateValueMappings(
+          request.value_mappings,
+        );
+        if (mappingsError) return { result: false, error: mappingsError };
+        if (
+          JSON.stringify(request.value_mappings) !==
+          JSON.stringify(field.value_mappings ?? [])
+        ) {
+          changes.push({
+            field: "value_mappings",
+            previous_value: field.value_mappings,
+            new_value: request.value_mappings,
+            changed_at: now,
+            changed_by: actor,
+          });
+          field.value_mappings =
+            request.value_mappings.length > 0
+              ? request.value_mappings
+              : undefined;
+        }
+      }
+
+      if (
+        request.state_mapping !== undefined &&
+        (request.state_mapping || null) !== (field.state_mapping ?? null)
+      ) {
+        changes.push({
+          field: "state_mapping",
+          previous_value: field.state_mapping ?? null,
+          new_value: request.state_mapping || null,
+          changed_at: now,
+          changed_by: actor,
+        });
+        field.state_mapping = request.state_mapping || undefined;
+      }
+
+      if (changes.length === 0) {
+        return { result: true, data: existing };
+      }
+
+      field.updated_at = now;
+      field.updated_by = actor;
+
+      const updatedCriteria = [...existing];
+      updatedCriteria[fieldIndex] = field;
+
+      const historyEntry: IBaseCriteriaHistoryEntry = {
+        event: "field_updated",
+        field_id: field.id,
+        field_name: field.field_name,
+        changes,
+        changed_at: now,
+        changed_by: actor,
+      };
+
+      campaign.base_criteria = updatedCriteria;
+      campaign.base_criteria_history = [
+        ...(campaign.base_criteria_history ?? []),
+        historyEntry,
+      ];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Criteria field updated", { campaignId, fieldId });
+
+      return { result: true, data: updatedCriteria };
+    } catch (error: any) {
+      this.logger.error("Failed to update criteria field", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update criteria field",
+      };
+    }
+  }
+
+  async deleteCriteriaField(
+    campaignId: string,
+    fieldId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const existing = campaign.base_criteria ?? [];
+      const fieldIndex = existing.findIndex((f) => f.id === fieldId);
+      if (fieldIndex === -1) {
+        return { result: false, error: `Criteria field ${fieldId} not found` };
+      }
+
+      const removed = existing[fieldIndex];
+      const updatedCriteria = existing
+        .filter((f) => f.id !== fieldId)
+        .map((f, i) => ({ ...f, order: i + 1 }));
+
+      const now = new Date().toISOString();
+      const historyEntry: IBaseCriteriaHistoryEntry = {
+        event: "field_removed",
+        field_id: removed.id,
+        field_name: removed.field_name,
+        changed_at: now,
+        changed_by: actor,
+      };
+
+      campaign.base_criteria = updatedCriteria;
+      campaign.base_criteria_history = [
+        ...(campaign.base_criteria_history ?? []),
+        historyEntry,
+      ];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Criteria field removed", { campaignId, fieldId });
+
+      return { result: true, data: updatedCriteria };
+    } catch (error: any) {
+      this.logger.error("Failed to delete criteria field", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete criteria field",
+      };
+    }
+  }
+
+  async reorderCriteriaFields(
+    campaignId: string,
+    request: ReorderCriteriaRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const existing = campaign.base_criteria ?? [];
+      const providedIds = request.order;
+
+      if (providedIds.length !== existing.length) {
+        return {
+          result: false,
+          error: `order array must contain exactly ${existing.length} field IDs`,
+        };
+      }
+
+      const existingIds = new Set(existing.map((f) => f.id));
+      const invalid = providedIds.filter((id) => !existingIds.has(id));
+      if (invalid.length > 0) {
+        return {
+          result: false,
+          error: `Unknown field IDs in order: ${invalid.join(", ")}`,
+        };
+      }
+
+      const fieldMap = new Map(existing.map((f) => [f.id, f]));
+      const updatedCriteria = providedIds.map((id, i) => ({
+        ...fieldMap.get(id)!,
+        order: i + 1,
+      }));
+
+      const now = new Date().toISOString();
+      const historyEntry: IBaseCriteriaHistoryEntry = {
+        event: "fields_reordered",
+        changed_at: now,
+        changed_by: actor,
+      };
+
+      campaign.base_criteria = updatedCriteria;
+      campaign.base_criteria_history = [
+        ...(campaign.base_criteria_history ?? []),
+        historyEntry,
+      ];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Criteria fields reordered", { campaignId });
+
+      return { result: true, data: updatedCriteria };
+    } catch (error: any) {
+      this.logger.error("Failed to reorder criteria fields", error);
+      return {
+        result: false,
+        error: error.message || "Failed to reorder criteria fields",
+      };
+    }
+  }
+
+  async getCriteriaHistory(
+    campaignId: string,
+  ): Promise<ServiceResult<IBaseCriteriaHistoryEntry[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      return { result: true, data: campaign.base_criteria_history ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to get criteria history", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get criteria history",
+      };
+    }
+  }
+
+  async setValueMappings(
+    campaignId: string,
+    fieldId: string,
+    request: SetValueMappingsRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const existing = campaign.base_criteria ?? [];
+      const fieldIndex = existing.findIndex((f) => f.id === fieldId);
+      if (fieldIndex === -1) {
+        return { result: false, error: `Criteria field ${fieldId} not found` };
+      }
+
+      const mappingsError = this.validateValueMappings(request.value_mappings);
+      if (mappingsError) return { result: false, error: mappingsError };
+
+      const field = { ...existing[fieldIndex] };
+      const now = new Date().toISOString();
+
+      const previousMappings = field.value_mappings;
+      field.value_mappings =
+        request.value_mappings.length > 0 ? request.value_mappings : undefined;
+      field.updated_at = now;
+      field.updated_by = actor;
+
+      const updatedCriteria = [...existing];
+      updatedCriteria[fieldIndex] = field;
+
+      const historyEntry: IBaseCriteriaHistoryEntry = {
+        event: "field_updated",
+        field_id: field.id,
+        field_name: field.field_name,
+        changes: [
+          {
+            field: "value_mappings",
+            previous_value: previousMappings,
+            new_value: field.value_mappings,
+            changed_at: now,
+            changed_by: actor,
+          },
+        ],
+        changed_at: now,
+        changed_by: actor,
+      };
+
+      campaign.base_criteria = updatedCriteria;
+      campaign.base_criteria_history = [
+        ...(campaign.base_criteria_history ?? []),
+        historyEntry,
+      ];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Value mappings updated", { campaignId, fieldId });
+
+      return { result: true, data: updatedCriteria };
+    } catch (error: any) {
+      this.logger.error("Failed to set value mappings", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set value mappings",
+      };
+    }
+  }
+
+  private validateFieldOptions(options: IFieldOption[]): string | null {
+    if (!Array.isArray(options)) {
+      return "options must be an array";
+    }
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      if (typeof opt !== "object" || opt === null) {
+        return `options[${i}] must be an object with value and label`;
+      }
+      if (
+        typeof (opt as IFieldOption).value !== "string" ||
+        !(opt as IFieldOption).value.trim()
+      ) {
+        return `options[${i}].value must be a non-empty string`;
+      }
+      if (
+        typeof (opt as IFieldOption).label !== "string" ||
+        !(opt as IFieldOption).label.trim()
+      ) {
+        return `options[${i}].label must be a non-empty string`;
+      }
+    }
+    return null;
+  }
+
+  private validateValueMappings(mappings: IValueMapping[]): string | null {
+    if (!Array.isArray(mappings)) {
+      return "value_mappings must be an array";
+    }
+    for (let i = 0; i < mappings.length; i++) {
+      const m = mappings[i];
+      if (typeof m !== "object" || m === null) {
+        return `value_mappings[${i}] must be an object with from and to`;
+      }
+      if (
+        !Array.isArray(m.from) ||
+        m.from.length === 0 ||
+        m.from.some((v: unknown) => typeof v !== "string" || !v.trim())
+      ) {
+        return `value_mappings[${i}].from must be a non-empty array of strings`;
+      }
+      if (typeof m.to !== "string" || !m.to.trim()) {
+        return `value_mappings[${i}].to must be a non-empty string`;
+      }
+    }
+    return null;
   }
 
   private normalizeParticipants(campaign: ICampaign): ICampaign {

@@ -18,6 +18,7 @@ import { RequestActor } from "@shared/utils/request-audit.util";
 import {
   REJECTION_DUPLICATE,
   REJECTION_AFFILIATE_DISABLED,
+  REJECTION_CRITERIA_VALIDATION,
 } from "@shared/constants/rejection-messages.constants";
 
 interface CampaignAffiliate {
@@ -26,11 +27,18 @@ interface CampaignAffiliate {
   status?: CampaignParticipantStatus;
 }
 
+interface BaseCriteriaField {
+  id: string;
+  field_name: string;
+  required: boolean;
+}
+
 interface CampaignRecord {
   id: string;
   status: CampaignStatus;
   affiliates: CampaignAffiliate[];
   has_received_leads?: boolean;
+  base_criteria?: BaseCriteriaField[];
   plugins?: {
     duplicate_check?: {
       enabled?: boolean;
@@ -44,6 +52,12 @@ interface CampaignRecord {
       enabled?: boolean;
     };
   };
+}
+
+interface CriteriaValidationResponse {
+  valid: boolean;
+  missing_fields?: string[];
+  rejection_reason?: string;
 }
 
 interface QaOrchestratorResult {
@@ -188,6 +202,52 @@ export class LeadsService {
       }
 
       const now = new Date().toISOString();
+
+      // ── Stage 0: Criteria validation (required fields) — runs before duplicate check ─
+      const criteriaValidationResult = await this.runCriteriaValidation(
+        campaignId,
+        leadPayload,
+      );
+      const rejectedByCriteria = !criteriaValidationResult.valid;
+
+      if (rejectedByCriteria) {
+        // Early-reject: save the lead immediately with rejection details and return
+        const rejectionReason =
+          criteriaValidationResult.rejection_reason ??
+          REJECTION_CRITERIA_VALIDATION;
+        const lead: ILead = {
+          id: IdGenerator.generateLeadId(),
+          campaign_id: campaignId,
+          campaign_key: campaignKey,
+          test: isTest,
+          payload: leadPayload,
+          duplicate: false,
+          duplicate_matches: { lead_ids: [] },
+          created_at: now,
+          affiliate_status_at_intake: affiliateStatus,
+          rejected: true,
+          rejection_reason: rejectionReason,
+          created_by: actor,
+          updated_at: now,
+          updated_by: actor,
+          is_deleted: false,
+          active: true,
+        };
+
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.LEADS_TABLE_NAME,
+          Item: lead,
+        });
+
+        this.logger.info("Lead rejected by criteria validation", {
+          leadId: lead.id,
+          campaignId,
+          missingFields: criteriaValidationResult.missing_fields,
+        });
+
+        return { result: true, data: lead };
+      }
+
       const qaResult = await this.runQaPlugins(campaign, {
         campaign_id: campaignId,
         campaign_key: campaignKey,
@@ -450,6 +510,18 @@ export class LeadsService {
         ...existing,
         ...(sanitized.payload ? { payload: newPayload } : {}),
         edit_history: [...(existing.edit_history ?? []), ...newHistoryEntries],
+        ...(newHistoryEntries.length > 0
+          ? {
+              edited_fields: Array.from(
+                new Set([
+                  ...(existing.edited_fields ?? []),
+                  ...newHistoryEntries.map((e) =>
+                    e.field.replace(/^payload\./, ""),
+                  ),
+                ]),
+              ),
+            }
+          : {}),
         updated_at: now,
         updated_by: actor,
       };
@@ -556,6 +628,32 @@ export class LeadsService {
     });
 
     return campaign ?? null;
+  }
+
+  private async runCriteriaValidation(
+    campaignId: string,
+    payload: Record<string, unknown>,
+  ): Promise<CriteriaValidationResponse> {
+    if (!this.constants.CRITERIA_VALIDATION_LAMBDA_NAME) {
+      return { valid: true };
+    }
+
+    try {
+      return await this.lambdaInvokeUtil.invokeJson<CriteriaValidationResponse>(
+        {
+          functionName: this.constants.CRITERIA_VALIDATION_LAMBDA_NAME,
+          payload: { campaign_id: campaignId, payload },
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        "Failed to execute criteria validation — allowing lead through",
+        error,
+      );
+      // Fail open: if the validation lambda errors we don't want to silently
+      // drop leads; the issue should be investigated via logs.
+      return { valid: true };
+    }
   }
 
   private async runQaPlugins(

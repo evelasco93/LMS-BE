@@ -35,12 +35,28 @@ export interface IIpqsResult {
   error?: string;
 }
 
+/**
+ * Tracks a single field whose value was normalised via a campaign value_mapping.
+ * Stored alongside the lead so the UI can highlight mapped fields.
+ */
+export interface IMappedFieldEntry {
+  /** The payload key that was mapped (e.g. "assault_type") */
+  field: string;
+  /** The raw value received from the affiliate */
+  original_value: unknown;
+  /** The canonical value stored in payload after mapping */
+  mapped_value: string;
+  mapped_at: string;
+}
+
 export interface ILead {
   id: string;
   campaign_id: string;
   campaign_key: string;
   test: boolean;
   payload?: Record<string, unknown>;
+  /** Fields that were normalised by a value_mapping rule at intake time */
+  mapped_fields?: IMappedFieldEntry[];
   duplicate?: boolean;
   duplicate_matches?: {
     lead_ids: string[];
@@ -63,6 +79,11 @@ export interface ILead {
   updated_at?: string;
   updated_by?: RequestActor;
   edit_history?: IEditHistoryEntry[];
+  /**
+   * Set of payload field keys that were manually edited after intake.
+   * Used by the frontend to visually distinguish edited fields.
+   */
+  edited_fields?: string[];
   is_deleted?: boolean;
   active?: boolean;
   deleted_at?: string;

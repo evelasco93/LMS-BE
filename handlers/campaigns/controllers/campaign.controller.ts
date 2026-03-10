@@ -22,6 +22,10 @@ import {
   UpdateCampaignStatusRequest,
   UpdateCampaignPluginsRequest,
   UpdateParticipantStatusRequest,
+  AddCriteriaFieldRequest,
+  UpdateCriteriaFieldRequest,
+  ReorderCriteriaRequest,
+  SetValueMappingsRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -427,6 +431,191 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Campaign plugins updated successfully",
+      data: result.data,
+    };
+  }
+
+  // ── Base Criteria ─────────────────────────────────────────────────────────
+
+  @GET("/:id/criteria")
+  @produces("application/json")
+  async getCriteria(@pathParam("id") id: string): Promise<RestApiResponse> {
+    const result = await this.campaignService.getCriteria(id);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to get criteria",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria retrieved successfully",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/criteria")
+  @produces("application/json")
+  async addCriteriaField(
+    @pathParam("id") id: string,
+    @body payload: AddCriteriaFieldRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.addCriteriaField(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to add criteria field",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria field added successfully",
+      data: result.data,
+    };
+  }
+
+  /** Must be declared before /:id/criteria/:fieldId to avoid route shadowing */
+  @PUT("/:id/criteria/reorder")
+  @produces("application/json")
+  async reorderCriteriaFields(
+    @pathParam("id") id: string,
+    @body payload: ReorderCriteriaRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.reorderCriteriaFields(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to reorder criteria fields",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria fields reordered successfully",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/criteria/:fieldId")
+  @produces("application/json")
+  async updateCriteriaField(
+    @pathParam("id") id: string,
+    @pathParam("fieldId") fieldId: string,
+    @body payload: UpdateCriteriaFieldRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateCriteriaField(
+      id,
+      fieldId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update criteria field",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria field updated successfully",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/:id/criteria/:fieldId")
+  @produces("application/json")
+  async deleteCriteriaField(
+    @pathParam("id") id: string,
+    @pathParam("fieldId") fieldId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteCriteriaField(
+      id,
+      fieldId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete criteria field",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria field deleted successfully",
+      data: result.data,
+    };
+  }
+
+  @GET("/:id/criteria/history")
+  @produces("application/json")
+  async getCriteriaHistory(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getCriteriaHistory(id);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to get criteria history",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria history retrieved successfully",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/criteria/:fieldId/mappings")
+  @produces("application/json")
+  async setValueMappings(
+    @pathParam("id") id: string,
+    @pathParam("fieldId") fieldId: string,
+    @body payload: SetValueMappingsRequest,
+  ): Promise<RestApiResponse> {
+    const actor = this.getActor();
+    const result = await this.campaignService.setValueMappings(
+      id,
+      fieldId,
+      payload,
+      actor,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to set value mappings",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Value mappings updated successfully",
       data: result.data,
     };
   }

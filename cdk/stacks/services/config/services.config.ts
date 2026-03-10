@@ -74,6 +74,9 @@ export const servicesConfig: IServicesStackConfig = {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         QA_ORCHESTRATOR_LAMBDA_NAME: nameBuilder.lambda("qa-orchestrator"),
+        CRITERIA_VALIDATION_LAMBDA_NAME: nameBuilder.lambda(
+          "qa-criteria-validation",
+        ),
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("leads-lambda"),
@@ -185,5 +188,24 @@ export const servicesConfig: IServicesStackConfig = {
     },
     tableName: nameBuilder.table("tenant-settings"),
     tableArn: arnBuilder.dynamoTable(nameBuilder.table("tenant-settings")),
+  },
+  qaCriteriaValidation: {
+    lambda: {
+      functionName: nameBuilder.lambda("qa-criteria-validation"),
+      entry: path.join(
+        __dirname,
+        "../../../../handlers/qa/modules/criteria-validation/main.ts",
+      ),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("qa-criteria-validation-lambda"),
+    },
+    tableName: nameBuilder.table("campaigns"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("campaigns")),
   },
 };

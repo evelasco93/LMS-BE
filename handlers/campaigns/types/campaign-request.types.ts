@@ -1,10 +1,13 @@
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
 import {
+  BaseCriteriaDataType,
   DuplicateCheckCriteriaField,
   IDuplicateCheckPluginConfig,
+  IFieldOption,
   IIpqsPluginConfig,
   ITrustedFormPluginConfig,
+  IValueMapping,
 } from "../interfaces/ICampaign.interface";
 
 export type CreateCampaignRequest = {
@@ -44,4 +47,42 @@ export type ListCampaignsQuery = {
   limit?: number;
   lastEvaluatedKey?: string;
   includeDeleted?: boolean;
+};
+
+export type AddCriteriaFieldRequest = {
+  field_label: string;
+  field_name: string;
+  data_type: BaseCriteriaDataType;
+  required?: boolean;
+  description?: string;
+  options?: IFieldOption[];
+  value_mappings?: IValueMapping[];
+  /** Built-in state normalisation direction: "abbr_to_name" (CA→California) or "name_to_abbr" (California→CA). Omit to disable. */
+  state_mapping?: "abbr_to_name" | "name_to_abbr";
+  client_override?: boolean;
+  affiliate_override?: boolean;
+};
+
+export type UpdateCriteriaFieldRequest = {
+  field_label?: string;
+  field_name?: string;
+  data_type?: BaseCriteriaDataType;
+  required?: boolean;
+  description?: string;
+  options?: IFieldOption[];
+  value_mappings?: IValueMapping[];
+  /** Built-in state normalisation direction: "abbr_to_name" (CA→California) or "name_to_abbr" (California→CA). Omit or pass null to disable. */
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+  client_override?: boolean;
+  affiliate_override?: boolean;
+};
+
+export type SetValueMappingsRequest = {
+  /** Full replacement list of value mappings for a field. Send an empty array to clear all mappings. */
+  value_mappings: IValueMapping[];
+};
+
+export type ReorderCriteriaRequest = {
+  /** Array of field IDs in the desired display order (1-based position = index+1) */
+  order: string[];
 };

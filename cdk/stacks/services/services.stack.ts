@@ -10,6 +10,7 @@ import { QaOrchestratorServiceStack } from "./qa-orchestrator-service.stack";
 import { QaDuplicateCheckServiceStack } from "./qa-duplicate-check-service.stack";
 import { QaTrustedFormServiceStack } from "./qa-trusted-form-service.stack";
 import { QaIpqsServiceStack } from "./qa-ipqs-service.stack";
+import { QaCriteriaValidationServiceStack } from "./qa-criteria-validation-service.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 
 export class ServicesStack extends Stack {
@@ -22,6 +23,7 @@ export class ServicesStack extends Stack {
   public readonly qaDuplicateCheckLambda: IFunction;
   public readonly qaTrustedFormLambda: IFunction;
   public readonly qaIpqsLambda: IFunction;
+  public readonly qaCriteriaValidationLambda: IFunction;
 
   constructor(scope: Construct, id: string, props: IServicesStackProps) {
     super(scope, id, props);
@@ -105,6 +107,18 @@ export class ServicesStack extends Stack {
     );
     this.qaIpqsLambda = qaIpqsServiceStack.lambda;
 
+    const qaCriteriaValidationServiceStack =
+      new QaCriteriaValidationServiceStack(
+        this,
+        `${config.appPrefix}-QaCriteriaValidationService`,
+        {
+          lambdaConfig: servicesConfig.qaCriteriaValidation.lambda,
+          roleName: servicesConfig.qaCriteriaValidation.lambda.roleName,
+          logicalIdPrefix: config.appPrefix,
+        },
+      );
+    this.qaCriteriaValidationLambda = qaCriteriaValidationServiceStack.lambda;
+
     const clientsServiceStack = new ClientsServiceStack(
       this,
       `${config.appPrefix}-ClientsService`,
@@ -179,6 +193,12 @@ export class ServicesStack extends Stack {
       value: this.qaIpqsLambda.functionArn,
       description: "QA IPQS Lambda Function ARN",
       exportName: `${config.appPrefix}-qa-ipqs-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-QaCriteriaValidationLambdaArn`, {
+      value: this.qaCriteriaValidationLambda.functionArn,
+      description: "QA Criteria Validation Lambda Function ARN",
+      exportName: `${config.appPrefix}-qa-criteria-validation-lambda-arn`,
     });
 
     if (config.tags) {

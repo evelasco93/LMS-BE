@@ -248,6 +248,26 @@ iamStack.qaIpqsLambdaRole.addToPolicy(
   }),
 );
 
+// ── QA Criteria Validation ────────────────────────────────────────────────────
+iamStack.qaCriteriaValidationLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["dynamodb:GetItem"],
+    resources: [dataStack.campaignsTable.tableArn],
+  }),
+);
+
+// ── Leads: invoke criteria-validation before orchestrator ─────────────────────
+iamStack.leadsLambdaRole.addToPolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: ["lambda:InvokeFunction"],
+    resources: [
+      arnBuilder.lambda(nameBuilder.lambda("qa-criteria-validation")),
+    ],
+  }),
+);
+
 // 3. Services Stack
 const servicesStack = new ServicesStack(
   app,

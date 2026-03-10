@@ -45,6 +45,15 @@ export const REJECTION_IPQS_EMAIL = "email address";
  */
 export const REJECTION_IPQS_IP = "IP address";
 
+/**
+ * Fallback rejection message when required base-criteria fields are missing.
+ * In practice the criteria-validation lambda returns a field-specific message
+ * (e.g. "Missing required fields: First Name, Phone") — this constant is used
+ * only if that detailed message is unavailable.
+ */
+export const REJECTION_CRITERIA_VALIDATION =
+  "One or more required fields are missing from this submission.";
+
 // ── Acceptance messages ───────────────────────────────────────────────────────
 
 /** Returned to affiliates when a live lead is accepted. */

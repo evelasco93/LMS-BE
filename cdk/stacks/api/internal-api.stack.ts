@@ -603,6 +603,64 @@ export class InternalApiStack extends NestedStack {
           },
     );
 
+    // ── Base Criteria routes ──────────────────────────────────────────────────
+    const campaignCriteriaResource = campaignResource.addResource("criteria");
+    addProtectedMethod(
+      campaignCriteriaResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      campaignCriteriaResource,
+      "POST",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    // declare static sub-resources BEFORE {fieldId} to avoid route shadowing
+    const campaignCriteriaReorderResource =
+      campaignCriteriaResource.addResource("reorder");
+    addProtectedMethod(
+      campaignCriteriaReorderResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    const campaignCriteriaHistoryResource =
+      campaignCriteriaResource.addResource("history");
+    addProtectedMethod(
+      campaignCriteriaHistoryResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+
+    const campaignCriteriaFieldResource =
+      campaignCriteriaResource.addResource("{fieldId}");
+    addProtectedMethod(
+      campaignCriteriaFieldResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      campaignCriteriaFieldResource,
+      "DELETE",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    const campaignCriteriaMappingsResource =
+      campaignCriteriaFieldResource.addResource("mappings");
+    addProtectedMethod(
+      campaignCriteriaMappingsResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     // ============================================================================
     // LEADS INTEGRATION
     // ============================================================================
