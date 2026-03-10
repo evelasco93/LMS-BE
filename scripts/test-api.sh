@@ -1212,9 +1212,9 @@ except: print(0)
             print_result 1 "Criteria field update may have failed (description=$crit_upd_desc)"
         fi
 
-        print_section "CRITERIA [C1]: PUT /campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID/value-mappings"
+        print_section "CRITERIA [C1]: PUT /campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID/mappings"
         local crit_vm_resp
-        crit_vm_resp=$(test_endpoint "PUT" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID/value-mappings" \
+        crit_vm_resp=$(test_endpoint "PUT" "/campaigns/$CAMPAIGN_ID/criteria/$CRITERIA_FIELD_ID/mappings" \
             "Set value mappings for state field (CA→California, TX→Texas, NY→New York)" \
             '{"value_mappings":[{"from":["CA","ca","calif"],"to":"California"},{"from":["TX","tx","tex"],"to":"Texas"},{"from":["NY","ny","new york"],"to":"New York"}]}')
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then

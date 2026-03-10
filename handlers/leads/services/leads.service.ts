@@ -12,7 +12,11 @@ import {
   UpdateLeadRequest,
 } from "../types/lead-request.types";
 import { ServiceResult } from "../types/common.types";
-import { ILead, IEditHistoryEntry } from "../interfaces/ILead.interface";
+import {
+  ILead,
+  IEditHistoryEntry,
+  IMappedFieldEntry,
+} from "../interfaces/ILead.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
 import {
@@ -20,6 +24,7 @@ import {
   REJECTION_AFFILIATE_DISABLED,
   REJECTION_CRITERIA_VALIDATION,
 } from "@shared/constants/rejection-messages.constants";
+import { resolveStateMappings } from "@shared/constants";
 
 interface CampaignAffiliate {
   affiliate_id: string;
@@ -31,6 +36,15 @@ interface BaseCriteriaField {
   id: string;
   field_name: string;
   required: boolean;
+  value_mappings?: { from: string[]; to: string }[];
+  state_mapping?: "abbr_to_name" | "name_to_abbr";
+}
+
+interface ValueMappingResult {
+  payload: Record<string, unknown>;
+  mappedFields: IMappedFieldEntry[];
+  editHistory: IEditHistoryEntry[];
+  editedFields: string[];
 }
 
 interface CampaignRecord {
@@ -203,10 +217,18 @@ export class LeadsService {
 
       const now = new Date().toISOString();
 
+      // ── Stage 0a: Apply value mappings so canonical values flow into all downstream checks ─
+      const {
+        payload: mappedPayload,
+        mappedFields,
+        editHistory: valueMapEditHistory,
+        editedFields: valueMapEditedFields,
+      } = this.applyValueMappings(campaign.base_criteria, leadPayload, now);
+
       // ── Stage 0: Criteria validation (required fields) — runs before duplicate check ─
       const criteriaValidationResult = await this.runCriteriaValidation(
         campaignId,
-        leadPayload,
+        mappedPayload,
       );
       const rejectedByCriteria = !criteriaValidationResult.valid;
 
@@ -220,7 +242,14 @@ export class LeadsService {
           campaign_id: campaignId,
           campaign_key: campaignKey,
           test: isTest,
-          payload: leadPayload,
+          payload: mappedPayload,
+          ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
+          ...(valueMapEditHistory.length > 0
+            ? {
+                edit_history: valueMapEditHistory,
+                edited_fields: valueMapEditedFields,
+              }
+            : {}),
           duplicate: false,
           duplicate_matches: { lead_ids: [] },
           created_at: now,
@@ -251,7 +280,7 @@ export class LeadsService {
       const qaResult = await this.runQaPlugins(campaign, {
         campaign_id: campaignId,
         campaign_key: campaignKey,
-        payload: leadPayload,
+        payload: mappedPayload,
       });
 
       const duplicateMatchIds = Array.isArray(
@@ -293,7 +322,14 @@ export class LeadsService {
         campaign_id: campaignId,
         campaign_key: campaignKey,
         test: isTest,
-        payload: leadPayload,
+        payload: mappedPayload,
+        ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
+        ...(valueMapEditHistory.length > 0
+          ? {
+              edit_history: valueMapEditHistory,
+              edited_fields: valueMapEditedFields,
+            }
+          : {}),
         duplicate: duplicateDetected,
         duplicate_matches: {
           lead_ids: duplicateMatchIds,
@@ -590,6 +626,74 @@ export class LeadsService {
         error: error.message || "Failed to delete lead",
       };
     }
+  }
+
+  /**
+   * Applies `value_mappings` and `state_mapping` presets from the campaign's
+   * base_criteria to the incoming lead payload.  Returns the (possibly mutated)
+   * payload plus audit records for every field that was changed.
+   *
+   * Custom `value_mappings` are evaluated first; the `state_mapping` preset
+   * runs second if the custom mappings didn't already fire for that field.
+   * Matching is case-insensitive.
+   */
+  private applyValueMappings(
+    baseCriteria: BaseCriteriaField[] | undefined,
+    payload: Record<string, unknown>,
+    now: string,
+  ): ValueMappingResult {
+    if (!baseCriteria?.length) {
+      return { payload, mappedFields: [], editHistory: [], editedFields: [] };
+    }
+
+    const SYSTEM_ACTOR: RequestActor = {
+      username: "system:value_mapper",
+      full_name: "Value Mapper",
+    };
+
+    const mappedPayload = { ...payload };
+    const mappedFields: IMappedFieldEntry[] = [];
+    const editHistory: IEditHistoryEntry[] = [];
+    const editedFields: string[] = [];
+
+    for (const field of baseCriteria) {
+      const rawValue = mappedPayload[field.field_name];
+      if (typeof rawValue !== "string") continue;
+
+      // Custom value_mappings first, then state preset
+      const stateMappings = resolveStateMappings(field.state_mapping);
+      const allMappings = [...(field.value_mappings ?? []), ...stateMappings];
+      if (!allMappings.length) continue;
+
+      const normalized = rawValue.toLowerCase();
+      let mappedTo: string | undefined;
+      for (const mapping of allMappings) {
+        if (mapping.from.some((f) => f.toLowerCase() === normalized)) {
+          mappedTo = mapping.to;
+          break;
+        }
+      }
+
+      if (mappedTo === undefined || mappedTo === rawValue) continue;
+
+      mappedPayload[field.field_name] = mappedTo;
+      mappedFields.push({
+        field: field.field_name,
+        original_value: rawValue,
+        mapped_value: mappedTo,
+        mapped_at: now,
+      });
+      editHistory.push({
+        field: `payload.${field.field_name}`,
+        previous_value: rawValue,
+        new_value: mappedTo,
+        changed_at: now,
+        changed_by: SYSTEM_ACTOR,
+      });
+      editedFields.push(field.field_name);
+    }
+
+    return { payload: mappedPayload, mappedFields, editHistory, editedFields };
   }
 
   private validateStatus(

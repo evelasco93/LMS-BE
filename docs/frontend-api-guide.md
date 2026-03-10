@@ -509,15 +509,15 @@ Criteria are managed via the internal API (Bearer token required on all endpoint
 
 ### Endpoints
 
-| Method   | Path                                                | Description                                             |
-| -------- | --------------------------------------------------- | ------------------------------------------------------- |
-| `GET`    | `/campaigns/{id}/criteria`                          | List all criteria fields (in order)                     |
-| `POST`   | `/campaigns/{id}/criteria`                          | Add a criteria field                                    |
-| `PUT`    | `/campaigns/{id}/criteria/reorder`                  | Reorder all criteria fields                             |
-| `GET`    | `/campaigns/{id}/criteria/{fieldId}`                | Get a single criteria field                             |
-| `PUT`    | `/campaigns/{id}/criteria/{fieldId}`                | Update a criteria field (partial — all fields optional) |
-| `DELETE` | `/campaigns/{id}/criteria/{fieldId}`                | Remove a criteria field                                 |
-| `PUT`    | `/campaigns/{id}/criteria/{fieldId}/value-mappings` | Set (replace) value mappings on a field                 |
+| Method   | Path                                          | Description                                             |
+| -------- | --------------------------------------------- | ------------------------------------------------------- |
+| `GET`    | `/campaigns/{id}/criteria`                    | List all criteria fields (in order)                     |
+| `POST`   | `/campaigns/{id}/criteria`                    | Add a criteria field                                    |
+| `PUT`    | `/campaigns/{id}/criteria/reorder`            | Reorder all criteria fields                             |
+| `GET`    | `/campaigns/{id}/criteria/{fieldId}`          | Get a single criteria field                             |
+| `PUT`    | `/campaigns/{id}/criteria/{fieldId}`          | Update a criteria field (partial — all fields optional) |
+| `DELETE` | `/campaigns/{id}/criteria/{fieldId}`          | Remove a criteria field                                 |
+| `PUT`    | `/campaigns/{id}/criteria/{fieldId}/mappings` | Set (replace) value mappings on a field                 |
 
 ### Criteria field shape
 
@@ -617,7 +617,7 @@ Every existing field ID must be present; extra or missing IDs return a 400.
 
 Value mappings normalise raw affiliate input to canonical stored values **before** required-field validation runs. Each mapping rule has a `from` array (raw values, matched case-insensitively) and a single `to` value (what gets stored on the lead).
 
-**`PUT /campaigns/{id}/criteria/{fieldId}/value-mappings`** — fully replaces the existing mappings:
+**`PUT /campaigns/{id}/criteria/{fieldId}/mappings`** — fully replaces the existing mappings:
 
 ```json
 {

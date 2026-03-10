@@ -1742,7 +1742,7 @@
         }
       }
     },
-    "/campaigns/{id}/criteria/{fieldId}/value-mappings": {
+    "/campaigns/{id}/criteria/{fieldId}/mappings": {
       "put": {
         "summary": "Set (replace) value mappings on a criteria field",
         "description": "Fully replaces the value_mappings array on the specified field. Send an empty array to clear all mappings. Each mapping maps one or more raw input values (`from`) to a canonical stored value (`to`). Matching is case-insensitive.",
