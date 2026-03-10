@@ -210,8 +210,8 @@ test_endpoint() {
         ${data:+-d "$data"})
 
     local http_status response
-    http_status=$(echo "$output" | tail -n1)
-    response=$(echo "$output" | head -n-1)
+    http_status=$(printf '%s' "$output" | tail -c 3)
+    response=$(printf '%s' "$output" | head -c -4)
     LAST_HTTP_STATUS="$http_status"
 
     # Track last call for manual log_rr usage
@@ -2084,6 +2084,9 @@ run_tenant_config_tests() {
     # Set back to TEST for lead tests
     test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/status" "TC campaign → back to TEST for leads" \
         '{"status":"TEST"}' > /dev/null
+    test_endpoint "PUT" "/campaigns/$TC_CAMPAIGN_ID/affiliates/$tc_affiliate_id" \
+        "TC affiliate → back to TEST for lead tests" '{"status":"TEST"}' > /dev/null
+    print_result 0 "TC affiliate set back to TEST for lead tests"
 
     # ── 16. Enable TrustedForm + IPQS ahead of lead-toggle tests ─────────────
     print_section "PLUGINS: Enable TrustedForm + IPQS for lead tests"
@@ -2333,8 +2336,8 @@ run_tenant_config_tests() {
     camp_url_resp=$(test_endpoint "GET" "/campaigns/$TC_CAMPAIGN_ID" \
         "Verify submit_url and submit_url_test in campaign response")
     local camp_submit_url camp_submit_url_test
-    camp_submit_url=$(extract_json_value "$camp_url_resp" "data.submit_url")
-    camp_submit_url_test=$(extract_json_value "$camp_url_resp" "data.submit_url_test")
+    camp_submit_url=$(extract_json_value "$camp_url_resp" "submit_url")
+    camp_submit_url_test=$(extract_json_value "$camp_url_resp" "submit_url_test")
     if [ -n "$camp_submit_url" ] && [ -n "$camp_submit_url_test" ]; then
         print_result 0 "Campaign response includes submit_url=$camp_submit_url"
         print_result 0 "Campaign response includes submit_url_test=$camp_submit_url_test"

@@ -415,6 +415,8 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
         message: "Failed to update campaign plugins",

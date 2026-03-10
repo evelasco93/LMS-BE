@@ -698,7 +698,10 @@ export class CampaignService {
           trustedFormRequest.gate !== undefined &&
           typeof trustedFormRequest.gate !== "boolean"
         ) {
-          return { result: false, error: "trusted_form.gate must be a boolean" };
+          return {
+            result: false,
+            error: "trusted_form.gate must be a boolean",
+          };
         }
         if (
           trustedFormRequest.claim !== undefined &&
@@ -718,7 +721,8 @@ export class CampaignService {
       if (ipqsRequest) {
         const ipqsFields = Object.keys(ipqsRequest);
         const invalidIpqsFields = ipqsFields.filter(
-          (f) => !["enabled", "stage", "gate", "phone", "email", "ip"].includes(f),
+          (f) =>
+            !["enabled", "stage", "gate", "phone", "email", "ip"].includes(f),
         );
         if (invalidIpqsFields.length > 0) {
           return {
@@ -1257,9 +1261,7 @@ export class CampaignService {
     return campaign ?? null;
   }
 
-  async getCampaign(
-    id: string,
-  ): Promise<
+  async getCampaign(id: string): Promise<
     ServiceResult<{
       campaign: ICampaign;
       submit_url: string;
@@ -1522,7 +1524,9 @@ export class CampaignService {
       gate:
         typeof patch.gate === "boolean"
           ? patch.gate
-          : (typeof base.gate === "boolean" ? base.gate : defaults.gate),
+          : typeof base.gate === "boolean"
+            ? base.gate
+            : defaults.gate,
       phone: patchPhone ? { ...base.phone, ...patchPhone } : base.phone,
       email: patchEmail ? { ...base.email, ...patchEmail } : base.email,
       ip: patchIp ? { ...base.ip, ...patchIp } : base.ip,
@@ -1588,7 +1592,7 @@ export class CampaignService {
       },
       trusted_form: {
         enabled: false,
-        stage: 2,
+        stage: 3,
         gate: true,
         claim: false,
       },
