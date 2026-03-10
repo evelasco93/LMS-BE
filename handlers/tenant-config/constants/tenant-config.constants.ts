@@ -1,4 +1,35 @@
 import { injectable } from "inversify";
+import type { CredentialType } from "../interfaces/ITenantConfig.interface";
+
+// ── Canonical Plugin Registry ─────────────────────────────────────────────────
+
+/**
+ * The fixed list of plugins supported by the platform.
+ * Add entries here when onboarding a new integration.
+ * This registry is the source-of-truth for the Plugin Settings page — the frontend
+ * will always see exactly this many plugin cards, never more, never fewer.
+ */
+export const AVAILABLE_PLUGINS = [
+  {
+    provider: "trusted_form",
+    name: "TrustedForm",
+    credential_type: "basic_auth" as CredentialType,
+    description:
+      "TrustedForm certificate verification for lead compliance tracking.",
+  },
+  {
+    provider: "ipqs",
+    name: "IPQS",
+    credential_type: "api_key" as CredentialType,
+    description:
+      "IP Quality Score fraud detection and lead validation service.",
+  },
+] as const;
+
+export type AvailablePlugin = (typeof AVAILABLE_PLUGINS)[number];
+export type AvailablePluginProvider = AvailablePlugin["provider"];
+
+// ── DynamoDB / env constants ──────────────────────────────────────────────────
 
 @injectable()
 export class TenantConfigConstants {

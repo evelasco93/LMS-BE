@@ -619,6 +619,15 @@ export class InternalApiStack extends NestedStack {
     );
 
     // declare static sub-resources BEFORE {fieldId} to avoid route shadowing
+    const campaignCriteriaBaseFieldsResource =
+      campaignCriteriaResource.addResource("base-fields");
+    addProtectedMethod(
+      campaignCriteriaBaseFieldsResource,
+      "POST",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     const campaignCriteriaReorderResource =
       campaignCriteriaResource.addResource("reorder");
     addProtectedMethod(
@@ -810,6 +819,12 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
+    // ── Plugins (registry) ───────────────────────────────────────────────────
+    const pluginsResource = tenantConfigResource.addResource("plugins");
+    addProtectedMethod(pluginsResource, "GET", tenantConfigLambdaIntegration, [
+      readScope,
+    ]);
+
     // ── Plugin Settings ───────────────────────────────────────────────────────
     const pluginSettingsResource =
       tenantConfigResource.addResource("plugin-settings");
@@ -821,7 +836,7 @@ export class InternalApiStack extends NestedStack {
     );
 
     const pluginSettingBySchemaResource =
-      pluginSettingsResource.addResource("{schemaId}");
+      pluginSettingsResource.addResource("{provider}");
     addProtectedMethod(
       pluginSettingBySchemaResource,
       "GET",

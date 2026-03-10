@@ -4,12 +4,16 @@ import { Logger } from "@shared/services/logger.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { encrypt, decrypt } from "@shared/utils/crypto.util";
 import { IEditHistoryEntry } from "@shared/utils/request-audit.util";
-import { TenantConfigConstants } from "../constants/tenant-config.constants";
+import {
+  TenantConfigConstants,
+  AVAILABLE_PLUGINS,
+} from "../constants/tenant-config.constants";
 import {
   CredentialType,
   TenantCredentialRecord,
   ICredentialSchemaRecord,
   IPluginSettingRecord,
+  IPluginView,
 } from "../interfaces/ITenantConfig.interface";
 import {
   CreateCredentialRequest,
@@ -808,42 +812,51 @@ export class TenantConfigService {
   // ── Plugin Settings ────────────────────────────────────────────────────────
 
   /**
-   * Upsert the global default plugin setting for a given schema.
-   * If a setting already exists for the schema_id it is overwritten.
+   * Upsert the global default plugin setting for a canonical provider.
+   * Validates that `provider` exists in the AVAILABLE_PLUGINS registry so no
+   * rogue entries can be created.  If a setting already exists for the provider
+   * it is overwritten while preserving id, created_at and edit_history.
    */
   async setPluginSetting(
-    schemaId: string,
+    provider: string,
     request: SetPluginSettingRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      if (!schemaId?.trim())
-        return { result: false, error: "schema_id is required" };
-      if (!request.credentials_id?.trim())
-        return { result: false, error: "credentials_id is required" };
+      if (!provider?.trim())
+        return { result: false, error: "provider is required" };
 
-      // Verify the referenced schema exists
-      const schemaRecord = await this.getCredentialSchemaById(schemaId);
-      if (!schemaRecord)
-        return { result: false, error: "Credential schema not found" };
+      const plugin = AVAILABLE_PLUGINS.find((p) => p.provider === provider);
+      if (!plugin)
+        return {
+          result: false,
+          error: `Unknown plugin provider: "${provider}". Valid values: ${AVAILABLE_PLUGINS.map((p) => p.provider).join(", ")}`,
+        };
 
-      // Verify the referenced credential exists and is active
-      const credRecord = await this.getCredentialById(request.credentials_id);
-      if (!credRecord) return { result: false, error: "Credential not found" };
-      if (credRecord.is_deleted)
-        return { result: false, error: "Cannot link to a deleted credential" };
+      // Optionally verify the referenced credential exists and is active
+      if (request.credentials_id) {
+        const credRecord = await this.getCredentialById(request.credentials_id);
+        if (!credRecord)
+          return { result: false, error: "Credential not found" };
+        if (credRecord.is_deleted)
+          return {
+            result: false,
+            error: "Cannot link to a deleted credential",
+          };
+      }
 
-      // Look for an existing setting for this schema so we can preserve its id and history
-      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      // Look for an existing setting for this provider so we can preserve id and history
+      const existing = await this.getPluginSettingByProvider(provider);
 
       const now = new Date().toISOString();
       const historyEntries: IEditHistoryEntry[] = [];
       if (existing) {
-        if (existing.credentials_id !== request.credentials_id) {
+        const newCredId = request.credentials_id ?? existing.credentials_id;
+        if (existing.credentials_id !== newCredId) {
           historyEntries.push({
             field: "credentials_id",
             previous_value: existing.credentials_id,
-            new_value: request.credentials_id,
+            new_value: newCredId,
             changed_at: now,
             changed_by: actor,
           });
@@ -865,8 +878,11 @@ export class TenantConfigService {
       const record: IPluginSettingRecord = {
         id: existing?.id ?? IdGenerator.generatePluginSettingId(),
         type: "plugin_setting",
-        schema_id: schemaId,
-        credentials_id: request.credentials_id,
+        provider,
+        credentials_id:
+          request.credentials_id !== undefined
+            ? (request.credentials_id ?? null)
+            : (existing?.credentials_id ?? null),
         enabled: request.enabled ?? existing?.enabled ?? true,
         created_at: existing?.created_at ?? now,
         updated_at: now,
@@ -883,7 +899,7 @@ export class TenantConfigService {
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: record,
       });
-      this.logger.info("Plugin setting upserted", { id: record.id, schemaId });
+      this.logger.info("Plugin setting upserted", { id: record.id, provider });
       return { result: true, data: record };
     } catch (error: any) {
       this.logger.error("Failed to set plugin setting", error);
@@ -895,10 +911,10 @@ export class TenantConfigService {
   }
 
   async getPluginSetting(
-    schemaId: string,
+    provider: string,
   ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      const record = await this.getPluginSettingBySchemaId(schemaId);
+      const record = await this.getPluginSettingByProvider(provider);
       if (!record) return { result: false, error: "Plugin setting not found" };
       return { result: true, data: record };
     } catch (error: any) {
@@ -909,27 +925,70 @@ export class TenantConfigService {
     }
   }
 
+  /**
+   * Returns exactly one entry per registered plugin (AVAILABLE_PLUGINS).
+   * Each entry is the stored plugin_setting record if one exists, or a synthetic
+   * default object (enabled: false, credentials_id: null) if not yet configured.
+   * The `includeDeleted` flag only applies to stored records — canonical plugins
+   * always appear in the list.
+   */
+  /**
+   * Returns the static AVAILABLE_PLUGINS registry — used by GET /plugins.
+   * No database call; safe to cache on the frontend indefinitely.
+   */
+  getAvailablePlugins(): typeof AVAILABLE_PLUGINS {
+    return AVAILABLE_PLUGINS;
+  }
+
   async listPluginSettings(
     includeDeleted = false,
-  ): Promise<ServiceResult<IPluginSettingRecord[]>> {
+  ): Promise<ServiceResult<IPluginView[]>> {
     try {
-      const records = await this.dynamoDBUtil.queryAll<IPluginSettingRecord>({
+      // Fetch all stored plugin_setting records in one query
+      const stored = await this.dynamoDBUtil.queryAll<IPluginSettingRecord>({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         IndexName: this.typeIndex,
         KeyConditionExpression: "#t = :type",
         ExpressionAttributeNames: { "#t": "type" },
-        ExpressionAttributeValues: {
-          ":type": "plugin_setting",
-          ...(includeDeleted ? {} : { ":f": false }),
-        },
-        ...(includeDeleted
-          ? {}
-          : {
-              FilterExpression:
-                "attribute_not_exists(is_deleted) OR is_deleted = :f",
-            }),
+        ExpressionAttributeValues: { ":type": "plugin_setting" },
       });
-      return { result: true, data: records };
+
+      // Index stored records by provider for O(1) lookup
+      const storedByProvider = new Map<string, IPluginSettingRecord>();
+      for (const rec of stored) {
+        storedByProvider.set(rec.provider, rec);
+      }
+
+      const now = new Date().toISOString();
+      const result: IPluginView[] = AVAILABLE_PLUGINS.map((plugin) => {
+        const rec = storedByProvider.get(plugin.provider);
+        const setting: IPluginSettingRecord =
+          rec && (includeDeleted || !rec.is_deleted)
+            ? rec
+            : {
+                // Synthetic default for unconfigured or filtered-out plugins
+                id: rec?.id ?? "",
+                type: "plugin_setting" as const,
+                provider: plugin.provider,
+                credentials_id: null,
+                enabled: false,
+                created_at: now,
+                updated_at: now,
+                is_deleted: false,
+                active: false,
+                deleted_at: null,
+                deleted_by: null,
+                edit_history: [],
+              };
+        return {
+          ...setting,
+          name: plugin.name,
+          credential_type: plugin.credential_type,
+          description: plugin.description,
+        };
+      });
+
+      return { result: true, data: result };
     } catch (error: any) {
       this.logger.error("Failed to list plugin settings", error);
       return {
@@ -940,12 +999,12 @@ export class TenantConfigService {
   }
 
   async updatePluginSetting(
-    schemaId: string,
+    provider: string,
     request: UpdatePluginSettingRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      const existing = await this.getPluginSettingByProvider(provider);
       if (!existing)
         return { result: false, error: "Plugin setting not found" };
       if (existing.is_deleted)
@@ -1006,21 +1065,16 @@ export class TenantConfigService {
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-      this.logger.info("Plugin setting updated", { schemaId });
+      this.logger.info("Plugin setting updated", { provider });
 
       // Cascade: if the plugin was just disabled, propagate to all campaigns
       if (!updated.enabled) {
-        const schema = await this.getCredentialSchemaById(schemaId);
-        if (schema?.provider) {
-          this.cascadePluginDisableToAllCampaigns(schema.provider).catch(
-            (err) => {
-              this.logger.error(
-                "Failed to cascade plugin disable to campaigns",
-                err,
-              );
-            },
+        this.cascadePluginDisableToAllCampaigns(provider).catch((err) => {
+          this.logger.error(
+            "Failed to cascade plugin disable to campaigns",
+            err,
           );
-        }
+        });
       }
 
       return { result: true, data: updated };
@@ -1034,12 +1088,12 @@ export class TenantConfigService {
   }
 
   async deletePluginSetting(
-    schemaId: string,
+    provider: string,
     options: { permanent?: boolean } = {},
     actor?: RequestActor,
   ): Promise<ServiceResult<void>> {
     try {
-      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      const existing = await this.getPluginSettingByProvider(provider);
       if (!existing)
         return { result: false, error: "Plugin setting not found" };
 
@@ -1049,7 +1103,7 @@ export class TenantConfigService {
           Key: { id: existing.id },
         });
         this.logger.info("Plugin setting hard-deleted", {
-          schemaId,
+          provider,
           id: existing.id,
         });
       } else {
@@ -1077,7 +1131,7 @@ export class TenantConfigService {
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Item: updated,
         });
-        this.logger.info("Plugin setting soft-deleted", { schemaId });
+        this.logger.info("Plugin setting soft-deleted", { provider });
       }
 
       return { result: true };
@@ -1091,11 +1145,11 @@ export class TenantConfigService {
   }
 
   async disablePluginSetting(
-    schemaId: string,
+    provider: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      const existing = await this.getPluginSettingByProvider(provider);
       if (!existing)
         return { result: false, error: "Plugin setting not found" };
       if (existing.is_deleted)
@@ -1126,20 +1180,12 @@ export class TenantConfigService {
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-      this.logger.info("Plugin setting disabled", { schemaId });
+      this.logger.info("Plugin setting disabled", { provider });
 
       // Cascade: propagate disabled state to all campaigns that have this plugin enabled
-      const schema = await this.getCredentialSchemaById(schemaId);
-      if (schema?.provider) {
-        this.cascadePluginDisableToAllCampaigns(schema.provider).catch(
-          (err) => {
-            this.logger.error(
-              "Failed to cascade plugin disable to campaigns",
-              err,
-            );
-          },
-        );
-      }
+      this.cascadePluginDisableToAllCampaigns(provider).catch((err) => {
+        this.logger.error("Failed to cascade plugin disable to campaigns", err);
+      });
 
       return { result: true, data: updated };
     } catch (error: any) {
@@ -1152,11 +1198,11 @@ export class TenantConfigService {
   }
 
   async enablePluginSetting(
-    schemaId: string,
+    provider: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      const existing = await this.getPluginSettingByProvider(provider);
       if (!existing)
         return { result: false, error: "Plugin setting not found" };
       if (existing.is_deleted)
@@ -1187,7 +1233,7 @@ export class TenantConfigService {
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-      this.logger.info("Plugin setting enabled", { schemaId });
+      this.logger.info("Plugin setting enabled", { provider });
       return { result: true, data: updated };
     } catch (error: any) {
       this.logger.error("Failed to enable plugin setting", error);
@@ -1199,11 +1245,11 @@ export class TenantConfigService {
   }
 
   async restorePluginSetting(
-    schemaId: string,
+    provider: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<IPluginSettingRecord>> {
     try {
-      const existing = await this.getPluginSettingBySchemaId(schemaId);
+      const existing = await this.getPluginSettingByProvider(provider);
       if (!existing)
         return { result: false, error: "Plugin setting not found" };
       if (!existing.is_deleted)
@@ -1234,7 +1280,7 @@ export class TenantConfigService {
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
       });
-      this.logger.info("Plugin setting restored", { schemaId });
+      this.logger.info("Plugin setting restored", { provider });
       return { result: true, data: updated };
     } catch (error: any) {
       this.logger.error("Failed to restore plugin setting", error);
@@ -1323,15 +1369,18 @@ export class TenantConfigService {
     return result ?? null;
   }
 
-  private async getPluginSettingBySchemaId(
-    schemaId: string,
+  private async getPluginSettingByProvider(
+    provider: string,
   ): Promise<IPluginSettingRecord | null> {
     const records = await this.dynamoDBUtil.queryAll<IPluginSettingRecord>({
       TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
-      IndexName: this.schemaIdIndex,
-      KeyConditionExpression: "#s = :schemaId",
-      ExpressionAttributeNames: { "#s": "schema_id" },
-      ExpressionAttributeValues: { ":schemaId": schemaId },
+      IndexName: this.typeProviderIndex,
+      KeyConditionExpression: "#t = :type AND #p = :provider",
+      ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
+      ExpressionAttributeValues: {
+        ":type": "plugin_setting",
+        ":provider": provider,
+      },
     });
     return records[0] ?? null;
   }

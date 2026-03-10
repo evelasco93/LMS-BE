@@ -125,18 +125,21 @@ export interface TenantCredentialRecord {
 
 /**
  * Stored in the tenant-settings table with type = "plugin_setting".
- * Represents the global default credential configuration for a given plugin schema.
- * The QA orchestrator reads this to resolve which credential to use when executing a plugin.
+ * Keyed by provider — exactly one record per canonical plugin regardless of how many
+ * credential schemas exist.  The QA orchestrator reads this to resolve which credential
+ * to use when executing a plugin.
  */
 export interface IPluginSettingRecord {
   /** Auto-generated PG-prefixed ID */
   id: string;
   /** Discriminator for single-table design — always "plugin_setting" */
   type: "plugin_setting";
-  /** FK to ICredentialSchemaRecord.id — identifies which plugin this setting is for */
-  schema_id: string;
-  /** FK to TenantCredentialRecord.id — the global default credential to use */
-  credentials_id: string;
+  /** Canonical provider identifier, e.g. "trusted_form" or "ipqs".
+   *  Used as the sort-key on the type-provider-index GSI. */
+  provider: string;
+  /** FK to TenantCredentialRecord.id — the global default credential to use.
+   *  Null when the plugin is registered but no credential has been assigned yet. */
+  credentials_id: string | null;
   /** Whether this global plugin setting is active */
   enabled: boolean;
   created_at: string;
@@ -151,3 +154,18 @@ export interface IPluginSettingRecord {
   /** Full audit trail of field changes (tracks credentials_id and enabled changes) */
   edit_history: IEditHistoryEntry[];
 }
+
+/**
+ * Returned by GET /tenant-config/plugin-settings.
+ * Merges the stored plugin_setting record (or a synthetic default when unconfigured)
+ * with the registry metadata from AVAILABLE_PLUGINS so the frontend gets everything
+ * it needs in one call: name, credential_type, description + current setting state.
+ */
+export type IPluginView = IPluginSettingRecord & {
+  /** Human-readable plugin name from the registry, e.g. "TrustedForm" */
+  name: string;
+  /** Credential auth type required by this plugin, e.g. "basic_auth" */
+  credential_type: CredentialType;
+  /** Human-readable description of the plugin shown in the Settings UI */
+  description: string;
+};

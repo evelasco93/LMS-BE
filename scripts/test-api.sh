@@ -1925,27 +1925,27 @@ run_tenant_config_tests() {
         print_json "$val_nops_resp"
     fi
 
-    # ── 7. Create plugin setting (link schema → credential) ──────────────────
-    if [ -n "$CREDENTIAL_SCHEMA_ID" ]; then
-        print_section "PLUGIN SETTING: PUT /tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID"
+    # ── 7. Create plugin setting (link provider → credential) ──────────────────
+    if [ -n "$CREDENTIAL_ID" ]; then
+        print_section "PLUGIN SETTING: PUT /tenant-config/plugin-settings/trusted_form"
         local ps_upsert_resp
-        ps_upsert_resp=$(test_endpoint "PUT" "/tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID" \
-            "Upsert plugin setting — link TrustedForm schema to credential" \
+        ps_upsert_resp=$(test_endpoint "PUT" "/tenant-config/plugin-settings/trusted_form" \
+            "Upsert plugin setting — link TrustedForm provider to credential" \
             "{\"credentials_id\":\"$CREDENTIAL_ID\"}")
         local ps_cred_id
         ps_cred_id=$(extract_json_value "$ps_upsert_resp" "data.credentials_id")
         if [ "$ps_cred_id" = "$CREDENTIAL_ID" ]; then
-            print_result 0 "Plugin setting created: schema=$CREDENTIAL_SCHEMA_ID → cred=$CREDENTIAL_ID"
+            print_result 0 "Plugin setting created: provider=trusted_form → cred=$CREDENTIAL_ID"
         else
             print_result 1 "Plugin setting create may have failed (credentials_id=$ps_cred_id expected $CREDENTIAL_ID)"
             print_json "$ps_upsert_resp"
         fi
 
         # ── 8. Get plugin setting ────────────────────────────────────────────
-        print_section "PLUGIN SETTING: GET /tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID"
+        print_section "PLUGIN SETTING: GET /tenant-config/plugin-settings/trusted_form"
         local ps_get_resp
-        ps_get_resp=$(test_endpoint "GET" "/tenant-config/plugin-settings/$CREDENTIAL_SCHEMA_ID" \
-            "Get plugin setting by schema ID")
+        ps_get_resp=$(test_endpoint "GET" "/tenant-config/plugin-settings/trusted_form" \
+            "Get plugin setting by provider")
         local ps_get_cred
         ps_get_cred=$(extract_json_value "$ps_get_resp" "data.credentials_id")
         if [ "$ps_get_cred" = "$CREDENTIAL_ID" ]; then
@@ -1954,12 +1954,19 @@ run_tenant_config_tests() {
             print_result 1 "Plugin setting GET mismatch (credentials_id=$ps_get_cred expected $CREDENTIAL_ID)"
         fi
 
-        # ── 9. List plugin settings ──────────────────────────────────────────
+        # ── 9. List plugin settings — always returns exactly 2 canonical plugins ──
         print_section "PLUGIN SETTING: GET /tenant-config/plugin-settings"
         local ps_list_resp
         ps_list_resp=$(test_endpoint "GET" "/tenant-config/plugin-settings" "List all plugin settings")
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
-            print_result 0 "List plugin settings returned HTTP $LAST_HTTP_STATUS"
+            local ps_list_count
+            ps_list_count=$(echo "$ps_list_resp" | grep -o '"provider"' | wc -l | tr -d ' ')
+            if [ "$ps_list_count" -eq 2 ]; then
+                print_result 0 "List plugin settings returned exactly 2 canonical plugins"
+            else
+                print_result 1 "Expected exactly 2 plugin entries, got $ps_list_count"
+                print_json "$ps_list_resp"
+            fi
         else
             print_result 1 "List plugin settings failed (HTTP $LAST_HTTP_STATUS)"
         fi
@@ -2052,16 +2059,16 @@ run_tenant_config_tests() {
     fi
 
     # ── 13c. IPQS plugin setting ─────────────────────────────────────────────
-    if [ -n "$IPQS_CREDENTIAL_SCHEMA_ID" ] && [ -n "$IPQS_CREDENTIAL_ID" ]; then
-        print_section "PLUGIN SETTING: PUT /tenant-config/plugin-settings/$IPQS_CREDENTIAL_SCHEMA_ID (IPQS)"
+    if [ -n "$IPQS_CREDENTIAL_ID" ]; then
+        print_section "PLUGIN SETTING: PUT /tenant-config/plugin-settings/ipqs (IPQS)"
         local ipqs_ps_resp
-        ipqs_ps_resp=$(test_endpoint "PUT" "/tenant-config/plugin-settings/$IPQS_CREDENTIAL_SCHEMA_ID" \
-            "Upsert IPQS plugin setting — link schema to credential" \
+        ipqs_ps_resp=$(test_endpoint "PUT" "/tenant-config/plugin-settings/ipqs" \
+            "Upsert IPQS plugin setting — link provider to credential" \
             "{\"credentials_id\":\"$IPQS_CREDENTIAL_ID\"}")
         local ipqs_ps_cred_id
         ipqs_ps_cred_id=$(extract_json_value "$ipqs_ps_resp" "data.credentials_id")
         if [ "$ipqs_ps_cred_id" = "$IPQS_CREDENTIAL_ID" ]; then
-            print_result 0 "IPQS plugin setting created: schema=$IPQS_CREDENTIAL_SCHEMA_ID → cred=$IPQS_CREDENTIAL_ID"
+            print_result 0 "IPQS plugin setting created: provider=ipqs → cred=$IPQS_CREDENTIAL_ID"
         else
             print_result 1 "IPQS plugin setting create may have failed (credentials_id=$ipqs_ps_cred_id expected $IPQS_CREDENTIAL_ID)"
             print_json "$ipqs_ps_resp"

@@ -48,8 +48,9 @@ export type UpdateCredentialSchemaRequest = {
 // ── Plugin Settings ───────────────────────────────────────────────────────────
 
 export type SetPluginSettingRequest = {
-  /** FK to TenantCredentialRecord.id — the global default credential to use for this plugin */
-  credentials_id: string;
+  /** FK to TenantCredentialRecord.id — the global default credential to use for this plugin.
+   *  Omit to register/enable the plugin without assigning a credential yet. */
+  credentials_id?: string | null;
   /** Whether this global plugin setting is active (defaults to true) */
   enabled?: boolean;
 };

@@ -457,6 +457,34 @@ export class CampaignController extends Controller {
     };
   }
 
+  /**
+   * POST /:id/criteria/base-fields
+   * Seeds the campaign with the standard BASE_CRITERIA_FIELDS preset.
+   * Fields that already exist (by field_name) are silently skipped — idempotent.
+   */
+  @POST("/:id/criteria/base-fields")
+  @produces("application/json")
+  async addBaseFields(@pathParam("id") id: string): Promise<RestApiResponse> {
+    const result = await this.campaignService.addBaseFields(
+      id,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to add base criteria fields",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Base criteria fields added successfully",
+      data: result.data,
+    };
+  }
+
   @POST("/:id/criteria")
   @produces("application/json")
   async addCriteriaField(

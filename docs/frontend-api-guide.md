@@ -1276,24 +1276,55 @@ await api.post("/tenant-config/credentials", {
 
 Plugin settings let an admin set a **global default credential** for each plugin. The lead processing orchestrator resolves credentials through this table — there is no per-campaign credential override.
 
+**Important**: The Plugin Settings page is driven by a **canonical registry** (`AVAILABLE_PLUGINS`), not by credential-schema count. There are always exactly 2 plugin cards (TrustedForm, IPQS) regardless of how many schemas or credentials exist. To add a new plugin in the future, add it to the `AVAILABLE_PLUGINS` constant in the backend.
+
 ### Endpoints
 
-| Method   | Path                                                | Description                                                          |
-| -------- | --------------------------------------------------- | -------------------------------------------------------------------- |
-| `GET`    | `/tenant-config/plugin-settings`                    | List all global plugin settings (`?includeDeleted=true` for deleted) |
-| `GET`    | `/tenant-config/plugin-settings/{schemaId}`         | Get the global setting for a plugin                                  |
-| `PUT`    | `/tenant-config/plugin-settings/{schemaId}`         | Set (upsert) the global setting for a plugin                         |
-| `PUT`    | `/tenant-config/plugin-settings/{schemaId}/restore` | Restore a soft-deleted plugin setting                                |
-| `DELETE` | `/tenant-config/plugin-settings/{schemaId}`         | Soft-delete (default) or hard-delete (`?permanent=true`)             |
+| Method   | Path                                                | Description                                                                                   |
+| -------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `GET`    | `/tenant-config/plugins`                            | **Registry** — static list of all available plugins with metadata (no DB call, safe to cache) |
+| `GET`    | `/tenant-config/plugin-settings`                    | List global plugin settings — always exactly N entries, **enriched with registry metadata**   |
+| `GET`    | `/tenant-config/plugin-settings/{provider}`         | Get the global setting for a plugin by provider                                               |
+| `PUT`    | `/tenant-config/plugin-settings/{provider}`         | Set (upsert) the global setting for a plugin                                                  |
+| `PUT`    | `/tenant-config/plugin-settings/{provider}/restore` | Restore a soft-deleted plugin setting                                                         |
+| `DELETE` | `/tenant-config/plugin-settings/{provider}`         | Soft-delete (default) or hard-delete (`?permanent=true`)                                      |
 
-> `{schemaId}` is the **CS-prefixed** credential schema ID (e.g. `CSa1b2c3d4`), **not** the plugin setting ID.
+> `{provider}` is the canonical plugin identifier: `trusted_form` or `ipqs`. Never a schema ID.
 
-### Plugin setting record shape
+### GET /tenant-config/plugins — available plugin registry
+
+Returns the static `AVAILABLE_PLUGINS` list with no database call. Use this to know what plugins the platform supports and what credential type each requires.
+
+```json
+// GET /v2/tenant-config/plugins
+{
+  "success": true,
+  "message": "Available plugins retrieved successfully",
+  "data": [
+    {
+      "provider": "trusted_form",
+      "name": "TrustedForm",
+      "credential_type": "basic_auth",
+      "description": "TrustedForm certificate verification for lead compliance tracking."
+    },
+    {
+      "provider": "ipqs",
+      "name": "IPQS",
+      "credential_type": "api_key",
+      "description": "IP Quality Score fraud and validity checks."
+    }
+  ]
+}
+```
+
+### Plugin setting record shape (enriched `PluginView`)
+
+`GET /plugin-settings` returns a **`PluginView`** for each entry — the setting record enriched with registry metadata. The frontend gets everything it needs in a single call; no separate registry fetch required.
 
 ```json
 {
   "id": "PGA1B2C3D4",
-  "schema_id": "CSa1b2c3d4",
+  "provider": "trusted_form",
   "credentials_id": "CRA1B2C3D4",
   "enabled": true,
   "is_deleted": false,
@@ -1302,25 +1333,29 @@ Plugin settings let an admin set a **global default credential** for each plugin
   "deleted_by": null,
   "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
-  "updated_at": "2024-01-01T00:00:00.000Z"
+  "updated_at": "2024-01-01T00:00:00.000Z",
+  "name": "TrustedForm",
+  "credential_type": "basic_auth",
+  "description": "TrustedForm certificate verification for lead compliance tracking."
 }
 ```
 
-> IDs are now **PG-prefixed** (was PC). Schema references use **CS-prefixed** IDs (was PS).
+> Plugins that have never been configured are returned by the list endpoint with `id: ""`, `credentials_id: null`, and `enabled: false` — but still include the full `name`, `credential_type`, and `description` fields from the registry.
 
 ### Setting the global default for a plugin
 
 ```json
-PUT /v2/tenant-config/plugin-settings/CSa1b2c3d4
+PUT /v2/tenant-config/plugin-settings/trusted_form
 {
   "credentials_id": "CRA1B2C3D4",
   "enabled": true
 }
 ```
 
-- If no setting exists for this schema, a new one is created.
+- `credentials_id` is **optional** — omit it to enable/register the plugin without assigning a credential yet.
+- If no setting exists for this provider, a new one is created.
 - If one already exists, it is **overwritten** (upsert semantics).
-- Both the schema (`schema_id`) and the credential (`credentials_id`) must exist or the request returns a 400.
+- The `provider` must match an entry in `AVAILABLE_PLUGINS` or the request returns a 400.
 
 ### Response
 
@@ -1330,7 +1365,7 @@ PUT /v2/tenant-config/plugin-settings/CSa1b2c3d4
   "message": "Plugin setting saved successfully",
   "data": {
     "id": "PGA1B2C3D4",
-    "schema_id": "CSa1b2c3d4",
+    "provider": "trusted_form",
     "credentials_id": "CRA1B2C3D4",
     "enabled": true,
     "is_deleted": false,
@@ -1350,33 +1385,38 @@ PUT /v2/tenant-config/plugin-settings/CSa1b2c3d4
 
 1. `GET /v2/tenant-config/credential-schemas` — load all schemas (for grouping & schema_id lookup).
 2. `GET /v2/tenant-config/credentials` — load all credentials.
-3. Group credentials by `schema_id` (or fall back to `provider` for unlabelled records).
+3. Group credentials by `provider` (e.g. `trusted_form`, `ipqs`).
 4. Render an "Add credential" button per group that opens a schema-driven modal.
 
 **Plugins tab**
 
-1. `GET /v2/tenant-config/credential-schemas` — list all plugins.
-2. `GET /v2/tenant-config/plugin-settings` — load current global defaults.
-3. For each schema, show the currently selected default credential (match `plugin_setting.schema_id === schema.id`).
-4. A dropdown per plugin lists only the credentials belonging to that schema (`credential.schema_id === schema.id`).
-5. On change: `PUT /v2/tenant-config/plugin-settings/{schema.id}` with `{ credentials_id, enabled }`.
+1. `GET /v2/tenant-config/plugin-settings` — returns exactly one `PluginView` per canonical plugin. Each entry already includes `name`, `description`, and `credential_type` from the registry — no separate registry call needed.
+2. `GET /v2/tenant-config/credentials` — load all credentials for the credential dropdown.
+3. For each plugin view: render the plugin card using `name` and `description`, show the enabled toggle (`plugin.enabled`), and populate the credential dropdown with credentials filtered by `provider`.
+4. A dropdown per plugin lists only the credentials with a matching `provider` field.
+5. On change: `PUT /v2/tenant-config/plugin-settings/{provider}` with `{ credentials_id, enabled }`.
+
+> Use `GET /v2/tenant-config/plugins` instead if you only need the registry metadata without current setting state (e.g. capability checks, onboarding flows, or building a "supported plugins" reference page).
 
 ```typescript
-// Example: loading the plugins tab
-const [schemas, credentials, settings] = await Promise.all([
-  api.get("/tenant-config/credential-schemas").then((r) => r.data.data),
-  api.get("/tenant-config/credentials").then((r) => r.data.data),
+// Example: loading the plugins tab — one enriched call, no separate registry fetch
+const [pluginViews, credentials] = await Promise.all([
   api.get("/tenant-config/plugin-settings").then((r) => r.data.data),
+  api.get("/tenant-config/credentials").then((r) => r.data.data),
 ]);
 
-const pluginRows = schemas.map((schema) => ({
-  schema,
-  availableCredentials: credentials.filter((c) => c.schema_id === schema.id),
-  currentSetting: settings.find((s) => s.schema_id === schema.id) ?? null,
+// Each pluginView already has: name, description, credential_type, credentials_id, enabled
+const pluginRows = pluginViews.map((plugin) => ({
+  ...plugin,
+  availableCredentials: credentials.filter(
+    (c) => c.provider === plugin.provider && !c.is_deleted,
+  ),
 }));
 ```
 
-### QA Orchestrator endpoints
+### Globally disabled plugins
+
+When `enabled = false` on a plugin setting the frontend should **hide that plugin** from the campaign plugin configuration panel so operators cannot accidentally enable a globally disabled integration on individual campaigns.
 
 TrustedForm certificate validation and IPQS checks are handled by the QA Orchestrator lambda. Duplicate-check and full lead validation are lambda-to-lambda only (no HTTP routes):
 

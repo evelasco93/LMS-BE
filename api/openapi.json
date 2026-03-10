@@ -2400,6 +2400,36 @@
         }
       }
     },
+    "/tenant-config/plugins": {
+      "get": {
+        "tags": ["tenant-config"],
+        "summary": "List all available plugins (registry)",
+        "description": "Returns the canonical AVAILABLE_PLUGINS registry — the fixed list of all plugins the platform supports. No database call; safe to cache. Use this to populate a plugin selection list, know each plugin's credential_type, and show plugin descriptions. This list is independent of whether plugins have been configured or enabled.",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of available plugins",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AvailablePlugin"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tenant-config/credential-schemas": {
       "post": {
         "tags": ["tenant-config"],
@@ -2581,7 +2611,7 @@
       "get": {
         "tags": ["tenant-config"],
         "summary": "List all global plugin settings",
-        "description": "Returns all global plugin setting records — one per credential schema at most. Each record specifies the default credential to use for that plugin across all leads. Pass `?includeDeleted=true` to include soft-deleted records.",
+        "description": "Returns exactly one entry per canonical plugin in the AVAILABLE_PLUGINS registry (currently: trusted_form, ipqs). Each entry merges the registry metadata (name, credential_type, description) with the current setting state (credentials_id, enabled). Unconfigured plugins are included with enabled=false and credentials_id=null — the list size is always fixed regardless of how many credential schemas exist. Pass `?includeDeleted=true` to include soft-deleted records.",
         "security": [{ "BearerAuth": [] }],
         "parameters": [
           {
@@ -2606,20 +2636,20 @@
         }
       }
     },
-    "/tenant-config/plugin-settings/{schemaId}": {
+    "/tenant-config/plugin-settings/{provider}": {
       "get": {
         "tags": ["tenant-config"],
-        "summary": "Get the global plugin setting for a schema",
-        "description": "Returns the global default plugin setting for the given credential schema ID.",
+        "summary": "Get the global plugin setting for a provider",
+        "description": "Returns the global default plugin setting for the given provider identifier (e.g. trusted_form, ipqs).",
         "security": [{ "BearerAuth": [] }],
         "parameters": [
           {
-            "name": "schemaId",
+            "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "example": "CSa1b2c3d4",
-            "description": "The credential schema ID (CS-prefixed)"
+            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "example": "trusted_form",
+            "description": "Canonical plugin provider identifier"
           }
         ],
         "responses": {
@@ -2634,23 +2664,23 @@
             }
           },
           "404": {
-            "description": "No setting configured for this schema yet"
+            "description": "No setting configured for this provider yet"
           }
         }
       },
       "put": {
         "tags": ["tenant-config"],
-        "summary": "Set (upsert) the global default plugin setting for a schema",
-        "description": "Creates or replaces the global default plugin setting for the given credential schema. The `credentials_id` must reference an existing active credential. All lead processing that uses this plugin will resolve credentials via this setting.",
+        "summary": "Set (upsert) the global default plugin setting for a provider",
+        "description": "Creates or replaces the global default plugin setting for the given provider. Validates that the provider exists in the canonical AVAILABLE_PLUGINS registry. `credentials_id` is optional — omit it to register/enable the plugin without assigning a credential yet.",
         "security": [{ "BearerAuth": [] }],
         "parameters": [
           {
-            "name": "schemaId",
+            "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "example": "CSa1b2c3d4",
-            "description": "The credential schema ID (CS-prefixed)"
+            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "example": "trusted_form",
+            "description": "Canonical plugin provider identifier"
           }
         ],
         "requestBody": {
@@ -2683,11 +2713,11 @@
         "security": [{ "BearerAuth": [] }],
         "parameters": [
           {
-            "name": "schemaId",
+            "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "example": "CSa1b2c3d4"
+            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "example": "trusted_form"
           },
           {
             "name": "permanent",
@@ -2702,18 +2732,18 @@
         }
       }
     },
-    "/tenant-config/plugin-settings/{schemaId}/restore": {
+    "/tenant-config/plugin-settings/{provider}/restore": {
       "put": {
         "tags": ["tenant-config"],
         "summary": "Restore a soft-deleted plugin setting",
         "security": [{ "BearerAuth": [] }],
         "parameters": [
           {
-            "name": "schemaId",
+            "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
-            "example": "CSa1b2c3d4"
+            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "example": "trusted_form"
           }
         ],
         "responses": {
@@ -4561,21 +4591,23 @@
       },
       "PluginSettingRecord": {
         "type": "object",
-        "description": "Global default plugin setting — one record per credential schema at most.",
+        "description": "Global default plugin setting — exactly one record per canonical plugin in the AVAILABLE_PLUGINS registry.",
         "properties": {
           "id": {
             "type": "string",
-            "description": "PG-prefixed auto-generated ID",
+            "description": "PG-prefixed auto-generated ID (empty string for unconfigured synthetic defaults)",
             "example": "PGA1B2C3D4"
           },
-          "schema_id": {
+          "provider": {
             "type": "string",
-            "description": "FK to CredentialSchemaRecord.id (CS-prefixed)",
-            "example": "CSa1b2c3d4"
+            "description": "Canonical plugin provider identifier — the unique key for this plugin",
+            "example": "trusted_form",
+            "enum": ["trusted_form", "ipqs"]
           },
           "credentials_id": {
             "type": "string",
-            "description": "FK to TenantCredentialRecord.id — the default credential for this plugin",
+            "nullable": true,
+            "description": "FK to TenantCredentialRecord.id — the default credential for this plugin. Null when the plugin has not been configured yet.",
             "example": "CRA1B2C3D4"
           },
           "enabled": {
@@ -4609,6 +4641,42 @@
           "updated_at": { "type": "string", "format": "date-time" }
         }
       },
+      "AvailablePlugin": {
+        "type": "object",
+        "description": "A single entry from the AVAILABLE_PLUGINS registry. Static metadata returned by GET /plugins.",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Canonical plugin identifier used as the URL param in all /plugin-settings routes",
+            "example": "trusted_form",
+            "enum": ["trusted_form", "ipqs"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable plugin name for display in the UI",
+            "example": "TrustedForm"
+          },
+          "credential_type": {
+            "type": "string",
+            "enum": ["api_key", "basic_auth", "bearer_token"],
+            "description": "The credential auth type this plugin requires",
+            "example": "basic_auth"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description shown in the Settings UI",
+            "example": "TrustedForm certificate verification for lead compliance tracking."
+          }
+        }
+      },
+      "PluginView": {
+        "type": "object",
+        "description": "Returned by GET /plugin-settings. Merges PluginSettingRecord fields with AvailablePlugin registry metadata so the frontend gets everything it needs in one call.",
+        "allOf": [
+          { "$ref": "#/components/schemas/PluginSettingRecord" },
+          { "$ref": "#/components/schemas/AvailablePlugin" }
+        ]
+      },
       "PluginSettingResponse": {
         "type": "object",
         "properties": {
@@ -4624,17 +4692,17 @@
           "message": { "type": "string" },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/PluginSettingRecord" }
+            "items": { "$ref": "#/components/schemas/PluginView" }
           }
         }
       },
       "SetPluginSettingRequest": {
         "type": "object",
-        "required": ["credentials_id"],
         "properties": {
           "credentials_id": {
             "type": "string",
-            "description": "FK to TenantCredentialRecord.id — the default credential to use for this plugin",
+            "nullable": true,
+            "description": "FK to TenantCredentialRecord.id — the default credential to use for this plugin. Omit to register/enable the plugin without assigning a credential yet.",
             "example": "CRA1B2C3D4"
           },
           "enabled": {

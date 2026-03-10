@@ -1,4 +1,83 @@
 import { injectable } from "inversify";
+import { BaseCriteriaDataType } from "../interfaces/ICampaign.interface";
+
+/**
+ * Shape of a single entry in BASE_CRITERIA_FIELDS.
+ * Add new fields here to extend the preset — no other changes required.
+ */
+export interface IBaseCriteriaFieldDef {
+  field_label: string;
+  field_name: string;
+  data_type: BaseCriteriaDataType;
+  required: true;
+}
+
+/**
+ * Preset fields applied when a campaign is seeded with base criteria.
+ * To add a new base field: append an entry here — nothing else needs to change.
+ */
+export const BASE_CRITERIA_FIELDS: ReadonlyArray<IBaseCriteriaFieldDef> = [
+  {
+    field_label: "First Name",
+    field_name: "first_name",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "Last Name",
+    field_name: "last_name",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "Phone",
+    field_name: "phone",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "State",
+    field_name: "state",
+    data_type: "US State",
+    required: true,
+  },
+  {
+    field_label: "Email",
+    field_name: "email",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "IP Address",
+    field_name: "ip_address",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "Marketing Source",
+    field_name: "marketing_source",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "Pub ID",
+    field_name: "pub_id",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "Campaign ID",
+    field_name: "campaign_id",
+    data_type: "Text",
+    required: true,
+  },
+  {
+    field_label: "Campaign Key",
+    field_name: "campaign_key",
+    data_type: "Text",
+    required: true,
+  },
+] as const;
 
 @injectable()
 export class CampaignConstants {

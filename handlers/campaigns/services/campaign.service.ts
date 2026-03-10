@@ -3,7 +3,11 @@ import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
-import { CampaignConstants } from "../constants/campaign.constants";
+import {
+  BASE_CRITERIA_FIELDS,
+  CampaignConstants,
+  IBaseCriteriaFieldDef,
+} from "../constants/campaign.constants";
 import {
   BaseCriteriaDataType,
   IBaseCriteriaField,
@@ -1466,6 +1470,88 @@ export class CampaignService {
       return {
         result: false,
         error: error.message || "Failed to get criteria",
+      };
+    }
+  }
+
+  /**
+   * Seeds a campaign's base_criteria with the entries in BASE_CRITERIA_FIELDS.
+   * Fields that already exist (matched by field_name) are skipped — safe to call multiple times.
+   * Returns the full updated criteria list.
+   */
+  async addBaseFields(
+    campaignId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IBaseCriteriaField[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const existing = campaign.base_criteria ?? [];
+      const existingNames = new Set(existing.map((f) => f.field_name));
+      const toAdd: IBaseCriteriaFieldDef[] = BASE_CRITERIA_FIELDS.filter(
+        (f) => !existingNames.has(f.field_name),
+      );
+
+      if (toAdd.length === 0) {
+        return { result: true, data: existing };
+      }
+
+      const now = new Date().toISOString();
+      let nextOrder = existing.length + 1;
+      const newFields: IBaseCriteriaField[] = toAdd.map((def) => ({
+        id: IdGenerator.generate("CF"),
+        order: nextOrder++,
+        field_label: def.field_label,
+        field_name: def.field_name,
+        data_type: def.data_type,
+        required: def.required,
+        client_override: false,
+        affiliate_override: false,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      }));
+
+      const updatedCriteria = [...existing, ...newFields];
+      const historyEntries: IBaseCriteriaHistoryEntry[] = newFields.map(
+        (f) => ({
+          event: "field_added" as const,
+          field_id: f.id,
+          field_name: f.field_name,
+          changed_at: now,
+          changed_by: actor,
+        }),
+      );
+
+      campaign.base_criteria = updatedCriteria;
+      campaign.base_criteria_history = [
+        ...(campaign.base_criteria_history ?? []),
+        ...historyEntries,
+      ];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Base criteria fields added", {
+        campaignId,
+        addedCount: newFields.length,
+        skippedCount: toAdd.length === 0 ? existing.length : 0,
+      });
+
+      return { result: true, data: updatedCriteria };
+    } catch (error: any) {
+      this.logger.error("Failed to add base criteria fields", error);
+      return {
+        result: false,
+        error: error.message || "Failed to add base criteria fields",
       };
     }
   }

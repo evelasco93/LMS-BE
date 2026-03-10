@@ -335,8 +335,33 @@ export class TenantConfigController extends Controller {
     };
   }
 
+  // ── Plugin Registry ──────────────────────────────────────────────────────────
+
+  /**
+   * GET /tenant-config/plugins
+   * Returns the static AVAILABLE_PLUGINS registry — the canonical list of all
+   * plugins the platform supports.  No database call; safe to cache.
+   * Use this to know what plugins exist and their metadata (name, credential_type, description).
+   */
+  @GET("/plugins")
+  @produces("application/json")
+  async listAvailablePlugins(): Promise<RestApiResponse> {
+    return {
+      success: true,
+      message: "Available plugins retrieved successfully",
+      data: this.service.getAvailablePlugins(),
+    };
+  }
+
   // ── Plugin Settings ─────────────────────────────────────────────────────────
 
+  /**
+   * GET /tenant-config/plugin-settings
+   * Returns exactly one entry per canonical plugin — each entry merges the registry
+   * metadata (name, credential_type, description) with the current setting state
+   * (credentials_id, enabled).  Unconfigured plugins are included with enabled=false
+   * and credentials_id=null so the frontend always sees the complete list.
+   */
   @GET("/plugin-settings")
   @produces("application/json")
   async listPluginSettings(
@@ -359,15 +384,15 @@ export class TenantConfigController extends Controller {
   }
 
   /**
-   * GET /tenant-config/plugin-settings/:schemaId
-   * Returns the global plugin setting for the given credential schema ID.
+   * GET /tenant-config/plugin-settings/:provider
+   * Returns the global plugin setting for the given provider (e.g. "trusted_form", "ipqs").
    */
-  @GET("/plugin-settings/:schemaId")
+  @GET("/plugin-settings/:provider")
   @produces("application/json")
   async getPluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
   ): Promise<RestApiResponse> {
-    const result = await this.service.getPluginSetting(schemaId);
+    const result = await this.service.getPluginSetting(provider);
     if (!result.result)
       return {
         success: false,
@@ -382,18 +407,18 @@ export class TenantConfigController extends Controller {
   }
 
   /**
-   * PUT /tenant-config/plugin-settings/:schemaId
-   * Upsert the global default plugin setting for the given credential schema.
-   * Body: { credentials_id: string, enabled?: boolean }
+   * PUT /tenant-config/plugin-settings/:provider
+   * Upsert the global default plugin setting for the given provider.
+   * Body: { credentials_id?: string | null, enabled?: boolean }
    */
-  @PUT("/plugin-settings/:schemaId")
+  @PUT("/plugin-settings/:provider")
   @produces("application/json")
   async setPluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
     @body payload: SetPluginSettingRequest,
   ): Promise<RestApiResponse> {
     const result = await this.service.setPluginSetting(
-      schemaId,
+      provider,
       payload,
       this.getActor(),
     );
@@ -411,17 +436,17 @@ export class TenantConfigController extends Controller {
   }
 
   /**
-   * PATCH /tenant-config/plugin-settings/:schemaId
+   * PUT /tenant-config/plugin-settings/:provider/update
    * Partially update the plugin setting credentials_id or enabled flag.
    */
-  @PUT("/plugin-settings/:schemaId/update")
+  @PUT("/plugin-settings/:provider/update")
   @produces("application/json")
   async updatePluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
     @body payload: UpdatePluginSettingRequest,
   ): Promise<RestApiResponse> {
     const result = await this.service.updatePluginSetting(
-      schemaId,
+      provider,
       payload,
       this.getActor(),
     );
@@ -438,14 +463,14 @@ export class TenantConfigController extends Controller {
     };
   }
 
-  @DELETE("/plugin-settings/:schemaId")
+  @DELETE("/plugin-settings/:provider")
   @produces("application/json")
   async deletePluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
     @queryParam("permanent") permanent?: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.deletePluginSetting(
-      schemaId,
+      provider,
       { permanent: permanent === "true" },
       this.getActor(),
     );
@@ -464,13 +489,13 @@ export class TenantConfigController extends Controller {
     };
   }
 
-  @PUT("/plugin-settings/:schemaId/disable")
+  @PUT("/plugin-settings/:provider/disable")
   @produces("application/json")
   async disablePluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.disablePluginSetting(
-      schemaId,
+      provider,
       this.getActor(),
     );
     if (!result.result)
@@ -486,13 +511,13 @@ export class TenantConfigController extends Controller {
     };
   }
 
-  @PUT("/plugin-settings/:schemaId/enable")
+  @PUT("/plugin-settings/:provider/enable")
   @produces("application/json")
   async enablePluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.enablePluginSetting(
-      schemaId,
+      provider,
       this.getActor(),
     );
     if (!result.result)
@@ -508,13 +533,13 @@ export class TenantConfigController extends Controller {
     };
   }
 
-  @PUT("/plugin-settings/:schemaId/restore")
+  @PUT("/plugin-settings/:provider/restore")
   @produces("application/json")
   async restorePluginSetting(
-    @pathParam("schemaId") schemaId: string,
+    @pathParam("provider") provider: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.restorePluginSetting(
-      schemaId,
+      provider,
       this.getActor(),
     );
     if (!result.result)
