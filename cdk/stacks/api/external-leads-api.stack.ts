@@ -48,7 +48,7 @@ export class ExternalLeadsApiStack extends NestedStack {
 
     const leadsLambdaIntegration = new LambdaIntegration(leadsLambda, {
       proxy: true,
-      allowTestInvoke: true,
+      allowTestInvoke: false,
     });
 
     const v2Resource = this.api.root.addResource("v2");

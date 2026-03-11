@@ -51,9 +51,7 @@ export const servicesConfig: IServicesStackConfig = {
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
-        // Needed for tenant-level plugin-enable guard (isTenantPluginEnabled)
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
-        // Returned in affiliate link/rotate-key responses so affiliates know where to submit leads
         LEADS_BASE_URL:
           "https://a1tu1h2ev8.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
         NODE_ENV: "production",
@@ -77,6 +75,8 @@ export const servicesConfig: IServicesStackConfig = {
         CRITERIA_VALIDATION_LAMBDA_NAME: nameBuilder.lambda(
           "qa-criteria-validation",
         ),
+        EXTERNAL_LEADS_API_URL:
+          "https://u1jn88al42.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("leads-lambda"),
@@ -95,7 +95,6 @@ export const servicesConfig: IServicesStackConfig = {
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
         CREDENTIALS_ENCRYPTION_KEY:
           "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
-        // Needed for cascading plugin-disable to all campaigns
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         NODE_ENV: "production",
       },

@@ -4,7 +4,7 @@ import { nameBuilder, baseConfig } from "../../../config/base.config";
 export const apiConfig: IApiStackConfig = {
   internalApi: {
     name: nameBuilder.api("internal"),
-    description: "Internal APIs for Clients and Affiliates Management",
+    description: "Internal APIs for LMS and admin dashboard",
     stageName: baseConfig.environment,
     callbackUrls: [
       process.env.INTERNAL_API_OAUTH_CALLBACK_URL ||

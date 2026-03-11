@@ -325,7 +325,7 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const clientsLambdaIntegration = new LambdaIntegration(clientsLambda, {
       proxy: true,
-      allowTestInvoke: true,
+      allowTestInvoke: false,
     });
 
     // /v2 resource (shared root)
@@ -336,7 +336,7 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const authLambdaIntegration = new LambdaIntegration(this.authLambda, {
       proxy: true,
-      allowTestInvoke: true,
+      allowTestInvoke: false,
     });
     const authResource = v2Resource.addResource("auth");
 
@@ -357,7 +357,7 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const usersLambdaIntegration = new LambdaIntegration(this.usersLambda, {
       proxy: true,
-      allowTestInvoke: true,
+      allowTestInvoke: false,
     });
     const usersResource = v2Resource.addResource("users");
 
@@ -436,7 +436,7 @@ export class InternalApiStack extends NestedStack {
       affiliatesLambda,
       {
         proxy: true,
-        allowTestInvoke: true,
+        allowTestInvoke: false,
       },
     );
 
@@ -482,7 +482,7 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const campaignsLambdaIntegration = new LambdaIntegration(campaignsLambda, {
       proxy: true,
-      allowTestInvoke: true,
+      allowTestInvoke: false,
     });
 
     const campaignsResource = v2Resource.addResource("campaigns");
@@ -675,7 +675,7 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const leadsLambdaIntegration = new LambdaIntegration(leadsLambda, {
       proxy: true,
-      allowTestInvoke: true,
+      allowTestInvoke: false,
     });
 
     const leadsResource = v2Resource.addResource("leads");
@@ -705,7 +705,7 @@ export class InternalApiStack extends NestedStack {
       tenantConfigLambda,
       {
         proxy: true,
-        allowTestInvoke: true,
+        allowTestInvoke: false,
       },
     );
 
@@ -897,7 +897,7 @@ export class InternalApiStack extends NestedStack {
     // ============================================================================
     const qaOrchestratorLambdaIntegration = new LambdaIntegration(
       qaOrchestratorLambda,
-      { proxy: true, allowTestInvoke: true },
+      { proxy: true, allowTestInvoke: false },
     );
 
     const qaResource = v2Resource.addResource("qa");

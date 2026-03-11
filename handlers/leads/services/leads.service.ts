@@ -700,9 +700,13 @@ export class LeadsService {
     status: CampaignStatus,
     isTest: boolean,
   ): string | null {
+    const baseUrl = this.constants.EXTERNAL_LEADS_API_URL;
+    const liveUrl = baseUrl || "/leads";
+    const testUrl = baseUrl ? `${baseUrl}/test` : "/leads/test";
+
     if (isTest) {
       if (status === CampaignStatus.ACTIVE) {
-        return "Campaign is live; send to /lead";
+        return `Campaign is live; send to ${liveUrl}`;
       }
       if (status === CampaignStatus.INACTIVE) {
         return "Campaign is inactive";
@@ -714,7 +718,7 @@ export class LeadsService {
     }
 
     if (status === CampaignStatus.TEST) {
-      return "Campaign is in test mode; send to /lead/test";
+      return `Campaign is in test mode; send to ${testUrl}`;
     }
     if (status === CampaignStatus.INACTIVE) {
       return "Campaign is inactive";
