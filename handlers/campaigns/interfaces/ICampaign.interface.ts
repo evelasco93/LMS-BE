@@ -242,6 +242,64 @@ export interface IBaseCriteriaHistoryEntry {
   changed_by?: RequestActor;
 }
 
+// ── Logic rule types ─────────────────────────────────────────────────────────
+
+export type LogicRuleOperator =
+  | "is"
+  | "is_not"
+  | "contains"
+  | "does_not_contain"
+  | "starts_with"
+  | "ends_with"
+  | "greater_than"
+  | "less_than"
+  | "is_empty"
+  | "is_not_empty";
+
+export type LogicRuleAction = "pass" | "fail";
+
+export interface ILogicRuleCondition {
+  id: string;
+  /** Must match a field_name in the campaign's base_criteria */
+  field_name: string;
+  operator: LogicRuleOperator;
+  /**
+   * The comparison value(s). Not needed for is_empty / is_not_empty.
+   * For list fields a single string is compared; pass an array to match any of multiple values
+   * (only applicable to "is" / "is_not" operators).
+   */
+  value?: string | string[];
+}
+
+export interface ILogicRuleGroup {
+  id: string;
+  /** Conditions within a group are evaluated with AND — all must match for the group to match */
+  conditions: ILogicRuleCondition[];
+}
+
+export interface ILogicRule {
+  id: string;
+  /** Human-readable name shown in the Logic Builder UI */
+  name: string;
+  /**
+   * What happens when this rule matches a lead:
+   * - "pass" — lead is allowed through (short-circuit, remaining rules not evaluated)
+   * - "fail" — lead is rejected
+   */
+  action: LogicRuleAction;
+  /** When false, this rule is ignored during lead evaluation */
+  enabled: boolean;
+  /**
+   * Groups are evaluated with OR — a rule matches when any group matches.
+   * Each group's conditions are evaluated with AND.
+   */
+  groups: ILogicRuleGroup[];
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+}
+
 export interface ICampaign {
   id: string;
   name: string;
@@ -258,6 +316,8 @@ export interface ICampaign {
   base_criteria?: IBaseCriteriaField[];
   /** Full audit trail of all base criteria changes */
   base_criteria_history?: IBaseCriteriaHistoryEntry[];
+  /** Logic rules applied after criteria validation — first matching rule determines pass/fail */
+  logic_rules?: ILogicRule[];
   created_at: string;
   updated_at: string;
   created_by?: RequestActor;

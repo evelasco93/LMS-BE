@@ -6,6 +6,7 @@ export class LeadsConstants {
   public readonly CAMPAIGNS_TABLE_NAME: string;
   public readonly QA_ORCHESTRATOR_LAMBDA_NAME: string;
   public readonly CRITERIA_VALIDATION_LAMBDA_NAME: string;
+  public readonly LOGIC_RULES_LAMBDA_NAME: string;
   public readonly EXTERNAL_LEADS_API_URL: string;
 
   constructor() {
@@ -15,6 +16,7 @@ export class LeadsConstants {
       process.env.QA_ORCHESTRATOR_LAMBDA_NAME ?? "";
     this.CRITERIA_VALIDATION_LAMBDA_NAME =
       process.env.CRITERIA_VALIDATION_LAMBDA_NAME ?? "";
+    this.LOGIC_RULES_LAMBDA_NAME = process.env.LOGIC_RULES_LAMBDA_NAME ?? "";
     this.EXTERNAL_LEADS_API_URL = process.env.EXTERNAL_LEADS_API_URL ?? "";
 
     if (!this.LEADS_TABLE_NAME) {

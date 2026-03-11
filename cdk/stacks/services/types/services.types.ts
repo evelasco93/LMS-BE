@@ -49,6 +49,7 @@ export interface IServicesStackConfig {
   qaTrustedForm: IServiceConfig;
   qaIpqs: IServiceConfig;
   qaCriteriaValidation: IServiceConfig;
+  qaLogicRules: IServiceConfig;
 }
 
 /**

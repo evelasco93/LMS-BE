@@ -11,6 +11,7 @@ import { QaDuplicateCheckServiceStack } from "./qa-duplicate-check-service.stack
 import { QaTrustedFormServiceStack } from "./qa-trusted-form-service.stack";
 import { QaIpqsServiceStack } from "./qa-ipqs-service.stack";
 import { QaCriteriaValidationServiceStack } from "./qa-criteria-validation-service.stack";
+import { QaLogicRulesServiceStack } from "./qa-logic-rules-service.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 
 export class ServicesStack extends Stack {
@@ -24,6 +25,7 @@ export class ServicesStack extends Stack {
   public readonly qaTrustedFormLambda: IFunction;
   public readonly qaIpqsLambda: IFunction;
   public readonly qaCriteriaValidationLambda: IFunction;
+  public readonly qaLogicRulesLambda: IFunction;
 
   constructor(scope: Construct, id: string, props: IServicesStackProps) {
     super(scope, id, props);
@@ -119,6 +121,17 @@ export class ServicesStack extends Stack {
       );
     this.qaCriteriaValidationLambda = qaCriteriaValidationServiceStack.lambda;
 
+    const qaLogicRulesServiceStack = new QaLogicRulesServiceStack(
+      this,
+      `${config.appPrefix}-QaLogicRulesService`,
+      {
+        lambdaConfig: servicesConfig.qaLogicRules.lambda,
+        roleName: servicesConfig.qaLogicRules.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.qaLogicRulesLambda = qaLogicRulesServiceStack.lambda;
+
     const clientsServiceStack = new ClientsServiceStack(
       this,
       `${config.appPrefix}-ClientsService`,
@@ -199,6 +212,12 @@ export class ServicesStack extends Stack {
       value: this.qaCriteriaValidationLambda.functionArn,
       description: "QA Criteria Validation Lambda Function ARN",
       exportName: `${config.appPrefix}-qa-criteria-validation-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-QaLogicRulesLambdaArn`, {
+      value: this.qaLogicRulesLambda.functionArn,
+      description: "QA Logic Rules Lambda Function ARN",
+      exportName: `${config.appPrefix}-qa-logic-rules-lambda-arn`,
     });
 
     if (config.tags) {

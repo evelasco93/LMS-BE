@@ -23,6 +23,7 @@ import {
   REJECTION_DUPLICATE,
   REJECTION_AFFILIATE_DISABLED,
   REJECTION_CRITERIA_VALIDATION,
+  REJECTION_LOGIC_RULES,
 } from "@shared/constants/rejection-messages.constants";
 import { resolveStateMappings } from "@shared/constants";
 
@@ -72,6 +73,13 @@ interface CriteriaValidationResponse {
   valid: boolean;
   missing_fields?: string[];
   rejection_reason?: string;
+}
+
+interface LogicRulesResponse {
+  passed: boolean;
+  rejection_reason?: string;
+  matched_rule_id?: string;
+  matched_rule_name?: string;
 }
 
 interface QaOrchestratorResult {
@@ -159,7 +167,13 @@ export class LeadsService {
                 payload: _p,
                 ...rest
               } = raw;
-              return rest;
+              // Re-include campaign_id/campaign_key in the lead payload so
+              // criteria validation can check them as required fields.
+              return {
+                ...rest,
+                campaign_id: campaignId,
+                campaign_key: campaignKey,
+              };
             })();
 
       if (!campaignId || !campaignKey) {
@@ -272,6 +286,66 @@ export class LeadsService {
           leadId: lead.id,
           campaignId,
           missingFields: criteriaValidationResult.missing_fields,
+        });
+
+        return { result: true, data: lead };
+      }
+
+      // ── Stage 1: Logic rules evaluation (custom pass/fail rules) ─
+      const logicRulesResult = await this.runLogicRules(
+        campaignId,
+        mappedPayload,
+      );
+
+      if (!logicRulesResult.passed) {
+        const rejectionReason =
+          logicRulesResult.rejection_reason ?? REJECTION_LOGIC_RULES;
+        const lead: ILead = {
+          id: IdGenerator.generateLeadId(),
+          campaign_id: campaignId,
+          campaign_key: campaignKey,
+          test: isTest,
+          payload: mappedPayload,
+          ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
+          ...(valueMapEditHistory.length > 0
+            ? {
+                edit_history: valueMapEditHistory,
+                edited_fields: valueMapEditedFields,
+              }
+            : {}),
+          duplicate: false,
+          duplicate_matches: { lead_ids: [] },
+          logic_rules_result: {
+            passed: false,
+            rejection_reason: rejectionReason,
+            ...(logicRulesResult.matched_rule_id
+              ? { matched_rule_id: logicRulesResult.matched_rule_id }
+              : {}),
+            ...(logicRulesResult.matched_rule_name
+              ? { matched_rule_name: logicRulesResult.matched_rule_name }
+              : {}),
+          },
+          created_at: now,
+          affiliate_status_at_intake: affiliateStatus,
+          rejected: true,
+          rejection_reason: rejectionReason,
+          created_by: actor,
+          updated_at: now,
+          updated_by: actor,
+          is_deleted: false,
+          active: true,
+        };
+
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.LEADS_TABLE_NAME,
+          Item: lead,
+        });
+
+        this.logger.info("Lead rejected by logic rules", {
+          leadId: lead.id,
+          campaignId,
+          matchedRuleId: logicRulesResult.matched_rule_id,
+          matchedRuleName: logicRulesResult.matched_rule_name,
         });
 
         return { result: true, data: lead };
@@ -736,6 +810,29 @@ export class LeadsService {
     });
 
     return campaign ?? null;
+  }
+
+  private async runLogicRules(
+    campaignId: string,
+    payload: Record<string, unknown>,
+  ): Promise<LogicRulesResponse> {
+    if (!this.constants.LOGIC_RULES_LAMBDA_NAME) {
+      return { passed: true };
+    }
+
+    try {
+      return await this.lambdaInvokeUtil.invokeJson<LogicRulesResponse>({
+        functionName: this.constants.LOGIC_RULES_LAMBDA_NAME,
+        payload: { campaign_id: campaignId, payload },
+      });
+    } catch (error) {
+      this.logger.error(
+        "Failed to execute logic rules evaluation — allowing lead through",
+        error,
+      );
+      // Fail open: if the lambda errors we don't want to silently drop leads.
+      return { passed: true };
+    }
   }
 
   private async runCriteriaValidation(

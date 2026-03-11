@@ -7,4 +7,7 @@ export enum EntityPrefix {
   CREDENTIAL_SCHEMA = "CS",
   PLUGIN_SETTING = "PG",
   CRITERIA_FIELD = "CF",
+  LOGIC_RULE = "LR",
+  LOGIC_RULE_GROUP = "LG",
+  LOGIC_RULE_CONDITION = "LC",
 }

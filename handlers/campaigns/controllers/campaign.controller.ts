@@ -26,6 +26,8 @@ import {
   UpdateCriteriaFieldRequest,
   ReorderCriteriaRequest,
   SetValueMappingsRequest,
+  CreateLogicRuleRequest,
+  UpdateLogicRuleRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -644,6 +646,149 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Value mappings updated successfully",
+      data: result.data,
+    };
+  }
+
+  // ── Logic Rules ─────────────────────────────────────────────────────────
+
+  /**
+   * GET /:id/logic-rules
+   */
+  @GET("/:id/logic-rules")
+  @produces("application/json")
+  async listLogicRules(@pathParam("id") id: string): Promise<RestApiResponse> {
+    const result = await this.campaignService.listLogicRules(id);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to list logic rules",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic rules retrieved successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * GET /:id/logic-rules/:ruleId
+   */
+  @GET("/:id/logic-rules/:ruleId")
+  @produces("application/json")
+  async getLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("ruleId") ruleId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getLogicRule(id, ruleId);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to get logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic rule retrieved successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * POST /:id/logic-rules
+   */
+  @POST("/:id/logic-rules")
+  @produces("application/json")
+  async createLogicRule(
+    @pathParam("id") id: string,
+    @body payload: CreateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createLogicRule(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to create logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic rule created successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * PUT /:id/logic-rules/:ruleId
+   */
+  @PUT("/:id/logic-rules/:ruleId")
+  @produces("application/json")
+  async updateLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("ruleId") ruleId: string,
+    @body payload: UpdateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateLogicRule(
+      id,
+      ruleId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic rule updated successfully",
+      data: result.data,
+    };
+  }
+
+  /**
+   * DELETE /:id/logic-rules/:ruleId
+   */
+  @DELETE("/:id/logic-rules/:ruleId")
+  @produces("application/json")
+  async deleteLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("ruleId") ruleId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteLogicRule(
+      id,
+      ruleId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic rule deleted successfully",
       data: result.data,
     };
   }

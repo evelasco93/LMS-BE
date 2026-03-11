@@ -24,6 +24,7 @@ export class IamStack extends Stack {
   public readonly qaTrustedFormLambdaRole: Role;
   public readonly qaIpqsLambdaRole: Role;
   public readonly qaCriteriaValidationLambdaRole: Role;
+  public readonly qaLogicRulesLambdaRole: Role;
   public readonly authLambdaRole: Role;
   public readonly usersLambdaRole: Role;
 
@@ -89,6 +90,12 @@ export class IamStack extends Stack {
     this.qaCriteriaValidationLambdaRole = this.createRole(
       `${config.appPrefix}-QaCriteriaValidationLambdaRole`,
       iamConfig.lambdaRoles.qaCriteriaValidation,
+    );
+
+    // Create QA Logic Rules Lambda Role
+    this.qaLogicRulesLambdaRole = this.createRole(
+      `${config.appPrefix}-QaLogicRulesLambdaRole`,
+      iamConfig.lambdaRoles.qaLogicRules,
     );
 
     // Create Auth Lambda Role

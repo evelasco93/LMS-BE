@@ -8,6 +8,8 @@ import {
   IIpqsPluginConfig,
   ITrustedFormPluginConfig,
   IValueMapping,
+  LogicRuleAction,
+  LogicRuleOperator,
 } from "../interfaces/ICampaign.interface";
 
 export type CreateCampaignRequest = {
@@ -85,4 +87,42 @@ export type SetValueMappingsRequest = {
 export type ReorderCriteriaRequest = {
   /** Array of field IDs in the desired display order (1-based position = index+1) */
   order: string[];
+};
+
+// ── Logic Rules ───────────────────────────────────────────────────────────────
+
+export type CreateLogicRuleConditionRequest = {
+  field_name: string;
+  operator: LogicRuleOperator;
+  value?: string | string[];
+};
+
+export type CreateLogicRuleGroupRequest = {
+  conditions: CreateLogicRuleConditionRequest[];
+};
+
+export type CreateLogicRuleRequest = {
+  name: string;
+  action: LogicRuleAction;
+  enabled?: boolean;
+  groups: CreateLogicRuleGroupRequest[];
+};
+
+export type UpdateLogicRuleConditionRequest = {
+  id?: string;
+  field_name: string;
+  operator: LogicRuleOperator;
+  value?: string | string[];
+};
+
+export type UpdateLogicRuleGroupRequest = {
+  id?: string;
+  conditions: UpdateLogicRuleConditionRequest[];
+};
+
+export type UpdateLogicRuleRequest = {
+  name?: string;
+  action?: LogicRuleAction;
+  enabled?: boolean;
+  groups?: UpdateLogicRuleGroupRequest[];
 };

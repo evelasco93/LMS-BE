@@ -40,6 +40,7 @@ export interface IIamStackConfig {
     qaTrustedForm: IRoleConfig;
     qaIpqs: IRoleConfig;
     qaCriteriaValidation: IRoleConfig;
+    qaLogicRules: IRoleConfig;
     auth: IRoleConfig;
     users: IRoleConfig;
   };

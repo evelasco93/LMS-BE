@@ -219,7 +219,10 @@ export class OrchestratorService {
     }
 
     const ipqsPlugin = event.plugins?.ipqs;
-    if (ipqsPlugin?.enabled && (event.phone || event.email || event.ip_address)) {
+    if (
+      ipqsPlugin?.enabled &&
+      (event.phone || event.email || event.ip_address)
+    ) {
       const stageNum = ipqsPlugin.stage ?? 2;
       if (!stages.has(stageNum)) stages.set(stageNum, []);
       stages.get(stageNum)!.push(() => this.runIpqsTask(event, ipqsPlugin));
@@ -322,7 +325,13 @@ export class OrchestratorService {
         ? this.mapTrustedFormToHaltReason(trustedFormResult)
         : undefined;
 
-      return { name: "trusted_form", success, gate, haltReason, trustedFormResult };
+      return {
+        name: "trusted_form",
+        success,
+        gate,
+        haltReason,
+        trustedFormResult,
+      };
     } catch (error) {
       this.logger.error("QA orchestrator failed to run trusted_form plugin", {
         error,
@@ -357,9 +366,7 @@ export class OrchestratorService {
 
     const credentialsId = await this.resolveDefaultCredentialsId("ipqs");
     if (!credentialsId) {
-      this.logger.warn(
-        "No active ipqs credential found — skipping IPQS check",
-      );
+      this.logger.warn("No active ipqs credential found — skipping IPQS check");
       return { name: "ipqs", success: true, gate };
     }
 
@@ -436,44 +443,20 @@ export class OrchestratorService {
     try {
       const tableName = this.constants.TENANT_SETTINGS_TABLE_NAME;
 
-      // 1. Find the credential_schema for this provider
-      const schemaRecords = await this.dynamoDBUtil.queryAll<{
-        id: string;
-        type: string;
-      }>({
-        TableName: tableName,
-        IndexName: `${tableName}-type-provider-index`,
-        KeyConditionExpression: "#t = :type AND #p = :provider",
-        FilterExpression: "attribute_not_exists(is_deleted) OR is_deleted = :f",
-        ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
-        ExpressionAttributeValues: {
-          ":type": "credential_schema",
-          ":provider": provider,
-          ":f": false,
-        },
-        Limit: 1,
-      });
-
-      if (!schemaRecords.length) {
-        this.logger.warn(
-          `No credential schema found for provider "${provider}"`,
-        );
-        return null;
-      }
-
-      const schemaId = schemaRecords[0].id;
-
-      // 2. Find the plugin_setting for that schema
+      // Query plugin_setting directly by provider using the type-provider GSI.
+      // plugin_setting records store `provider` (not schema_id), so we can
+      // resolve in a single lookup.
       const settingRecords =
         await this.dynamoDBUtil.queryAll<PluginSettingLookup>({
           TableName: tableName,
-          IndexName: `${tableName}-schema-id-index`,
-          KeyConditionExpression: "#s = :schemaId",
+          IndexName: `${tableName}-type-provider-index`,
+          KeyConditionExpression: "#t = :type AND #p = :provider",
           FilterExpression:
             "enabled = :e AND (attribute_not_exists(is_deleted) OR is_deleted = :f)",
-          ExpressionAttributeNames: { "#s": "schema_id" },
+          ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
           ExpressionAttributeValues: {
-            ":schemaId": schemaId,
+            ":type": "plugin_setting",
+            ":provider": provider,
             ":e": true,
             ":f": false,
           },
@@ -482,7 +465,7 @@ export class OrchestratorService {
 
       if (!settingRecords.length) {
         this.logger.warn(
-          `No active plugin setting found for schema "${schemaId}"`,
+          `No active plugin setting found for provider "${provider}"`,
         );
         return null;
       }

@@ -23,6 +23,9 @@ import {
   IIpqsIpCheckConfig,
   IIpqsPhoneCheckConfig,
   IIpqsPluginConfig,
+  ILogicRule,
+  ILogicRuleCondition,
+  ILogicRuleGroup,
   IParticipantHistoryEntry,
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
@@ -31,6 +34,7 @@ import { CampaignParticipantStatus } from "../enums/campaign-participant-status.
 import {
   AddCriteriaFieldRequest,
   CreateCampaignRequest,
+  CreateLogicRuleRequest,
   LinkAffiliateRequest,
   LinkClientRequest,
   ListCampaignsQuery,
@@ -40,6 +44,7 @@ import {
   UpdateCampaignRequest,
   UpdateCampaignStatusRequest,
   UpdateCriteriaFieldRequest,
+  UpdateLogicRuleRequest,
   UpdateParticipantStatusRequest,
 } from "../types/campaign-request.types";
 import { ServiceResult } from "../types/common.types";
@@ -2136,6 +2141,263 @@ export class CampaignService {
     }
   }
 
+  // ── Logic Rules ─────────────────────────────────────────────────────────
+
+  async listLogicRules(
+    campaignId: string,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      return { result: true, data: campaign.logic_rules ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to list logic rules", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list logic rules",
+      };
+    }
+  }
+
+  async getLogicRule(
+    campaignId: string,
+    ruleId: string,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const rule = (campaign.logic_rules ?? []).find((r) => r.id === ruleId);
+      if (!rule) {
+        return { result: false, error: `Logic rule ${ruleId} not found` };
+      }
+      return { result: true, data: rule };
+    } catch (error: any) {
+      this.logger.error("Failed to get logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get logic rule",
+      };
+    }
+  }
+
+  async createLogicRule(
+    campaignId: string,
+    request: CreateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const validationError = this.validateLogicRuleRequest(request);
+      if (validationError) return { result: false, error: validationError };
+
+      const now = new Date().toISOString();
+      const rule: ILogicRule = {
+        id: IdGenerator.generate("LR"),
+        name: request.name.trim(),
+        action: request.action,
+        enabled: request.enabled ?? true,
+        groups: request.groups.map((g) => ({
+          id: IdGenerator.generate("LG"),
+          conditions: g.conditions.map((c) => ({
+            id: IdGenerator.generate("LC"),
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(c.value !== undefined ? { value: c.value } : {}),
+          })),
+        })),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      campaign.logic_rules = [...(campaign.logic_rules ?? []), rule];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Logic rule created", { campaignId, ruleId: rule.id });
+      return { result: true, data: rule };
+    } catch (error: any) {
+      this.logger.error("Failed to create logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create logic rule",
+      };
+    }
+  }
+
+  async updateLogicRule(
+    campaignId: string,
+    ruleId: string,
+    request: UpdateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const ruleIndex = (campaign.logic_rules ?? []).findIndex(
+        (r) => r.id === ruleId,
+      );
+      if (ruleIndex === -1) {
+        return { result: false, error: `Logic rule ${ruleId} not found` };
+      }
+
+      if (request.groups !== undefined) {
+        const validationError = this.validateLogicRuleRequest({
+          name: request.name ?? "x",
+          action: request.action ?? "fail",
+          groups: request.groups,
+        });
+        if (validationError) return { result: false, error: validationError };
+      }
+
+      const existing = campaign.logic_rules![ruleIndex];
+      const now = new Date().toISOString();
+
+      const updated: ILogicRule = {
+        ...existing,
+        name: request.name !== undefined ? request.name.trim() : existing.name,
+        action: request.action !== undefined ? request.action : existing.action,
+        enabled:
+          request.enabled !== undefined ? request.enabled : existing.enabled,
+        groups:
+          request.groups !== undefined
+            ? request.groups.map((g) => ({
+                id: g.id ?? IdGenerator.generate("LG"),
+                conditions: g.conditions.map((c) => ({
+                  id: c.id ?? IdGenerator.generate("LC"),
+                  field_name: c.field_name,
+                  operator: c.operator,
+                  ...(c.value !== undefined ? { value: c.value } : {}),
+                })),
+              }))
+            : existing.groups,
+        updated_at: now,
+        updated_by: actor,
+      };
+
+      const updatedRules = [...campaign.logic_rules!];
+      updatedRules[ruleIndex] = updated;
+      campaign.logic_rules = updatedRules;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Logic rule updated", { campaignId, ruleId });
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update logic rule",
+      };
+    }
+  }
+
+  async deleteLogicRule(
+    campaignId: string,
+    ruleId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const existing = campaign.logic_rules ?? [];
+      if (!existing.find((r) => r.id === ruleId)) {
+        return { result: false, error: `Logic rule ${ruleId} not found` };
+      }
+
+      const now = new Date().toISOString();
+      campaign.logic_rules = existing.filter((r) => r.id !== ruleId);
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      this.logger.info("Logic rule deleted", { campaignId, ruleId });
+      return { result: true, data: { id: ruleId } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete logic rule",
+      };
+    }
+  }
+
+  private validateLogicRuleRequest(
+    request: Pick<CreateLogicRuleRequest, "name" | "action" | "groups">,
+  ): string | null {
+    if (!request.name?.trim()) return "name is required";
+    if (!["pass", "fail"].includes(request.action))
+      return "action must be 'pass' or 'fail'";
+    if (!Array.isArray(request.groups) || request.groups.length === 0)
+      return "groups must be a non-empty array";
+
+    for (let gi = 0; gi < request.groups.length; gi++) {
+      const group = request.groups[gi];
+      if (!Array.isArray(group.conditions) || group.conditions.length === 0)
+        return `groups[${gi}].conditions must be a non-empty array`;
+
+      const validOperators = [
+        "is",
+        "is_not",
+        "contains",
+        "does_not_contain",
+        "starts_with",
+        "ends_with",
+        "greater_than",
+        "less_than",
+        "is_empty",
+        "is_not_empty",
+      ];
+
+      for (let ci = 0; ci < group.conditions.length; ci++) {
+        const cond = group.conditions[ci];
+        if (!cond.field_name?.trim())
+          return `groups[${gi}].conditions[${ci}].field_name is required`;
+        if (!validOperators.includes(cond.operator))
+          return `groups[${gi}].conditions[${ci}].operator '${cond.operator}' is invalid`;
+        const noValueNeeded = ["is_empty", "is_not_empty"].includes(
+          cond.operator,
+        );
+        if (
+          !noValueNeeded &&
+          (cond.value === undefined || cond.value === null || cond.value === "")
+        ) {
+          return `groups[${gi}].conditions[${ci}].value is required for operator '${cond.operator}'`;
+        }
+      }
+    }
+    return null;
+  }
+
   private validateFieldOptions(options: IFieldOption[]): string | null {
     if (!Array.isArray(options)) {
       return "options must be an array";
@@ -2341,11 +2603,11 @@ export class CampaignService {
     if (!this.constants.TENANT_SETTINGS_TABLE_NAME) return true;
 
     const typeProviderIndex = `${this.constants.TENANT_SETTINGS_TABLE_NAME}-type-provider-index`;
-    const schemaIdIndex = `${this.constants.TENANT_SETTINGS_TABLE_NAME}-schema-id-index`;
 
-    // Step 1: find the credential_schema record for this provider
-    const schemas = await this.dynamoDBUtil.queryAll<{
-      id: string;
+    // Query plugin_setting directly by provider — plugin_setting records store
+    // `provider` (not schema_id), so a single GSI lookup is sufficient.
+    const settings = await this.dynamoDBUtil.queryAll<{
+      enabled: boolean;
       is_deleted?: boolean;
     }>({
       TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
@@ -2353,29 +2615,14 @@ export class CampaignService {
       KeyConditionExpression: "#t = :type AND #p = :provider",
       ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
       ExpressionAttributeValues: {
-        ":type": "credential_schema",
+        ":type": "plugin_setting",
         ":provider": provider,
       },
     });
 
-    const schema = schemas.find((s) => !s.is_deleted);
-    // Not configured at tenant level → permissive (no global rule = allow)
-    if (!schema) return true;
-
-    // Step 2: find the matching plugin_setting and check enabled
-    const settings = await this.dynamoDBUtil.queryAll<{
-      enabled: boolean;
-      is_deleted?: boolean;
-    }>({
-      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
-      IndexName: schemaIdIndex,
-      KeyConditionExpression: "#s = :schemaId",
-      ExpressionAttributeNames: { "#s": "schema_id" },
-      ExpressionAttributeValues: { ":schemaId": schema.id },
-    });
-
     const setting = settings.find((s) => !s.is_deleted);
-    if (!setting) return false; // no active plugin setting → treated as disabled
+    // No plugin_setting record at tenant level → permissive (not configured = allow)
+    if (!setting) return true;
 
     return setting.enabled === true;
   }

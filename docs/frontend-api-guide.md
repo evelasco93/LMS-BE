@@ -513,6 +513,7 @@ Criteria are managed via the internal API (Bearer token required on all endpoint
 | -------- | --------------------------------------------- | ------------------------------------------------------- |
 | `GET`    | `/campaigns/{id}/criteria`                    | List all criteria fields (in order)                     |
 | `POST`   | `/campaigns/{id}/criteria`                    | Add a criteria field                                    |
+| `POST`   | `/campaigns/{id}/criteria/base-fields`        | Seed standard base criteria fields (idempotent)         |
 | `PUT`    | `/campaigns/{id}/criteria/reorder`            | Reorder all criteria fields                             |
 | `GET`    | `/campaigns/{id}/criteria/{fieldId}`          | Get a single criteria field                             |
 | `PUT`    | `/campaigns/{id}/criteria/{fieldId}`          | Update a criteria field (partial — all fields optional) |
@@ -602,6 +603,27 @@ For a `List` field, include an `options` array:
 ```
 
 To remove a `state_mapping`, send `"state_mapping": null`.
+
+### Seeding standard base fields
+
+**`POST /campaigns/{id}/criteria/base-fields`** — seeds the campaign with the platform-standard required fields in one call:
+
+| field_name         | field_label      | data_type |
+| ------------------ | ---------------- | --------- |
+| `first_name`       | First Name       | Text      |
+| `last_name`        | Last Name        | Text      |
+| `phone`            | Phone            | Text      |
+| `state`            | State            | US State  |
+| `email`            | Email            | Text      |
+| `ip_address`       | IP Address       | Text      |
+| `marketing_source` | Marketing Source | Text      |
+| `pub_id`           | Pub ID           | Text      |
+| `campaign_id`      | Campaign ID      | Text      |
+| `campaign_key`     | Campaign Key     | Text      |
+
+All fields are seeded as `required: true`. Fields that already exist by `field_name` are silently skipped — safe to call multiple times.
+
+No request body needed — just `POST` to the endpoint.
 
 ### Reordering fields
 

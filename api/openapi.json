@@ -1616,6 +1616,29 @@
         }
       }
     },
+    "/campaigns/{id}/criteria/base-fields": {
+      "post": {
+        "summary": "Seed campaign with standard base criteria fields",
+        "description": "Appends the platform-standard base criteria fields (first_name, last_name, phone, state, email, ip_address, marketing_source, pub_id, campaign_id, campaign_key) to the campaign. Fields that already exist by field_name are silently skipped — safe to call multiple times (idempotent).",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "responses": {
+          "200": {
+            "description": "Base fields added — returns the full updated criteria list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCriteriaListResponse"
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Campaign not found" }
+        }
+      }
+    },
     "/campaigns/{id}/criteria/reorder": {
       "put": {
         "summary": "Reorder criteria fields",
@@ -1798,6 +1821,202 @@
           },
           "400": { "description": "Validation error" },
           "404": { "description": "Campaign or field not found" }
+        }
+      }
+    },
+    "/campaigns/{id}/logic-rules": {
+      "get": {
+        "summary": "List logic rules for a campaign",
+        "description": "Returns all logic rules attached to the campaign. Logic rules are evaluated after criteria validation to apply pass/fail decisions on incoming leads.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "responses": {
+          "200": {
+            "description": "Logic rules list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": { "type": "boolean" },
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/LogicRule" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Campaign not found" }
+        }
+      },
+      "post": {
+        "summary": "Create a logic rule for a campaign",
+        "description": "Appends a new logic rule to the campaign. Rules are evaluated in order — the first matching rule's action (pass or fail) is applied. If no rules match the lead passes by default.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLogicRuleRequest"
+              },
+              "examples": {
+                "failRule": {
+                  "summary": "Reject leads that are not from California",
+                  "value": {
+                    "name": "State must be California",
+                    "action": "fail",
+                    "enabled": true,
+                    "groups": [
+                      {
+                        "conditions": [
+                          {
+                            "field_name": "state",
+                            "operator": "is_not",
+                            "value": "California"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "passRule": {
+                  "summary": "Allow leads from known trusted emails",
+                  "value": {
+                    "name": "Trusted email domains",
+                    "action": "pass",
+                    "enabled": true,
+                    "groups": [
+                      {
+                        "conditions": [
+                          {
+                            "field_name": "email",
+                            "operator": "ends_with",
+                            "value": "@trusted.com"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logic rule created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": { "type": "boolean" },
+                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Campaign not found" }
+        }
+      }
+    },
+    "/campaigns/{id}/logic-rules/{ruleId}": {
+      "get": {
+        "summary": "Get a single logic rule",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/LogicRuleId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logic rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": { "type": "boolean" },
+                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Campaign or rule not found" }
+        }
+      },
+      "put": {
+        "summary": "Update a logic rule",
+        "description": "Partially updates a logic rule. Supply only the fields you want to change.",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/LogicRuleId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLogicRuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logic rule updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": { "type": "boolean" },
+                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Campaign or rule not found" }
+        }
+      },
+      "delete": {
+        "summary": "Delete a logic rule",
+        "tags": ["campaigns"],
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/CampaignId" },
+          { "$ref": "#/components/parameters/LogicRuleId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logic rule deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "result": { "type": "boolean" },
+                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Campaign or rule not found" }
         }
       }
     },
@@ -4848,6 +5067,174 @@
           }
         }
       },
+      "LogicRuleCondition": {
+        "type": "object",
+        "description": "A single condition within a logic rule group.",
+        "required": ["field_name", "operator"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "LC-prefixed condition ID (auto-generated)",
+            "example": "LC000001"
+          },
+          "field_name": {
+            "type": "string",
+            "description": "The criteria field name to evaluate",
+            "example": "state"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "is",
+              "is_not",
+              "contains",
+              "does_not_contain",
+              "starts_with",
+              "ends_with",
+              "greater_than",
+              "less_than",
+              "is_empty",
+              "is_not_empty"
+            ]
+          },
+          "value": {
+            "description": "The value to compare against. Omit for is_empty / is_not_empty. For is / is_not, may be an array to match any.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        }
+      },
+      "LogicRuleGroup": {
+        "type": "object",
+        "description": "A group of conditions (AND). Groups are evaluated with OR logic between them.",
+        "required": ["conditions"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "LG-prefixed group ID (auto-generated)",
+            "example": "LG000001"
+          },
+          "conditions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LogicRuleCondition" },
+            "minItems": 1
+          }
+        }
+      },
+      "LogicRule": {
+        "type": "object",
+        "description": "A logic rule attached to a campaign. Evaluated after criteria validation — first matching rule wins.",
+        "required": ["id", "name", "action", "enabled", "groups"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "LR-prefixed rule ID",
+            "example": "LR000001"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable rule name",
+            "example": "Reject non-California leads"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["pass", "fail"],
+            "description": "Action to apply when this rule matches"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this rule is active"
+          },
+          "groups": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LogicRuleGroup" },
+            "description": "Groups evaluated with OR. A rule matches when any group matches (all conditions in the group are true).",
+            "minItems": 1
+          },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "created_by": { "type": "string" },
+          "updated_by": { "type": "string" }
+        }
+      },
+      "CreateLogicRuleConditionRequest": {
+        "type": "object",
+        "required": ["field_name", "operator"],
+        "properties": {
+          "field_name": { "type": "string", "example": "state" },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "is",
+              "is_not",
+              "contains",
+              "does_not_contain",
+              "starts_with",
+              "ends_with",
+              "greater_than",
+              "less_than",
+              "is_empty",
+              "is_not_empty"
+            ]
+          },
+          "value": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        }
+      },
+      "CreateLogicRuleGroupRequest": {
+        "type": "object",
+        "required": ["conditions"],
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateLogicRuleConditionRequest"
+            },
+            "minItems": 1
+          }
+        }
+      },
+      "CreateLogicRuleRequest": {
+        "type": "object",
+        "required": ["name", "action", "groups"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Reject non-California leads"
+          },
+          "action": { "type": "string", "enum": ["pass", "fail"] },
+          "enabled": { "type": "boolean", "default": true },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateLogicRuleGroupRequest"
+            },
+            "minItems": 1
+          }
+        }
+      },
+      "UpdateLogicRuleRequest": {
+        "type": "object",
+        "description": "All fields are optional — supply only what you want to change.",
+        "properties": {
+          "name": { "type": "string" },
+          "action": { "type": "string", "enum": ["pass", "fail"] },
+          "enabled": { "type": "boolean" },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateLogicRuleGroupRequest"
+            },
+            "minItems": 1
+          }
+        }
+      },
       "BaseCriteriaField": {
         "type": "object",
         "description": "A single criteria field on a campaign. Required fields gate lead intake.",
@@ -5037,6 +5424,14 @@
         "description": "CF-prefixed criteria field ID",
         "schema": { "type": "string" },
         "example": "CF000001"
+      },
+      "LogicRuleId": {
+        "name": "ruleId",
+        "in": "path",
+        "required": true,
+        "description": "LR-prefixed logic rule ID",
+        "schema": { "type": "string" },
+        "example": "LR000001"
       },
       "CredentialId": {
         "name": "id",

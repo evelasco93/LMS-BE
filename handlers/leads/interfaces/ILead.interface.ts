@@ -49,6 +49,13 @@ export interface IMappedFieldEntry {
   mapped_at: string;
 }
 
+export interface ILogicRulesResult {
+  passed: boolean;
+  rejection_reason?: string;
+  matched_rule_id?: string;
+  matched_rule_name?: string;
+}
+
 export interface ILead {
   id: string;
   campaign_id: string;
@@ -57,6 +64,8 @@ export interface ILead {
   payload?: Record<string, unknown>;
   /** Fields that were normalised by a value_mapping rule at intake time */
   mapped_fields?: IMappedFieldEntry[];
+  /** Result of the logic rules evaluation at lead intake time */
+  logic_rules_result?: ILogicRulesResult;
   duplicate?: boolean;
   duplicate_matches?: {
     lead_ids: string[];

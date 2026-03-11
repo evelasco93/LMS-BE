@@ -54,6 +54,15 @@ export const REJECTION_IPQS_IP = "IP address";
 export const REJECTION_CRITERIA_VALIDATION =
   "One or more required fields are missing from this submission.";
 
+/**
+ * Fired when a campaign logic rule with action="fail" matches the lead.
+ * In practice the logic-rules lambda returns a rule-specific message
+ * (e.g. "Lead does not meet campaign requirements: Rule Name") — this constant
+ * is used only if that detailed reason is unavailable.
+ */
+export const REJECTION_LOGIC_RULES =
+  "This submission does not meet the campaign's intake requirements.";
+
 // ── Acceptance messages ───────────────────────────────────────────────────────
 
 /** Returned to affiliates when a live lead is accepted. */

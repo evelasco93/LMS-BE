@@ -670,6 +670,43 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
+    // ── Logic Rules routes ────────────────────────────────────────────────────
+    const campaignLogicRulesResource =
+      campaignResource.addResource("logic-rules");
+    addProtectedMethod(
+      campaignLogicRulesResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      campaignLogicRulesResource,
+      "POST",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    const campaignLogicRuleResource =
+      campaignLogicRulesResource.addResource("{ruleId}");
+    addProtectedMethod(
+      campaignLogicRuleResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      campaignLogicRuleResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      campaignLogicRuleResource,
+      "DELETE",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     // ============================================================================
     // LEADS INTEGRATION
     // ============================================================================

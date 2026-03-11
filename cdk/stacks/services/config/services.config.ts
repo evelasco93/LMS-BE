@@ -75,6 +75,7 @@ export const servicesConfig: IServicesStackConfig = {
         CRITERIA_VALIDATION_LAMBDA_NAME: nameBuilder.lambda(
           "qa-criteria-validation",
         ),
+        LOGIC_RULES_LAMBDA_NAME: nameBuilder.lambda("qa-logic-rules"),
         EXTERNAL_LEADS_API_URL:
           "https://u1jn88al42.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
         NODE_ENV: "production",
@@ -203,6 +204,25 @@ export const servicesConfig: IServicesStackConfig = {
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-criteria-validation-lambda"),
+    },
+    tableName: nameBuilder.table("campaigns"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("campaigns")),
+  },
+  qaLogicRules: {
+    lambda: {
+      functionName: nameBuilder.lambda("qa-logic-rules"),
+      entry: path.join(
+        __dirname,
+        "../../../../handlers/qa/modules/logic-rules/main.ts",
+      ),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("qa-logic-rules-lambda"),
     },
     tableName: nameBuilder.table("campaigns"),
     tableArn: arnBuilder.dynamoTable(nameBuilder.table("campaigns")),
