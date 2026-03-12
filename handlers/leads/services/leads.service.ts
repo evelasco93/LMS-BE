@@ -78,6 +78,12 @@ interface CriteriaValidationResponse {
 interface LogicRulesResponse {
   passed: boolean;
   rejection_reason?: string;
+  condition_failures?: Array<{
+    field: string;
+    operator: string;
+    expected: string | string[];
+    received: string;
+  }>;
   matched_rule_id?: string;
   matched_rule_name?: string;
 }
@@ -251,6 +257,9 @@ export class LeadsService {
         const rejectionReason =
           criteriaValidationResult.rejection_reason ??
           REJECTION_CRITERIA_VALIDATION;
+        const criteriaRejectionErrors = (
+          criteriaValidationResult.missing_fields ?? []
+        ).map((field) => `${field.replace(/_/g, " ")} is required`);
         const lead: ILead = {
           id: IdGenerator.generateLeadId(),
           campaign_id: campaignId,
@@ -270,6 +279,9 @@ export class LeadsService {
           affiliate_status_at_intake: affiliateStatus,
           rejected: true,
           rejection_reason: rejectionReason,
+          ...(criteriaRejectionErrors.length > 0
+            ? { rejection_errors: criteriaRejectionErrors }
+            : {}),
           created_by: actor,
           updated_at: now,
           updated_by: actor,
@@ -304,34 +316,84 @@ export class LeadsService {
       if (!logicRulesResult.passed) {
         const rejectionReason =
           logicRulesResult.rejection_reason ?? REJECTION_LOGIC_RULES;
+        const logicRejectionErrors = (
+          logicRulesResult.condition_failures ?? []
+        ).map((f) => {
+          const fieldLabel = f.field.replace(/_/g, " ");
+          const expected = Array.isArray(f.expected)
+            ? f.expected.join(" or ")
+            : f.expected;
+          switch (f.operator) {
+            case "is":
+              return `${fieldLabel} must equal ${expected}`;
+            case "is_not":
+              return `${fieldLabel} must not equal ${expected}`;
+            case "contains":
+              return `${fieldLabel} does not match options`;
+            case "does_not_contain":
+              return `${fieldLabel} contains a disallowed value`;
+            case "starts_with":
+              return `${fieldLabel} must start with ${expected}`;
+            case "ends_with":
+              return `${fieldLabel} must end with ${expected}`;
+            case "greater_than":
+              return `${fieldLabel} must be greater than ${expected}`;
+            case "less_than":
+              return `${fieldLabel} must be less than ${expected}`;
+            default:
+              return `${fieldLabel} does not meet requirements`;
+          }
+        });
 
-        this.logger.info("Lead rejected by logic rules — not persisted", {
+        const logicRejectLead: ILead = {
+          id: IdGenerator.generateLeadId(),
+          campaign_id: campaignId,
+          campaign_key: campaignKey,
+          test: isTest,
+          payload: mappedPayload,
+          ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
+          ...(valueMapEditHistory.length > 0
+            ? {
+                edit_history: valueMapEditHistory,
+                edited_fields: valueMapEditedFields,
+              }
+            : {}),
+          duplicate: false,
+          duplicate_matches: { lead_ids: [] },
+          created_at: now,
+          affiliate_status_at_intake: affiliateStatus,
+          rejected: true,
+          rejection_reason: rejectionReason,
+          ...(logicRejectionErrors.length > 0
+            ? { rejection_errors: logicRejectionErrors }
+            : {}),
+          logic_rules_result: {
+            passed: false,
+            rejection_reason: rejectionReason,
+            matched_rule_id: logicRulesResult.matched_rule_id,
+            matched_rule_name: logicRulesResult.matched_rule_name,
+          },
+          created_by: actor,
+          updated_at: now,
+          updated_by: actor,
+          is_deleted: false,
+          active: false,
+        };
+
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.LEADS_TABLE_NAME,
+          Item: logicRejectLead,
+        });
+
+        this.logger.info("Lead rejected by logic rules", {
+          leadId: logicRejectLead.id,
           campaignId,
           matchedRuleId: logicRulesResult.matched_rule_id,
           matchedRuleName: logicRulesResult.matched_rule_name,
+          errorCount: logicRejectionErrors.length,
         });
 
-        return {
-          result: true,
-          data: {
-            id: "",
-            campaign_id: campaignId,
-            campaign_key: campaignKey,
-            test: isTest,
-            payload: mappedPayload,
-            duplicate: false,
-            duplicate_matches: { lead_ids: [] },
-            rejected: true,
-            rejection_reason: rejectionReason,
-            created_at: now,
-            affiliate_status_at_intake: affiliateStatus,
-            created_by: actor,
-            updated_at: now,
-            updated_by: actor,
-            is_deleted: false,
-            active: false,
-          } as ILead,
-        };
+        return { result: true, data: logicRejectLead };
       }
 
       const qaResult = await this.runQaPlugins(campaign, {

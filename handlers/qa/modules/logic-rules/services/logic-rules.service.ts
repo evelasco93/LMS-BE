@@ -2,7 +2,10 @@ import { inject, injectable } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { LogicRulesConstants } from "../constants/logic-rules.constants";
-import { LogicRulesResponse } from "../interfaces/ILogicRules.interface";
+import {
+  LogicRuleConditionFailure,
+  LogicRulesResponse,
+} from "../interfaces/ILogicRules.interface";
 import { LogicRulesEvent } from "../types/logic-rules-event.types";
 import { CommonServiceResult } from "../types/common.types";
 
@@ -99,7 +102,12 @@ export class LogicRulesService {
               },
             };
           } else {
-            const rejectionReason = `Lead does not meet campaign requirements: ${rule.name}`;
+            // Fail rule matched — collect condition details for the response
+            const failures = this.collectConditionFailures(rule, payload);
+            const rejectionReason = this.buildRejectionMessage(
+              failures,
+              rule.name,
+            );
             this.logger.info("LogicRules: fail rule matched — lead rejected", {
               campaignId: event.campaign_id,
               ruleId: rule.id,
@@ -110,6 +118,7 @@ export class LogicRulesService {
               data: {
                 passed: false,
                 rejection_reason: rejectionReason,
+                condition_failures: failures,
                 matched_rule_id: rule.id,
                 matched_rule_name: rule.name,
               },
@@ -121,15 +130,28 @@ export class LogicRulesService {
       // No rules matched.
       // If there are any enabled "pass" rules, those define a whitelist — a
       // lead that didn't satisfy any of them must be rejected.
-      // If there are only "fail" rules and none fired, the lead is allowed.
-      const hasPassRules = enabledRules.some((r) => r.action === "pass");
-      if (hasPassRules) {
+      // Collect every condition from every pass rule that the lead failed.
+      const passRules = enabledRules.filter((r) => r.action === "pass");
+      if (passRules.length > 0) {
+        const allFailures: LogicRuleConditionFailure[] = passRules.flatMap(
+          (rule) => this.collectConditionFailures(rule, payload),
+        );
+        // Deduplicate by field+operator+expected to avoid repeating the same
+        // requirement from multiple rules.
+        const seen = new Set<string>();
+        const uniqueFailures = allFailures.filter((f) => {
+          const key = `${f.field}:${f.operator}:${JSON.stringify(f.expected)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        const rejectionReason = this.buildRejectionMessage(uniqueFailures);
         return {
           result: true,
           data: {
             passed: false,
-            rejection_reason:
-              "Lead does not meet campaign intake requirements.",
+            rejection_reason: rejectionReason,
+            condition_failures: uniqueFailures,
           },
         };
       }
@@ -142,6 +164,94 @@ export class LogicRulesService {
         error: error.message || "Logic rules execution failed",
       };
     }
+  }
+
+  /**
+   * Collects all conditions in a rule that the lead does NOT satisfy.
+   * Used to build a detailed rejection message.
+   */
+  private collectConditionFailures(
+    rule: ILogicRule,
+    payload: Record<string, unknown>,
+  ): LogicRuleConditionFailure[] {
+    const failures: LogicRuleConditionFailure[] = [];
+    for (const group of rule.groups ?? []) {
+      for (const condition of group.conditions ?? []) {
+        if (!this.evaluateCondition(condition, payload)) {
+          const raw = payload[condition.field_name];
+          const received = raw === undefined || raw === null ? "" : String(raw);
+          const conditionValue = condition.value;
+          const rawValues: string[] = Array.isArray(conditionValue)
+            ? conditionValue.map((v) => String(v).trim())
+            : conditionValue !== undefined
+              ? [String(conditionValue).trim()]
+              : [];
+          const expected: string[] = rawValues.flatMap((v) =>
+            v.includes(",")
+              ? v
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+              : [v],
+          );
+          failures.push({
+            field: condition.field_name,
+            operator: condition.operator,
+            expected: expected.length === 1 ? expected[0] : expected,
+            received,
+          });
+        }
+      }
+    }
+    return failures;
+  }
+
+  /**
+   * Builds a human-readable rejection message from a list of condition failures.
+   */
+  private buildRejectionMessage(
+    failures: LogicRuleConditionFailure[],
+    ruleName?: string,
+  ): string {
+    if (failures.length === 0) {
+      return ruleName
+        ? `Lead does not meet campaign requirements: ${ruleName}.`
+        : "Lead does not meet campaign intake requirements.";
+    }
+    const details = failures.map((f) => {
+      const field = f.field.replace(/_/g, " ");
+      const expected = Array.isArray(f.expected)
+        ? f.expected.join(" or ")
+        : f.expected;
+      switch (f.operator) {
+        case "is":
+          return `'${field}' must be '${expected}' (received '${f.received}')`;
+        case "is_not":
+          return `'${field}' must not be '${expected}' (received '${f.received}')`;
+        case "contains":
+          return `'${field}' must contain '${expected}' (received '${f.received}')`;
+        case "does_not_contain":
+          return `'${field}' must not contain '${expected}' (received '${f.received}')`;
+        case "starts_with":
+          return `'${field}' must start with '${expected}' (received '${f.received}')`;
+        case "ends_with":
+          return `'${field}' must end with '${expected}' (received '${f.received}')`;
+        case "greater_than":
+          return `'${field}' must be greater than '${expected}' (received '${f.received}')`;
+        case "less_than":
+          return `'${field}' must be less than '${expected}' (received '${f.received}')`;
+        case "is_empty":
+          return `'${field}' must be empty (received '${f.received}')`;
+        case "is_not_empty":
+          return `'${field}' must not be empty`;
+        default:
+          return `'${field}' did not meet the required condition`;
+      }
+    });
+    const prefix = ruleName
+      ? `Lead rejected by rule '${ruleName}': `
+      : "Lead does not meet campaign intake requirements: ";
+    return prefix + details.join("; ") + ".";
   }
 
   /**
@@ -213,7 +323,12 @@ export class LogicRulesService {
         ? [String(conditionValue).toLowerCase().trim()]
         : [];
     const values: string[] = rawValues.flatMap((v) =>
-      v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : [v],
+      v.includes(",")
+        ? v
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [v],
     );
 
     switch (condition.operator) {

@@ -49,9 +49,18 @@ export interface IMappedFieldEntry {
   mapped_at: string;
 }
 
+export interface ILogicRuleConditionFailure {
+  field: string;
+  operator: string;
+  expected: string | string[];
+  received: string;
+}
+
 export interface ILogicRulesResult {
   passed: boolean;
   rejection_reason?: string;
+  rejection_errors?: string[];
+  condition_failures?: ILogicRuleConditionFailure[];
   matched_rule_id?: string;
   matched_rule_name?: string;
 }
@@ -76,6 +85,8 @@ export interface ILead {
   affiliate_status_at_intake?: string;
   rejected?: boolean;
   rejection_reason?: string;
+  /** Per-field human-readable errors explaining why the lead was rejected */
+  rejection_errors?: string[];
   /** True when a QA pipeline gate plugin failed and halted processing */
   pipeline_halted?: boolean;
   /** Stage number where the pipeline was halted (1 = duplicate_check, 2+ = configurable plugins) */

@@ -18,7 +18,11 @@ import {
   ListLeadsQuery,
   UpdateLeadRequest,
 } from "../types/lead-request.types";
-import { LeadSubmissionResponse, RestApiResponse } from "../types/common.types";
+import {
+  LeadRejectionResponse,
+  LeadSubmissionResponse,
+  RestApiResponse,
+} from "../types/common.types";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 import {
   LEAD_ACCEPTED_MESSAGE,
@@ -95,7 +99,9 @@ export class LeadsController extends Controller {
 
   @POST("/")
   @produces("application/json")
-  async createLead(@body payload: CreateLeadRequest): Promise<RestApiResponse> {
+  async createLead(
+    @body payload: CreateLeadRequest,
+  ): Promise<RestApiResponse | LeadRejectionResponse> {
     const result = await this.service.createLead(
       payload,
       false,
@@ -112,18 +118,30 @@ export class LeadsController extends Controller {
 
     const lead = result.data!;
     const isRejected = lead.rejected ?? false;
+
+    if (isRejected) {
+      return {
+        result: "failed",
+        lead_id: lead.id,
+        msg: "Lead Rejected",
+        errors:
+          lead.rejection_errors ??
+          (lead.rejection_reason ? [lead.rejection_reason] : []),
+      };
+    }
+
     const submissionResponse: LeadSubmissionResponse = {
       id: lead.id,
       test: lead.test,
       duplicate: lead.duplicate ?? false,
-      rejected: isRejected,
-      rejection_reason: lead.rejection_reason ?? null,
-      ...(!isRejected ? { message: LEAD_ACCEPTED_MESSAGE } : {}),
+      rejected: false,
+      rejection_reason: null,
+      message: LEAD_ACCEPTED_MESSAGE,
     };
 
     return {
       success: true,
-      message: isRejected ? "Lead rejected" : "Lead accepted",
+      message: "Lead accepted",
       data: submissionResponse,
     };
   }
@@ -132,7 +150,7 @@ export class LeadsController extends Controller {
   @produces("application/json")
   async createTestLead(
     @body payload: CreateLeadRequest,
-  ): Promise<RestApiResponse> {
+  ): Promise<RestApiResponse | LeadRejectionResponse> {
     const result = await this.service.createLead(
       payload,
       true,
@@ -149,18 +167,30 @@ export class LeadsController extends Controller {
 
     const lead = result.data!;
     const isRejected = lead.rejected ?? false;
+
+    if (isRejected) {
+      return {
+        result: "failed",
+        lead_id: lead.id,
+        msg: "Lead Rejected",
+        errors:
+          lead.rejection_errors ??
+          (lead.rejection_reason ? [lead.rejection_reason] : []),
+      };
+    }
+
     const submissionResponse: LeadSubmissionResponse = {
       id: lead.id,
       test: lead.test,
       duplicate: lead.duplicate ?? false,
-      rejected: isRejected,
-      rejection_reason: lead.rejection_reason ?? null,
-      ...(!isRejected ? { message: LEAD_ACCEPTED_TEST_MESSAGE } : {}),
+      rejected: false,
+      rejection_reason: null,
+      message: LEAD_ACCEPTED_TEST_MESSAGE,
     };
 
     return {
       success: true,
-      message: isRejected ? "Lead rejected" : "Test lead accepted",
+      message: "Test lead accepted",
       data: submissionResponse,
     };
   }
