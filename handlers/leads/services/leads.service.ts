@@ -292,63 +292,46 @@ export class LeadsService {
       }
 
       // ── Stage 1: Logic rules evaluation (custom pass/fail rules) ─
+      // NOTE: Logic rules are evaluated against the *original* pre-mapping payload
+      // because users configure rule conditions based on the raw values they send
+      // (e.g. "State is California", not "State is CA"). Value mappings are an
+      // internal normalization step and should not affect how user-defined rules match.
       const logicRulesResult = await this.runLogicRules(
         campaignId,
-        mappedPayload,
+        leadPayload,
       );
 
       if (!logicRulesResult.passed) {
         const rejectionReason =
           logicRulesResult.rejection_reason ?? REJECTION_LOGIC_RULES;
-        const lead: ILead = {
-          id: IdGenerator.generateLeadId(),
-          campaign_id: campaignId,
-          campaign_key: campaignKey,
-          test: isTest,
-          payload: mappedPayload,
-          ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
-          ...(valueMapEditHistory.length > 0
-            ? {
-                edit_history: valueMapEditHistory,
-                edited_fields: valueMapEditedFields,
-              }
-            : {}),
-          duplicate: false,
-          duplicate_matches: { lead_ids: [] },
-          logic_rules_result: {
-            passed: false,
-            rejection_reason: rejectionReason,
-            ...(logicRulesResult.matched_rule_id
-              ? { matched_rule_id: logicRulesResult.matched_rule_id }
-              : {}),
-            ...(logicRulesResult.matched_rule_name
-              ? { matched_rule_name: logicRulesResult.matched_rule_name }
-              : {}),
-          },
-          created_at: now,
-          affiliate_status_at_intake: affiliateStatus,
-          rejected: true,
-          rejection_reason: rejectionReason,
-          created_by: actor,
-          updated_at: now,
-          updated_by: actor,
-          is_deleted: false,
-          active: true,
-        };
 
-        await this.dynamoDBUtil.put({
-          TableName: this.constants.LEADS_TABLE_NAME,
-          Item: lead,
-        });
-
-        this.logger.info("Lead rejected by logic rules", {
-          leadId: lead.id,
+        this.logger.info("Lead rejected by logic rules — not persisted", {
           campaignId,
           matchedRuleId: logicRulesResult.matched_rule_id,
           matchedRuleName: logicRulesResult.matched_rule_name,
         });
 
-        return { result: true, data: lead };
+        return {
+          result: true,
+          data: {
+            id: "",
+            campaign_id: campaignId,
+            campaign_key: campaignKey,
+            test: isTest,
+            payload: mappedPayload,
+            duplicate: false,
+            duplicate_matches: { lead_ids: [] },
+            rejected: true,
+            rejection_reason: rejectionReason,
+            created_at: now,
+            affiliate_status_at_intake: affiliateStatus,
+            created_by: actor,
+            updated_at: now,
+            updated_by: actor,
+            is_deleted: false,
+            active: false,
+          } as ILead,
+        };
       }
 
       const qaResult = await this.runQaPlugins(campaign, {

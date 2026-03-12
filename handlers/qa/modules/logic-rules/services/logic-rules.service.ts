@@ -118,7 +118,22 @@ export class LogicRulesService {
         }
       }
 
-      // No rules matched — default to pass
+      // No rules matched.
+      // If there are any enabled "pass" rules, those define a whitelist — a
+      // lead that didn't satisfy any of them must be rejected.
+      // If there are only "fail" rules and none fired, the lead is allowed.
+      const hasPassRules = enabledRules.some((r) => r.action === "pass");
+      if (hasPassRules) {
+        return {
+          result: true,
+          data: {
+            passed: false,
+            rejection_reason:
+              "Lead does not meet campaign intake requirements.",
+          },
+        };
+      }
+
       return { result: true, data: { passed: true } };
     } catch (error: any) {
       this.logger.error("LogicRules: execution failed", error);
@@ -188,12 +203,18 @@ export class LogicRulesService {
       .trim();
     const conditionValue = condition.value;
 
-    // Normalise condition value(s) to a flat array of lowercase strings
-    const values: string[] = Array.isArray(conditionValue)
+    // Normalise condition value(s) to a flat array of lowercase strings.
+    // A single string value may be comma-separated (e.g. "California,Georgia")
+    // to represent multiple values — split and flatten so each entry is tested
+    // individually.
+    const rawValues: string[] = Array.isArray(conditionValue)
       ? conditionValue.map((v) => String(v).toLowerCase().trim())
       : conditionValue !== undefined
         ? [String(conditionValue).toLowerCase().trim()]
         : [];
+    const values: string[] = rawValues.flatMap((v) =>
+      v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : [v],
+    );
 
     switch (condition.operator) {
       case "is":
