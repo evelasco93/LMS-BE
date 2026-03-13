@@ -1474,7 +1474,7 @@
     "/campaigns/{id}/plugins": {
       "put": {
         "summary": "Update campaign plugins configuration",
-        "description": "Updates QA plugin settings for a campaign. Currently supports duplicate_check plugin with configurable enabled flag and criteria fields.",
+        "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change — omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed.",
         "tags": ["campaigns"],
         "parameters": [
           {
@@ -1490,6 +1490,7 @@
               },
               "examples": {
                 "disableDuplicate": {
+                  "summary": "Disable duplicate check",
                   "value": {
                     "duplicate_check": {
                       "enabled": false
@@ -1497,10 +1498,57 @@
                   }
                 },
                 "emailOnly": {
+                  "summary": "Duplicate check on email only",
                   "value": {
                     "duplicate_check": {
                       "enabled": true,
                       "criteria": ["email"]
+                    }
+                  }
+                },
+                "enableTrustedForm": {
+                  "summary": "Enable TrustedForm with certificate claiming",
+                  "value": {
+                    "trusted_form": {
+                      "enabled": true,
+                      "stage": 2,
+                      "gate": true,
+                      "claim": true,
+                      "vendor": "MyVendor"
+                    }
+                  }
+                },
+                "enableIpqs": {
+                  "summary": "Enable IPQS with phone and IP sub-checks",
+                  "value": {
+                    "ipqs": {
+                      "enabled": true,
+                      "stage": 2,
+                      "gate": true,
+                      "phone": {
+                        "enabled": true,
+                        "criteria": {
+                          "valid": { "enabled": true, "required": true },
+                          "fraud_score": {
+                            "enabled": true,
+                            "operator": "lte",
+                            "value": 75
+                          },
+                          "country": { "enabled": true, "allowed": ["US"] }
+                        }
+                      },
+                      "ip": {
+                        "enabled": true,
+                        "criteria": {
+                          "fraud_score": {
+                            "enabled": true,
+                            "operator": "lte",
+                            "value": 75
+                          },
+                          "proxy": { "enabled": true, "allowed": false },
+                          "vpn": { "enabled": true, "allowed": false }
+                        }
+                      }
                     }
                   }
                 }
@@ -1961,7 +2009,7 @@
       },
       "put": {
         "summary": "Update a logic rule",
-        "description": "Partially updates a logic rule. Supply only the fields you want to change.",
+        "description": "Partially updates a logic rule. Supply only the fields you want to change. All changes are recorded in the audit log with action: logic_rule_updated. Scalar changes (name, action, enabled) produce one entry each. Groups changes produce per-condition entries: condition.{LC-id}.added, condition.{LC-id}.removed, or condition.{LC-id}.updated. If only grouping/ordering changed (no condition content changed), a groups.structure entry is recorded instead.",
         "tags": ["campaigns"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [

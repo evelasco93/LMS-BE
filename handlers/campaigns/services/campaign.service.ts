@@ -933,6 +933,55 @@ export class CampaignService {
         "stage",
         "gate",
       ]);
+
+      // Diff nested IPQS sub-checks (phone / email / ip)
+      for (const sub of ["phone", "email", "ip"] as const) {
+        const before = currentPlugins.ipqs[sub] as unknown as Record<
+          string,
+          unknown
+        >;
+        const after = nextPlugins.ipqs[sub] as unknown as Record<
+          string,
+          unknown
+        >;
+        if (!before || !after) continue;
+
+        // Top-level enabled toggle for the sub-check
+        if (before.enabled !== after.enabled) {
+          pluginHistoryEntries.push({
+            field: `ipqs.${sub}.enabled`,
+            previous_value: before.enabled,
+            new_value: after.enabled,
+            changed_at: now,
+            changed_by: actor,
+          });
+        }
+
+        // Criteria sub-fields (one level deep — e.g. fraud_score, country, valid, proxy, vpn)
+        const beforeCriteria = (before.criteria ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const afterCriteria = (after.criteria ?? {}) as Record<string, unknown>;
+        for (const criteriaKey of new Set([
+          ...Object.keys(beforeCriteria),
+          ...Object.keys(afterCriteria),
+        ])) {
+          if (
+            JSON.stringify(beforeCriteria[criteriaKey] ?? null) !==
+            JSON.stringify(afterCriteria[criteriaKey] ?? null)
+          ) {
+            pluginHistoryEntries.push({
+              field: `ipqs.${sub}.criteria.${criteriaKey}`,
+              previous_value: beforeCriteria[criteriaKey] ?? null,
+              new_value: afterCriteria[criteriaKey] ?? null,
+              changed_at: now,
+              changed_by: actor,
+            });
+          }
+        }
+      }
+
       if (pluginHistoryEntries.length > 0) {
         campaign.plugins.plugin_history = [
           ...(campaign.plugins.plugin_history ?? []),
@@ -944,6 +993,21 @@ export class CampaignService {
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
       });
+
+      if (pluginHistoryEntries.length > 0) {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: campaignId,
+          entity_type: "campaign",
+          action: "plugins_updated",
+          changes: pluginHistoryEntries.map((e) => ({
+            field: e.field,
+            from: e.previous_value,
+            to: e.new_value,
+          })),
+          actor,
+          changed_at: now,
+        });
+      }
 
       this.logger.info("Campaign plugins updated", {
         campaignId,
@@ -2444,11 +2508,83 @@ export class CampaignService {
         });
       }
       if (request.groups !== undefined) {
-        logicRuleChanges.push({
-          field: "groups",
-          from: "[previous]",
-          to: "[updated]",
-        });
+        // Build a flat map of existing conditions by id for comparison
+        const existingConditionsById = new Map<string, ILogicRuleCondition>();
+        for (const g of existing.groups) {
+          for (const c of g.conditions) {
+            existingConditionsById.set(c.id, c);
+          }
+        }
+
+        const updatedConditionsById = new Map<string, ILogicRuleCondition>();
+        for (const g of updated.groups) {
+          for (const c of g.conditions) {
+            updatedConditionsById.set(c.id, c);
+          }
+        }
+
+        // Removed conditions
+        for (const [id, cond] of existingConditionsById) {
+          if (!updatedConditionsById.has(id)) {
+            logicRuleChanges.push({
+              field: `condition.${id}.removed`,
+              from: `${cond.field_name} ${cond.operator}${cond.value !== undefined ? ` ${Array.isArray(cond.value) ? cond.value.join(", ") : cond.value}` : ""}`,
+              to: null,
+            });
+          }
+        }
+
+        // Added conditions
+        for (const [id, cond] of updatedConditionsById) {
+          if (!existingConditionsById.has(id)) {
+            logicRuleChanges.push({
+              field: `condition.${id}.added`,
+              from: null,
+              to: `${cond.field_name} ${cond.operator}${cond.value !== undefined ? ` ${Array.isArray(cond.value) ? cond.value.join(", ") : cond.value}` : ""}`,
+            });
+          }
+        }
+
+        // Modified conditions (same id, different content)
+        for (const [id, before] of existingConditionsById) {
+          const after = updatedConditionsById.get(id);
+          if (!after) continue;
+          if (
+            before.field_name !== after.field_name ||
+            before.operator !== after.operator ||
+            JSON.stringify(before.value ?? null) !==
+              JSON.stringify(after.value ?? null)
+          ) {
+            const fmt = (c: ILogicRuleCondition) =>
+              `${c.field_name} ${c.operator}${c.value !== undefined ? ` ${Array.isArray(c.value) ? c.value.join(", ") : c.value}` : ""}`;
+            logicRuleChanges.push({
+              field: `condition.${id}.updated`,
+              from: fmt(before),
+              to: fmt(after),
+            });
+          }
+        }
+
+        // If the only thing that changed was group membership (reordering / moving
+        // conditions between groups) record that too when no condition-level diffs were found
+        const groupStructureBefore = existing.groups.map((g) =>
+          g.conditions.map((c) => c.id),
+        );
+        const groupStructureAfter = updated.groups.map((g) =>
+          g.conditions.map((c) => c.id),
+        );
+        if (
+          logicRuleChanges.filter((c) => c.field.startsWith("condition."))
+            .length === 0 &&
+          JSON.stringify(groupStructureBefore) !==
+            JSON.stringify(groupStructureAfter)
+        ) {
+          logicRuleChanges.push({
+            field: "groups.structure",
+            from: groupStructureBefore,
+            to: groupStructureAfter,
+          });
+        }
       }
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,

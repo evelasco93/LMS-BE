@@ -704,15 +704,91 @@ The preset covers all 50 US states. It runs in addition to any custom `value_map
 
 All criteria mutations are recorded in the centralized audit log with `entity_type: "campaign"` and the campaign's `id` as `entity_id`. Use `GET /audit/{campaignId}` to see the full change history for a campaign, including all criteria and logic rule events.
 
-| Action                      | Trigger                                          | `changes[]` content                                                            |
-| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------ |
-| `criteria_field_added`      | `POST /criteria` or `POST /criteria/base-fields` | `field_id`, `field_name`, `field_label`, `data_type` (from `null`)             |
-| `criteria_field_updated`    | `PUT /criteria/{fieldId}`                        | One entry per changed property: `{fieldId}.{property}` with `from`/`to` values |
-| `criteria_field_deleted`    | `DELETE /criteria/{fieldId}`                     | `field_id`, `field_name`, `field_label` (to `null`)                            |
-| `criteria_fields_reordered` | `PUT /criteria/reorder`                          | `order`: previous and new field ID arrays                                      |
-| `logic_rule_added`          | `POST /logic-rules`                              | `rule_id`, `name`, `action` (from `null`)                                      |
-| `logic_rule_updated`        | `PUT /logic-rules/{ruleId}`                      | One entry per changed property (`name`, `action`, `enabled`, `groups`)         |
-| `logic_rule_deleted`        | `DELETE /logic-rules/{ruleId}`                   | `rule_id`, `name`, `action` (to `null`)                                        |
+| Action                      | Trigger                                          | `changes[]` content                                                                                                       |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `criteria_field_added`      | `POST /criteria` or `POST /criteria/base-fields` | `field_id`, `field_name`, `field_label`, `data_type` (from `null`)                                                        |
+| `criteria_field_updated`    | `PUT /criteria/{fieldId}`                        | One entry per changed property: `{fieldId}.{property}` with `from`/`to` values                                            |
+| `criteria_field_deleted`    | `DELETE /criteria/{fieldId}`                     | `field_id`, `field_name`, `field_label` (to `null`)                                                                       |
+| `criteria_fields_reordered` | `PUT /criteria/reorder`                          | `order`: previous and new field ID arrays                                                                                 |
+| `logic_rule_added`          | `POST /logic-rules`                              | `rule_id`, `name`, `action` (from `null`)                                                                                 |
+| `logic_rule_updated`        | `PUT /logic-rules/{ruleId}`                      | One entry per changed scalar (`name`, `action`, `enabled`) + condition-level diffs for `groups` changes — see table below |
+| `logic_rule_deleted`        | `DELETE /logic-rules/{ruleId}`                   | `rule_id`, `name`, `action` (to `null`)                                                                                   |
+| `plugins_updated`           | `PUT /campaigns/{id}/plugins`                    | One entry per mutated plugin field — see table below                                                                      |
+
+### Logic rule update audit trail
+
+`logic_rule_updated` records are written whenever `PUT /logic-rules/{ruleId}` changes anything. Scalar fields produce one entry each; `groups` changes produce per-condition entries:
+
+| `changes[].field`           | When emitted                                                      | `from` / `to` format                                |
+| --------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `name`                      | Rule name changed                                                 | Previous / new string                               |
+| `action`                    | Rule action changed (`pass` ↔ `fail`)                             | `"pass"` or `"fail"`                                |
+| `enabled`                   | Rule enabled toggled                                              | `true` or `false`                                   |
+| `condition.{LC-id}.added`   | A new condition was added to a group                              | `null` → `"field_name operator [value]"`            |
+| `condition.{LC-id}.removed` | An existing condition was deleted                                 | `"field_name operator [value]"` → `null`            |
+| `condition.{LC-id}.updated` | A condition's field, operator, or value changed                   | Previous → new `"field_name operator value"` string |
+| `groups.structure`          | Only the grouping/ordering changed (no condition content changed) | `[[conditionIds…], …]` before → after               |
+
+The condition summary string format is `"{field_name} {operator} {value}"` — e.g. `"state is_not California"`. For multi-value `is`/`is_not` operators the values are joined with `, `.
+
+Example `changes[]` for a rule update that renamed the rule, removed one condition, and added another:
+
+```json
+[
+  { "field": "name", "from": "Old name", "to": "New name" },
+  {
+    "field": "condition.LC000001.removed",
+    "from": "state is_not California",
+    "to": null
+  },
+  {
+    "field": "condition.LC000004.added",
+    "from": null,
+    "to": "state is Texas, Florida"
+  }
+]
+```
+
+### Plugin configuration audit trail
+
+All changes made via `PUT /campaigns/{id}/plugins` are recorded with `entity_type: "campaign"` and `action: "plugins_updated"`. Each mutated field produces one entry in `changes[]`. Nothing is written if no fields actually changed.
+
+| `changes[].field`                 | What it represents                                   |
+| --------------------------------- | ---------------------------------------------------- |
+| `duplicate_check.enabled`         | Duplicate check master toggle                        |
+| `duplicate_check.criteria`        | Phone/email duplicate criteria array                 |
+| `trusted_form.enabled`            | TrustedForm master toggle                            |
+| `trusted_form.stage`              | TrustedForm pipeline stage number                    |
+| `trusted_form.gate`               | Gate — when true a failure halts the pipeline        |
+| `trusted_form.claim`              | Whether to retain (claim) the certificate on success |
+| `trusted_form.vendor`             | Vendor name forwarded to the TrustedForm API         |
+| `ipqs.enabled`                    | IPQS master toggle                                   |
+| `ipqs.stage`                      | IPQS pipeline stage number                           |
+| `ipqs.gate`                       | Gate — when true a failure halts the pipeline        |
+| `ipqs.phone.enabled`              | Phone sub-check toggle                               |
+| `ipqs.phone.criteria.valid`       | Phone validity criterion config object               |
+| `ipqs.phone.criteria.fraud_score` | Phone fraud score threshold config object            |
+| `ipqs.phone.criteria.country`     | Phone country filter config object                   |
+| `ipqs.email.enabled`              | Email sub-check toggle                               |
+| `ipqs.email.criteria.valid`       | Email validity criterion config object               |
+| `ipqs.email.criteria.fraud_score` | Email fraud score threshold config object            |
+| `ipqs.ip.enabled`                 | IP sub-check toggle                                  |
+| `ipqs.ip.criteria.fraud_score`    | IP fraud score threshold config object               |
+| `ipqs.ip.criteria.country_code`   | IP country filter config object                      |
+| `ipqs.ip.criteria.proxy`          | IP proxy check config object                         |
+| `ipqs.ip.criteria.vpn`            | IP VPN check config object                           |
+
+Example `changes[]` for a single IPQS phone fraud-score threshold change:
+
+```json
+[
+  {
+    "field": "ipqs.phone.criteria.fraud_score",
+    "from": { "enabled": true, "operator": "lte", "value": 85 },
+    "to": { "enabled": true, "operator": "lte", "value": 75 }
+  }
+]
+```
 
 ### Criteria-validation rejection messages
 
