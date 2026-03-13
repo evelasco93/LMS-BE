@@ -2508,81 +2508,83 @@ export class CampaignService {
         });
       }
       if (request.groups !== undefined) {
-        // Build a flat map of existing conditions by id for comparison
-        const existingConditionsById = new Map<string, ILogicRuleCondition>();
+        // Match conditions by content (field_name + operator + value) rather than by ID.
+        // The frontend may not send condition IDs on update, which would cause all conditions
+        // to receive new IDs — making ID-based diff falsely report every unchanged condition
+        // as removed+added.
+        const fmtCond = (c: ILogicRuleCondition) =>
+          `${c.field_name} ${c.operator}${c.value !== undefined ? ` ${Array.isArray(c.value) ? c.value.join(", ") : c.value}` : ""}`;
+
+        const condSig = (c: ILogicRuleCondition) =>
+          JSON.stringify({
+            f: c.field_name,
+            o: c.operator,
+            v: c.value ?? null,
+          });
+
+        // Multiset: count occurrences of each content signature before and after
+        const beforeCounts = new Map<string, number>();
+        const beforeCondBySig = new Map<string, ILogicRuleCondition>();
         for (const g of existing.groups) {
           for (const c of g.conditions) {
-            existingConditionsById.set(c.id, c);
+            const sig = condSig(c);
+            beforeCounts.set(sig, (beforeCounts.get(sig) ?? 0) + 1);
+            beforeCondBySig.set(sig, c);
           }
         }
 
-        const updatedConditionsById = new Map<string, ILogicRuleCondition>();
+        const afterCounts = new Map<string, number>();
+        const afterCondBySig = new Map<string, ILogicRuleCondition>();
         for (const g of updated.groups) {
           for (const c of g.conditions) {
-            updatedConditionsById.set(c.id, c);
+            const sig = condSig(c);
+            afterCounts.set(sig, (afterCounts.get(sig) ?? 0) + 1);
+            afterCondBySig.set(sig, c);
           }
         }
 
-        // Removed conditions
-        for (const [id, cond] of existingConditionsById) {
-          if (!updatedConditionsById.has(id)) {
+        const allSigs = new Set([
+          ...beforeCounts.keys(),
+          ...afterCounts.keys(),
+        ]);
+        for (const sig of allSigs) {
+          const bc = beforeCounts.get(sig) ?? 0;
+          const ac = afterCounts.get(sig) ?? 0;
+          // Net removals
+          for (let i = 0; i < bc - ac; i++) {
             logicRuleChanges.push({
-              field: `condition.${id}.removed`,
-              from: `${cond.field_name} ${cond.operator}${cond.value !== undefined ? ` ${Array.isArray(cond.value) ? cond.value.join(", ") : cond.value}` : ""}`,
+              field: "condition.removed",
+              from: fmtCond(beforeCondBySig.get(sig)!),
               to: null,
             });
           }
-        }
-
-        // Added conditions
-        for (const [id, cond] of updatedConditionsById) {
-          if (!existingConditionsById.has(id)) {
+          // Net additions
+          for (let i = 0; i < ac - bc; i++) {
             logicRuleChanges.push({
-              field: `condition.${id}.added`,
+              field: "condition.added",
               from: null,
-              to: `${cond.field_name} ${cond.operator}${cond.value !== undefined ? ` ${Array.isArray(cond.value) ? cond.value.join(", ") : cond.value}` : ""}`,
+              to: fmtCond(afterCondBySig.get(sig)!),
             });
           }
         }
 
-        // Modified conditions (same id, different content)
-        for (const [id, before] of existingConditionsById) {
-          const after = updatedConditionsById.get(id);
-          if (!after) continue;
-          if (
-            before.field_name !== after.field_name ||
-            before.operator !== after.operator ||
-            JSON.stringify(before.value ?? null) !==
-              JSON.stringify(after.value ?? null)
-          ) {
-            const fmt = (c: ILogicRuleCondition) =>
-              `${c.field_name} ${c.operator}${c.value !== undefined ? ` ${Array.isArray(c.value) ? c.value.join(", ") : c.value}` : ""}`;
-            logicRuleChanges.push({
-              field: `condition.${id}.updated`,
-              from: fmt(before),
-              to: fmt(after),
-            });
-          }
-        }
-
-        // If the only thing that changed was group membership (reordering / moving
-        // conditions between groups) record that too when no condition-level diffs were found
-        const groupStructureBefore = existing.groups.map((g) =>
-          g.conditions.map((c) => c.id),
+        // If the only thing that changed was grouping / ordering (same conditions, different
+        // arrangement across groups), record a structure diff using human-readable strings
+        const beforeGroups = existing.groups.map((g) =>
+          g.conditions.map((c) => fmtCond(c)),
         );
-        const groupStructureAfter = updated.groups.map((g) =>
-          g.conditions.map((c) => c.id),
+        const afterGroups = updated.groups.map((g) =>
+          g.conditions.map((c) => fmtCond(c)),
         );
         if (
           logicRuleChanges.filter((c) => c.field.startsWith("condition."))
             .length === 0 &&
-          JSON.stringify(groupStructureBefore) !==
-            JSON.stringify(groupStructureAfter)
+          JSON.stringify(beforeGroups) !== JSON.stringify(afterGroups)
         ) {
           logicRuleChanges.push({
             field: "groups.structure",
-            from: groupStructureBefore,
-            to: groupStructureAfter,
+            from: beforeGroups,
+            to: afterGroups,
           });
         }
       }

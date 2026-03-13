@@ -2009,7 +2009,7 @@
       },
       "put": {
         "summary": "Update a logic rule",
-        "description": "Partially updates a logic rule. Supply only the fields you want to change. All changes are recorded in the audit log with action: logic_rule_updated. Scalar changes (name, action, enabled) produce one entry each. Groups changes produce per-condition entries: condition.{LC-id}.added, condition.{LC-id}.removed, or condition.{LC-id}.updated. If only grouping/ordering changed (no condition content changed), a groups.structure entry is recorded instead.",
+        "description": "Partially updates a logic rule. Supply only the fields you want to change. All changes are recorded in the audit log with action: logic_rule_updated. Scalar changes (name, action, enabled) each produce one entry. Groups changes use content-based diffing (matched by field_name + operator + value, not by condition ID): condition.added and condition.removed entries are emitted only for genuinely new or deleted conditions. If only grouping/ordering changed, a groups.structure entry is recorded instead.",
         "tags": ["campaigns"],
         "security": [{ "BearerAuth": [] }],
         "parameters": [
