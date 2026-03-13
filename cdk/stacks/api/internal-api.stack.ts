@@ -37,6 +37,7 @@ export interface IInternalApiStackProps extends NestedStackProps {
   leadsLambda: IFunction;
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;
+  auditLambda: IFunction;
   apiConfig: IInternalApiConfig;
   authLambdaRoleName: string;
   usersLambdaRoleName: string;
@@ -68,6 +69,7 @@ export class InternalApiStack extends NestedStack {
       leadsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
+      auditLambda,
       apiConfig,
       authLambdaRoleName,
       usersLambdaRoleName,
@@ -266,6 +268,7 @@ export class InternalApiStack extends NestedStack {
         timeout: Duration.seconds(15),
         environment: {
           COGNITO_USER_POOL_ID: this.userPool.userPoolId,
+          AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
           NODE_ENV: "production",
         },
         bundling: {
@@ -650,6 +653,12 @@ export class InternalApiStack extends NestedStack {
       campaignCriteriaResource.addResource("{fieldId}");
     addProtectedMethod(
       campaignCriteriaFieldResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      campaignCriteriaFieldResource,
       "PUT",
       campaignsLambdaIntegration,
       [writeScope],
@@ -963,6 +972,40 @@ export class InternalApiStack extends NestedStack {
       qaOrchestratorLambdaIntegration,
       [writeScope],
     );
+
+    // ============================================================================
+    // AUDIT INTEGRATION
+    // ============================================================================
+    const auditLambdaIntegration = new LambdaIntegration(auditLambda, {
+      proxy: true,
+      allowTestInvoke: false,
+    });
+
+    const auditResource = v2Resource.addResource("audit");
+
+    // GET /v2/audit — full table scan with cursor-based pagination (no filter required)
+    addProtectedMethod(auditResource, "GET", auditLambdaIntegration, [
+      readScope,
+    ]);
+
+    // Declare static sub-resources BEFORE {entityId} to avoid route shadowing
+    // GET /v2/audit/activity — cross-entity activity feed (entity_type or actor_sub filter)
+    const auditActivityResource = auditResource.addResource("activity");
+    addProtectedMethod(auditActivityResource, "GET", auditLambdaIntegration, [
+      readScope,
+    ]);
+
+    // POST /v2/audit/export — manually trigger daily S3 export (admin only)
+    const auditExportResource = auditResource.addResource("export");
+    addProtectedMethod(auditExportResource, "POST", auditLambdaIntegration, [
+      writeScope,
+    ]);
+
+    // GET /v2/audit/{entityId} — paginated audit history for a specific entity
+    const auditByEntityResource = auditResource.addResource("{entityId}");
+    addProtectedMethod(auditByEntityResource, "GET", auditLambdaIntegration, [
+      readScope,
+    ]);
 
     new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolId`, {
       value: this.userPool.userPoolId,

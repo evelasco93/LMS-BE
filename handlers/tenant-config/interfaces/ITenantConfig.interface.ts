@@ -1,7 +1,4 @@
-import type {
-  RequestActor,
-  IEditHistoryEntry,
-} from "@shared/utils/request-audit.util";
+import type { RequestActor } from "@shared/utils/request-audit.util";
 
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 
@@ -67,8 +64,6 @@ export interface ICredentialSchemaRecord {
   active: boolean;
   deleted_at: string | null;
   deleted_by: RequestActor | null;
-  /** Full audit trail of field changes */
-  edit_history: IEditHistoryEntry[];
 }
 
 // ── Credentials ───────────────────────────────────────────────────────────────
@@ -117,8 +112,6 @@ export interface TenantCredentialRecord {
   active: boolean;
   deleted_at: string | null;
   deleted_by: RequestActor | null;
-  /** Full audit trail of field changes */
-  edit_history: IEditHistoryEntry[];
 }
 
 // ── Plugin Settings ───────────────────────────────────────────────────────────
@@ -151,8 +144,6 @@ export interface IPluginSettingRecord {
   active: boolean;
   deleted_at: string | null;
   deleted_by: RequestActor | null;
-  /** Full audit trail of field changes (tracks credentials_id and enabled changes) */
-  edit_history: IEditHistoryEntry[];
 }
 
 /**

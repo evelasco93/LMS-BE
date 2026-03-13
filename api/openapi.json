@@ -43,6 +43,10 @@
     {
       "name": "users",
       "description": "Manage Cognito-backed user accounts and roles (admin only)"
+    },
+    {
+      "name": "audit",
+      "description": "Query audit logs and trigger S3 exports (admin only)"
     }
   ],
   "paths": {
@@ -3090,6 +3094,200 @@
       }
     }
   },
+  "/audit": {
+    "get": {
+      "summary": "Full audit log scan",
+      "description": "Returns all audit log entries with cursor-based pagination. No filter required — use this to page through the entire audit table. Results are in DynamoDB scan order (not sorted). Admin only.",
+      "tags": ["audit"],
+      "security": [{ "BearerAuth": [] }],
+      "parameters": [
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "Maximum number of records to return per page (default 50)",
+          "schema": {
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        {
+          "name": "cursor",
+          "in": "query",
+          "description": "Opaque pagination cursor returned as nextCursor from a previous response",
+          "schema": { "type": "string" }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Audit records retrieved",
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+            }
+          }
+        },
+        "401": { "description": "Unauthorized — valid Bearer token required" },
+        "403": { "description": "Forbidden — admin role required" }
+      }
+    }
+  },
+  "/audit/activity": {
+    "get": {
+      "summary": "Activity feed — cross-entity audit log query",
+      "description": "Returns a paginated list of audit log entries across all entities. Requires either entity_type or actor_sub. Supports optional date range filtering. Results are ordered newest-first.",
+      "tags": ["audit"],
+      "security": [{ "BearerAuth": [] }],
+      "parameters": [
+        {
+          "name": "entity_type",
+          "in": "query",
+          "description": "Filter by entity type (e.g. lead, campaign, client, affiliate, user)",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "campaign",
+              "client",
+              "affiliate",
+              "credential",
+              "credential_schema",
+              "plugin_setting",
+              "user"
+            ]
+          }
+        },
+        {
+          "name": "actor_sub",
+          "in": "query",
+          "description": "Filter by Cognito sub of the actor who made the change",
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "from",
+          "in": "query",
+          "description": "ISO 8601 timestamp — only return entries at or after this time",
+          "schema": { "type": "string", "format": "date-time" }
+        },
+        {
+          "name": "to",
+          "in": "query",
+          "description": "ISO 8601 timestamp — only return entries at or before this time",
+          "schema": { "type": "string", "format": "date-time" }
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "Maximum number of records to return (default 50)",
+          "schema": {
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        {
+          "name": "cursor",
+          "in": "query",
+          "description": "Opaque pagination cursor returned as nextCursor from a previous response",
+          "schema": { "type": "string" }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Activity feed retrieved",
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+            }
+          }
+        },
+        "400": { "description": "entity_type or actor_sub is required" },
+        "401": { "description": "Unauthorized — valid Bearer token required" },
+        "403": { "description": "Forbidden — admin role required" }
+      }
+    }
+  },
+  "/audit/{entityId}": {
+    "get": {
+      "summary": "Entity audit history",
+      "description": "Returns paginated audit log entries for a single entity (identified by its ID). Results are ordered newest-first.",
+      "tags": ["audit"],
+      "security": [{ "BearerAuth": [] }],
+      "parameters": [
+        {
+          "name": "entityId",
+          "in": "path",
+          "required": true,
+          "description": "The entity ID to fetch audit history for (e.g. CLA... for a client, CM... for a campaign, LD... for a lead). For user entities, use the user's email address (URL-encoded).",
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "description": "Maximum number of records to return (default 50)",
+          "schema": {
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        {
+          "name": "cursor",
+          "in": "query",
+          "description": "Opaque pagination cursor returned as nextCursor from a previous response",
+          "schema": { "type": "string" }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Audit history retrieved",
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+            }
+          }
+        },
+        "401": { "description": "Unauthorized" },
+        "403": { "description": "Forbidden — admin role required" },
+        "404": { "description": "Entity not found" }
+      }
+    }
+  },
+  "/audit/export": {
+    "post": {
+      "summary": "Trigger S3 export for a calendar date",
+      "description": "Exports all audit log entries for the specified date (YYYY-MM-DD) to S3 as NDJSON. Also triggered automatically by EventBridge Scheduler at midnight UTC. Admin only.",
+      "tags": ["audit"],
+      "security": [{ "BearerAuth": [] }],
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/AuditExportRequest" },
+            "examples": {
+              "default": { "value": { "date": "2025-06-01" } }
+            }
+          }
+        }
+      },
+      "responses": {
+        "200": {
+          "description": "Export completed",
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AuditExportResponse" }
+            }
+          }
+        },
+        "400": { "description": "Invalid date format" },
+        "401": { "description": "Unauthorized" },
+        "403": { "description": "Forbidden — admin role required" }
+      }
+    }
+  },
   "components": {
     "securitySchemes": {
       "BearerAuth": {
@@ -3242,33 +3440,6 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes made via PUT /clients/{id}. Each entry records the field name, before/after values, timestamp, and actor.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Name of the field that changed (e.g. name, email, status, phone, client_code)",
-                  "example": "name"
-                },
-                "previous_value": {
-                  "description": "Value before the change (null if the field was newly added)"
-                },
-                "new_value": {
-                  "description": "Value after the change"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
           }
         }
       },
@@ -3331,33 +3502,6 @@
           "active": {
             "type": "boolean",
             "description": "Convenience inverse of is_deleted: false when soft-deleted, true otherwise"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes made via PUT /affiliates/{id}. Each entry records the field name, before/after values, timestamp, and actor.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Name of the field that changed (e.g. name, email, status, phone, company, affiliate_code)",
-                  "example": "name"
-                },
-                "previous_value": {
-                  "description": "Value before the change (null if the field was newly added)"
-                },
-                "new_value": {
-                  "description": "Value after the change"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
           }
         }
       },
@@ -3588,33 +3732,6 @@
             "type": "boolean",
             "description": "Convenience inverse of is_deleted"
           },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of campaign-level field changes (currently tracks name). Appended automatically on PUT /campaigns/{id}.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Name of the field that changed (e.g. name)",
-                  "example": "name"
-                },
-                "previous_value": {
-                  "description": "Value before the change"
-                },
-                "new_value": {
-                  "description": "Value after the change"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
-          },
           "submit_url": {
             "type": "string",
             "description": "Live lead submission endpoint for this campaign. Affiliates POST lead payloads to this URL using their campaign_key.",
@@ -3678,33 +3795,6 @@
           },
           "rejection_reason": {
             "type": "string"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field changes. Each entry records what changed, the before/after values, when it happened, and who made the change.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "field": {
-                  "type": "string",
-                  "description": "Dot-notation path of the changed field, e.g. payload.name or payload.email",
-                  "example": "payload.name"
-                },
-                "previous_value": {
-                  "description": "Value before the change (null if the field was newly added)"
-                },
-                "new_value": {
-                  "description": "Value after the change (null if the field was removed)"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "changed_by": {
-                  "$ref": "#/components/schemas/RequestActor"
-                }
-              }
-            }
           },
           "created_by": {
             "type": "string",
@@ -4005,7 +4095,7 @@
       },
       "UpdateClientRequest": {
         "type": "object",
-        "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
+        "description": "All fields are optional. Only supplied fields are updated; every change is recorded in the audit log automatically.",
         "properties": {
           "name": {
             "type": "string"
@@ -4046,7 +4136,7 @@
       },
       "UpdateAffiliateRequest": {
         "type": "object",
-        "description": "All fields are optional. Only supplied fields are updated; every changed field is appended to edit_history automatically.",
+        "description": "All fields are optional. Only supplied fields are updated; every change is recorded in the audit log automatically.",
         "properties": {
           "name": {
             "type": "string"
@@ -4739,11 +4829,6 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
           },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes",
-            "items": { "$ref": "#/components/schemas/EditHistoryEntry" }
-          },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" }
         }
@@ -4851,11 +4936,6 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
           },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes",
-            "items": { "$ref": "#/components/schemas/EditHistoryEntry" }
-          },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" }
         }
@@ -4931,30 +5011,6 @@
           }
         }
       },
-      "EditHistoryEntry": {
-        "type": "object",
-        "description": "Single field-level change record stored in the edit_history audit trail",
-        "properties": {
-          "field": {
-            "type": "string",
-            "description": "Name of the field that changed",
-            "example": "name"
-          },
-          "previous_value": {
-            "description": "Value before the change (null if the field was newly added)"
-          },
-          "new_value": {
-            "description": "Value after the change"
-          },
-          "changed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "changed_by": {
-            "$ref": "#/components/schemas/RequestActor"
-          }
-        }
-      },
       "CredentialRecord": {
         "type": "object",
         "properties": {
@@ -5011,11 +5067,6 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true,
             "description": "Set when soft-deleted; null otherwise"
-          },
-          "edit_history": {
-            "type": "array",
-            "description": "Ordered log of all field-level changes",
-            "items": { "$ref": "#/components/schemas/EditHistoryEntry" }
           },
           "created_at": {
             "type": "string",
@@ -5413,6 +5464,198 @@
         "properties": {
           "success": { "type": "boolean", "example": true },
           "data": { "$ref": "#/components/schemas/BaseCriteriaField" }
+        }
+      },
+      "AuditChange": {
+        "type": "object",
+        "description": "A single field-level change recorded in an audit log entry",
+        "required": ["field", "from", "to"],
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "Name of the changed field",
+            "example": "status"
+          },
+          "from": {
+            "description": "Previous value (null for newly created fields)",
+            "nullable": true
+          },
+          "to": {
+            "description": "New value (null for deleted fields)",
+            "nullable": true
+          }
+        }
+      },
+      "AuditActor": {
+        "type": "object",
+        "description": "Identity of the user who performed the action",
+        "properties": {
+          "sub": {
+            "type": "string",
+            "description": "Cognito sub (UUID)",
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          },
+          "username": { "type": "string", "example": "admin@example.com" },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "admin@example.com"
+          },
+          "first_name": { "type": "string", "example": "Jane" },
+          "last_name": { "type": "string", "example": "Doe" },
+          "full_name": { "type": "string", "example": "Jane Doe" }
+        }
+      },
+      "AuditLogItem": {
+        "type": "object",
+        "description": "A single audit log record stored in DynamoDB",
+        "required": [
+          "log_id",
+          "entity_id",
+          "entity_type",
+          "action",
+          "changes",
+          "changed_at",
+          "date",
+          "actor_sub"
+        ],
+        "properties": {
+          "log_id": {
+            "type": "string",
+            "description": "ULID — lexicographically ordered by creation time",
+            "example": "01HV2XK5Z4BSDN9E8F3GTRQWMP"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "ID of the entity that was changed",
+            "example": "CLABC12345"
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "campaign",
+              "client",
+              "affiliate",
+              "credential",
+              "credential_schema",
+              "plugin_setting",
+              "user"
+            ],
+            "example": "client"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "deleted",
+              "soft_deleted",
+              "restored",
+              "status_changed",
+              "key_rotated",
+              "participant_linked",
+              "participant_updated",
+              "participant_removed",
+              "criteria_field_added",
+              "criteria_field_updated",
+              "criteria_field_deleted",
+              "logic_rule_added",
+              "logic_rule_updated",
+              "logic_rule_deleted",
+              "mappings_updated",
+              "plugins_updated",
+              "hard_deleted",
+              "credential_disabled",
+              "credential_enabled",
+              "plugin_setting_disabled",
+              "plugin_setting_enabled",
+              "password_reset"
+            ],
+            "example": "updated"
+          },
+          "changes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AuditChange" }
+          },
+          "actor": { "$ref": "#/components/schemas/AuditActor" },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2025-06-01T14:32:00.000Z"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Calendar date (YYYY-MM-DD) — GSI partition key for daily S3 export",
+            "example": "2025-06-01"
+          },
+          "actor_sub": {
+            "type": "string",
+            "description": "Cognito sub of the actor — GSI partition key for per-user activity feed",
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          }
+        }
+      },
+      "AuditQueryResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": {
+            "type": "string",
+            "example": "Audit history retrieved successfully"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/AuditLogItem" }
+              },
+              "nextCursor": {
+                "type": "string",
+                "description": "Opaque base64url cursor — pass as cursor in the next request to retrieve the next page. Absent when there are no more results.",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "AuditExportRequest": {
+        "type": "object",
+        "required": ["date"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Calendar date to export (YYYY-MM-DD)",
+            "example": "2025-06-01"
+          }
+        }
+      },
+      "AuditExportResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": {
+            "type": "string",
+            "example": "Export completed successfully"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "s3Key": {
+                "type": "string",
+                "description": "S3 object key of the exported NDJSON file",
+                "example": "audit/2025/06/01/audit.ndjson"
+              },
+              "count": {
+                "type": "integer",
+                "description": "Number of records exported",
+                "example": 142
+              }
+            }
+          }
         }
       }
     },

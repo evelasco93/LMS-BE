@@ -100,5 +100,41 @@ export const dataConfig: IDataStackConfig = {
       pointInTimeRecovery: true,
       deletionProtection: false,
     },
+    /**
+     * Centralized audit log table.
+     * PK: entity_id, SK: log_id (time-sortable base32 string)
+     * GSI 1: entity_type-changed_at-index — cross-entity activity feed
+     * GSI 2: actor-index                  — all changes by a specific user
+     * GSI 3: date-index                   — daily S3 export
+     */
+    auditLogs: {
+      tableName: nameBuilder.table("audit-logs"),
+      partitionKey: { name: "entity_id", type: "S" },
+      sortKey: { name: "log_id", type: "S" },
+      gsi: [
+        {
+          indexName: `${nameBuilder.table("audit-logs")}-entity-type-index`,
+          partitionKey: { name: "entity_type", type: "S" },
+          sortKey: { name: "changed_at", type: "S" },
+          projectionType: "ALL",
+        },
+        {
+          indexName: `${nameBuilder.table("audit-logs")}-actor-index`,
+          partitionKey: { name: "actor_sub", type: "S" },
+          sortKey: { name: "changed_at", type: "S" },
+          projectionType: "ALL",
+        },
+        {
+          indexName: `${nameBuilder.table("audit-logs")}-date-index`,
+          partitionKey: { name: "date", type: "S" },
+          sortKey: { name: "changed_at", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: true,
+      deletionProtection: false,
+    },
   },
+  auditLogsBucketName:
+    `${nameBuilder.table("audit-logs-bucket")}`.toLowerCase(),
 };

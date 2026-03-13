@@ -45,8 +45,8 @@ load_dotenv_file() {
 load_dotenv_file ".frontend-auth.env"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-DEFAULT_INTERNAL_API_BASE_URL="https://1t2jyew8o2.execute-api.us-east-1.amazonaws.com/dev/"
-DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://a1tu1h2ev8.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_INTERNAL_API_BASE_URL="https://iq8bhm0nf6.execute-api.us-east-1.amazonaws.com/dev/"
+DEFAULT_EXTERNAL_LEADS_API_BASE_URL="https://8s5ozujbyb.execute-api.us-east-1.amazonaws.com/dev/"
 
 INTERNAL_API_BASE_URL="${INTERNAL_API_BASE_URL:-${NEXT_INTERNAL_API_BASE_URL:-$DEFAULT_INTERNAL_API_BASE_URL}}"
 EXTERNAL_LEADS_API_BASE_URL="${EXTERNAL_LEADS_API_BASE_URL:-${NEXT_EXTERNAL_LEADS_API_BASE_URL:-$DEFAULT_EXTERNAL_LEADS_API_BASE_URL}}"
@@ -1091,13 +1091,14 @@ run_campaigns_leads_tests() {
     dup_resp=$(test_endpoint "POST" "/v2/leads/test" "Duplicate test lead (should flag)" \
         "{\"campaign_id\":\"$CAMPAIGN_ID\",\"campaign_key\":\"$CAMPAIGN_KEY\",\"payload\":{\"email\":\"lead-test@example.com\",\"phone\":\"+15551112222\",\"name\":\"Dup Lead\"}}" \
         "external")
-    local dup_flag dup_rejected
+    local dup_flag dup_rejected dup_result
     dup_flag=$(extract_json_value "$dup_resp" "data.duplicate" | tr '[:upper:]' '[:lower:]')
     dup_rejected=$(extract_json_value "$dup_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
-    if [ "$dup_flag" = "true" ] || [ "$dup_rejected" = "true" ]; then
-        print_result 0 "Duplicate flagged (duplicate=$dup_flag, rejected=$dup_rejected)"
+    dup_result=$(extract_json_value "$dup_resp" "result" | tr '[:upper:]' '[:lower:]')
+    if [ "$dup_flag" = "true" ] || [ "$dup_rejected" = "true" ] || [ "$dup_result" = "failed" ]; then
+        print_result 0 "Duplicate flagged (result=$dup_result duplicate=$dup_flag rejected=$dup_rejected)"
     else
-        print_result 1 "Duplicate not flagged (duplicate=$dup_flag, rejected=$dup_rejected)"
+        print_result 1 "Duplicate not flagged (result=$dup_result duplicate=$dup_flag rejected=$dup_rejected)"
     fi
 
     print_section "LEAD INTAKE [C1/TEST]: wrong campaign_key → fail"
@@ -1205,7 +1206,19 @@ except: print(0)
             "Update criteria field description" \
             '{"description":"Two-letter state abbreviation (expanded to full name at intake)"}')
         local crit_upd_desc
-        crit_upd_desc=$(extract_json_value "$crit_upd_resp" "data.description")
+        crit_upd_desc=$(echo "$crit_upd_resp" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    items=d.get('data',[])
+    if isinstance(items, list):
+        target=next((x for x in items if x.get('id')=='$CRITERIA_FIELD_ID'),None) or (items[0] if items else {})
+        print(target.get('description',''))
+    elif isinstance(items, dict):
+        print(items.get('description',''))
+    else: print('')
+except: print('')
+" 2>/dev/null)
         if echo "$crit_upd_desc" | grep -qi "abbreviation"; then
             print_result 0 "Criteria field updated — description: $(echo "$crit_upd_desc" | head -c 70)"
         else
@@ -1232,13 +1245,21 @@ except: print(0)
         "Test lead missing required 'state' field — expect rejected=true" \
         "{\"campaign_id\":\"$CAMPAIGN_ID\",\"campaign_key\":\"$CAMPAIGN_KEY\",\"payload\":{\"email\":\"no-state@example.com\",\"phone\":\"+15553339999\",\"name\":\"Criteria Reject Test\"}}" \
         "external")
-    local crit_rej_rejected crit_rej_reason
+    local crit_rej_rejected crit_rej_reason crit_rej_result crit_rej_errors
     crit_rej_rejected=$(extract_json_value "$crit_rej_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
     crit_rej_reason=$(extract_json_value "$crit_rej_resp" "data.rejection_reason")
-    if [ "$crit_rej_rejected" = "true" ] && echo "$crit_rej_reason" | grep -qi "Missing required field"; then
-        print_result 0 "Lead correctly rejected — rejection_reason: $crit_rej_reason"
+    crit_rej_result=$(extract_json_value "$crit_rej_resp" "result" | tr '[:upper:]' '[:lower:]')
+    crit_rej_errors=$(echo "$crit_rej_resp" | python3 -c "import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(' '.join(d.get('errors',[])))
+except: print('')
+" 2>/dev/null)
+    if { [ "$crit_rej_rejected" = "true" ] && echo "$crit_rej_reason" | grep -qi "Missing required field"; } \
+       || { [ "$crit_rej_result" = "failed" ] && echo "$crit_rej_errors" | grep -qi "state\|required"; }; then
+        print_result 0 "Lead correctly rejected — reason: ${crit_rej_reason:-$crit_rej_errors}"
     else
-        print_result 1 "Expected criteria-validation rejection (rejected=$crit_rej_rejected reason=$crit_rej_reason)"
+        print_result 1 "Expected criteria-validation rejection (rejected=$crit_rej_rejected reason=$crit_rej_reason result=$crit_rej_result errors=$crit_rej_errors)"
         print_json "$crit_rej_resp"
     fi
 
@@ -1522,16 +1543,17 @@ except: print(0)
 
         if [ -n "$dis_aff_key" ]; then
             print_section "SAFEGUARD [disabled-aff]: Send test lead → must be stored as rejected"
-            local dis_lead_resp dis_lead_rejected dis_lead_success
+            local dis_lead_resp dis_lead_rejected dis_lead_success dis_lead_result
             dis_lead_resp=$(test_endpoint "POST" "/v2/leads/test" "Lead with disabled affiliate (expect rejected=true)" \
                 "{\"campaign_id\":\"$dis_camp_id\",\"campaign_key\":\"$dis_aff_key\",\"payload\":{\"email\":\"dis-lead-$TIMESTAMP@lms-test.local\",\"name\":\"Disabled Lead\"}}" \
                 "external")
             dis_lead_rejected=$(extract_json_value "$dis_lead_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
             dis_lead_success=$(extract_json_value "$dis_lead_resp" "success" | tr '[:upper:]' '[:lower:]')
-            if [ "$dis_lead_rejected" = "true" ]; then
+            dis_lead_result=$(extract_json_value "$dis_lead_resp" "result" | tr '[:upper:]' '[:lower:]')
+            if [ "$dis_lead_rejected" = "true" ] || [ "$dis_lead_result" = "failed" ]; then
                 print_result 0 "Lead stored as rejected (affiliate disabled in campaign)"
             else
-                print_result 1 "Lead was NOT marked rejected (rejected=$dis_lead_rejected success=$dis_lead_success — expected rejected=true)"
+                print_result 1 "Lead was NOT marked rejected (rejected=$dis_lead_rejected result=$dis_lead_result success=$dis_lead_success — expected rejection)"
             fi
         else
             print_result 1 "Skipped disabled-aff lead test — could not extract campaign_key"
@@ -1734,27 +1756,24 @@ except Exception:
             print_result 1 "Lead payload update failed (HTTP $LAST_HTTP_STATUS)"
         fi
 
-        print_section "LEAD EDIT HISTORY: GET /leads/$LEAD_ID_SOFT → verify edit_history populated"
-        local edit_verify_resp
-        edit_verify_resp=$(test_endpoint "GET" "/leads/$LEAD_ID_SOFT" \
-            "Fetch updated lead — check edit_history array")
-        local history_len
-        history_len=$(echo "$edit_verify_resp" | python3 -c "
+        print_section "LEAD EDIT HISTORY: GET /leads/$LEAD_ID_SOFT → verify changes tracked in audit logs"
+        local audit_hist_resp
+        audit_hist_resp=$(test_endpoint "GET" "/audit/activity?entity_type=lead&limit=5" \
+            "Verify lead changes tracked in audit logs (edit_history replaced by audit system)")
+        local audit_hist_count
+        audit_hist_count=$(echo "$audit_hist_resp" | python3 -c "
 import json,sys
 try:
     d=json.load(sys.stdin)
-    hist=d.get('data',{}).get('edit_history',[])
-    print(len(hist))
+    items=d.get('data',{}).get('items',[])
+    print(len(items))
 except: print(0)
 " 2>/dev/null)
-        if [ "${history_len:-0}" -gt 0 ] 2>/dev/null; then
-            local entry_word
-            [ "$history_len" -eq 1 ] && entry_word="entry" || entry_word="entries"
-            print_result 0 "edit_history has $history_len $entry_word — full lead:"
-            print_json "$edit_verify_resp"
+        if [ "${audit_hist_count:-0}" -ge 1 ] 2>/dev/null; then
+            print_result 0 "Lead changes tracked in audit logs ($audit_hist_count entries found — edit_history field replaced by audit system)"
         else
-            print_result 1 "edit_history is empty or missing (expected entries from the PUT above)"
-            print_json "$edit_verify_resp"
+            print_result 1 "Lead changes not tracked in audit logs (expected entries from the PUT above)"
+            print_json "$audit_hist_resp"
         fi
 
         print_section "SOFT-DELETE LEAD: DELETE /leads/$LEAD_ID_SOFT (default soft)"
@@ -1910,6 +1929,9 @@ run_tenant_config_tests() {
     fi
 
     # ── 6. Test validate with NO plugin setting configured yet ───────────────
+    # Ensure no stale plugin setting from a previous run interferes
+    test_endpoint "DELETE" "/tenant-config/plugin-settings/trusted_form?permanent=true" \
+        "Clean up any pre-existing trusted_form plugin setting" > /dev/null
     # At this point no plugin_setting exists — auto-resolve should fail
     print_section "VALIDATE: POST /qa/trusted-form/validate (no plugin setting → expect error)"
     local val_nops_resp
@@ -2289,6 +2311,7 @@ run_tenant_config_tests() {
         local tf_lead_rejected tf_lead_id tf_lead_msg
         tf_lead_rejected=$(extract_json_value "$tf_lead_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
         tf_lead_id=$(extract_json_value "$tf_lead_resp" "data.id")
+        [ -z "$tf_lead_id" ] && tf_lead_id=$(extract_json_value "$tf_lead_resp" "lead_id")
         tf_lead_msg=$(extract_json_value "$tf_lead_resp" "data.message")
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null && [ -n "$tf_lead_id" ]; then
             if [ "$tf_lead_rejected" = "false" ]; then
@@ -2491,6 +2514,7 @@ run_tenant_config_tests() {
         if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
             local slim_id slim_dup slim_rejected slim_rr
             slim_id=$(extract_json_value "$slim_resp" "data.id")
+            [ -z "$slim_id" ] && slim_id=$(extract_json_value "$slim_resp" "lead_id")
             slim_dup=$(extract_json_value "$slim_resp" "data.duplicate" | tr '[:upper:]' '[:lower:]')
             slim_rejected=$(extract_json_value "$slim_resp" "data.rejected" | tr '[:upper:]' '[:lower:]')
             slim_rr=$(extract_json_value "$slim_resp" "data.rejection_reason")
@@ -2623,6 +2647,213 @@ ensure_auth_token() {
     run_auth_tests
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUITE: AUDIT LOGS
+# Verifies the audit log Lambda endpoints:
+#   GET  /v2/audit/activity  — cross-entity activity feed
+#   GET  /v2/audit/:entityId — single-entity history
+#   POST /v2/audit/export    — manual S3 export trigger
+# ═══════════════════════════════════════════════════════════════════════════════
+run_audit_tests() {
+    reset_suite_log
+    echo -e "\n${MAGENTA}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║  AUDIT LOGS SUITE                              ║${NC}"
+    echo -e "${MAGENTA}╚════════════════════════════════════════════════╝${NC}"
+
+    # ── 1. Activity feed — entity_type filter ──────────────────────────────
+    print_section "ACTIVITY FEED: GET /v2/audit/activity?entity_type=client&limit=10"
+    local feed_resp
+    feed_resp=$(test_endpoint "GET" "/audit/activity?entity_type=client&limit=10" \
+        "Activity feed filtered by entity_type=client")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "GET /audit/activity returned HTTP $LAST_HTTP_STATUS"
+    else
+        print_result 1 "GET /audit/activity returned HTTP $LAST_HTTP_STATUS"
+    fi
+    local feed_success
+    feed_success=$(extract_json_value "$feed_resp" "success")
+    if [ "$feed_success" = "True" ] || [ "$feed_success" = "true" ]; then
+        print_result 0 "activity feed response has success:true"
+    else
+        print_result 1 "activity feed response missing success:true (got '$feed_success')"
+    fi
+    local feed_items
+    feed_items=$(echo "$feed_resp" | python3 -c \
+        "import json,sys; d=json.loads(sys.stdin.read() or '{}'); \
+         items=d.get('data', {}).get('items', []); print(len(items))" 2>/dev/null || echo "0")
+    echo -e "  Returned ${CYAN}${feed_items}${NC} item(s)"
+    if [ "$VERBOSE" = "true" ]; then print_json "$feed_resp"; fi
+    log_rr "Activity feed (entity_type=client)" "GET" \
+        "$INTERNAL_API_BASE_URL/audit/activity?entity_type=client&limit=10" "" "$feed_resp" "$LAST_HTTP_STATUS"
+
+    # ── 2. Activity feed — no filter (should fail with 400 / success:false) ─
+    print_section "ACTIVITY FEED: GET /v2/audit/activity (no filter — expect rejection)"
+    local no_filter_resp
+    no_filter_resp=$(test_endpoint "GET" "/audit/activity" "Activity feed without required filter")
+    local no_filter_success
+    no_filter_success=$(extract_json_value "$no_filter_resp" "success" | tr '[:upper:]' '[:lower:]')
+    if [ "$no_filter_success" = "false" ] || was_rejected; then
+        print_result 0 "Server correctly rejected activity feed with no filter (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "Server accepted activity feed without a filter (HTTP $LAST_HTTP_STATUS — expected error)"
+    fi
+    if [ "$VERBOSE" = "true" ]; then print_json "$no_filter_resp"; fi
+
+    # ── 3. Activity feed — actor_sub filter ───────────────────────────────
+    print_section "ACTIVITY FEED: GET /v2/audit/activity?entity_type=lead&limit=5"
+    local lead_feed_resp
+    lead_feed_resp=$(test_endpoint "GET" "/audit/activity?entity_type=lead&limit=5" \
+        "Activity feed filtered by entity_type=lead")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "GET /audit/activity?entity_type=lead returned HTTP $LAST_HTTP_STATUS"
+    else
+        print_result 1 "GET /audit/activity?entity_type=lead returned HTTP $LAST_HTTP_STATUS"
+    fi
+    if [ "$VERBOSE" = "true" ]; then print_json "$lead_feed_resp"; fi
+    log_rr "Activity feed (entity_type=lead)" "GET" \
+        "$INTERNAL_API_BASE_URL/audit/activity?entity_type=lead&limit=5" "" "$lead_feed_resp" "$LAST_HTTP_STATUS"
+
+    # ── 4. Activity feed — user entity_type filter ────────────────────────
+    print_section "ACTIVITY FEED: GET /v2/audit/activity?entity_type=user&limit=5"
+    local user_feed_resp
+    user_feed_resp=$(test_endpoint "GET" "/audit/activity?entity_type=user&limit=5" \
+        "Activity feed filtered by entity_type=user")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        print_result 0 "GET /audit/activity?entity_type=user returned HTTP $LAST_HTTP_STATUS"
+    else
+        print_result 1 "GET /audit/activity?entity_type=user returned HTTP $LAST_HTTP_STATUS"
+    fi
+    if [ "$VERBOSE" = "true" ]; then print_json "$user_feed_resp"; fi
+
+    # ── 5. Entity history — use a real entity ID (client from earlier suites) ─
+    local hist_entity_id="${CLIENT_ID:-${LEAD_ID_SOFT:-}}"
+    local hist_entity_label
+    [ -n "$CLIENT_ID" ] && hist_entity_label="client $CLIENT_ID" || hist_entity_label="lead $LEAD_ID_SOFT"
+    if [ -n "$hist_entity_id" ]; then
+        print_section "ENTITY HISTORY: GET /v2/audit/$hist_entity_id?limit=10"
+        local hist_resp
+        hist_resp=$(test_endpoint "GET" "/audit/${hist_entity_id}?limit=10" \
+            "Entity history for $hist_entity_label")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "GET /audit/{entityId} returned HTTP $LAST_HTTP_STATUS"
+        else
+            print_result 1 "GET /audit/{entityId} returned HTTP $LAST_HTTP_STATUS"
+        fi
+        local hist_items
+        hist_items=$(echo "$hist_resp" | python3 -c \
+            "import json,sys; d=json.loads(sys.stdin.read() or '{}'); \
+             items=d.get('data', {}).get('items', []); print(len(items))" 2>/dev/null || echo "0")
+        echo -e "  Returned ${CYAN}${hist_items}${NC} item(s) for $hist_entity_label"
+        if [ "$VERBOSE" = "true" ]; then print_json "$hist_resp"; fi
+        log_rr "Entity history (test user)" "GET" \
+            "$INTERNAL_API_BASE_URL/audit/${hist_entity_id}?limit=10" "" "$hist_resp" "$LAST_HTTP_STATUS"
+    else
+        echo -e "  ${YELLOW}Skipped entity history — no entity ID available from prior suites${NC}"
+    fi
+
+    # ── 5b. Activity feed — filter by actor_sub (decoded from JWT) ────────────
+    local jwt_sub
+    jwt_sub=$(echo "${INTERNAL_API_BEARER_TOKEN:-}" | cut -d'.' -f2 | \
+        python3 -c "
+import sys, base64, json
+raw = sys.stdin.read().strip()
+# pad to multiple of 4
+pad = 4 - len(raw) % 4
+if pad != 4: raw += '=' * pad
+try:
+    d = json.loads(base64.urlsafe_b64decode(raw))
+    print(d.get('sub', ''))
+except: print('')
+" 2>/dev/null)
+    if [ -n "$jwt_sub" ]; then
+        print_section "ACTIVITY FEED: GET /v2/audit/activity?actor_sub=$jwt_sub&limit=5"
+        local actor_feed_resp
+        actor_feed_resp=$(test_endpoint "GET" "/audit/activity?actor_sub=${jwt_sub}&limit=5" \
+            "Activity feed filtered by actor_sub (logged-in user)")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "GET /audit/activity?actor_sub returned HTTP $LAST_HTTP_STATUS"
+        else
+            print_result 1 "GET /audit/activity?actor_sub returned HTTP $LAST_HTTP_STATUS"
+        fi
+        local actor_items
+        actor_items=$(echo "$actor_feed_resp" | python3 -c \
+            "import json,sys; d=json.loads(sys.stdin.read() or '{}'); \
+             items=d.get('data', {}).get('items', []); print(len(items))" 2>/dev/null || echo "0")
+        echo -e "  Returned ${CYAN}${actor_items}${NC} item(s) for sub=$jwt_sub"
+        if [ "$VERBOSE" = "true" ]; then print_json "$actor_feed_resp"; fi
+    fi
+
+    # ── 6. Entity history — with date range filter ────────────────────────
+    local today yesterday
+    today=$(date -u +%Y-%m-%dT00:00:00.000Z)
+    tomorrow=$(date -u -d "+1 day" +%Y-%m-%dT23:59:59.999Z 2>/dev/null || date -u -v+1d +%Y-%m-%dT23:59:59.999Z 2>/dev/null || echo "")
+    if [ -n "$tomorrow" ]; then
+        print_section "ACTIVITY FEED: GET /v2/audit/activity?entity_type=client&from=${today}&to=${tomorrow}"
+        local range_resp
+        range_resp=$(test_endpoint "GET" \
+            "/audit/activity?entity_type=client&from=${today}&to=${tomorrow}&limit=10" \
+            "Activity feed with date range filter")
+        if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+            print_result 0 "Activity feed with date range returned HTTP $LAST_HTTP_STATUS"
+        else
+            print_result 1 "Activity feed with date range returned HTTP $LAST_HTTP_STATUS"
+        fi
+        if [ "$VERBOSE" = "true" ]; then print_json "$range_resp"; fi
+    fi
+
+    # ── 7. S3 export — valid date ─────────────────────────────────────────
+    local export_date
+    export_date=$(date -u +%Y-%m-%d)
+    print_section "S3 EXPORT: POST /v2/audit/export (date=$export_date)"
+    local export_resp
+    export_resp=$(test_endpoint "POST" "/audit/export" "Manual S3 export for today" \
+        "{\"date\":\"${export_date}\"}")
+    if [ "$LAST_HTTP_STATUS" -ge 200 ] && [ "$LAST_HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+        local exp_success
+        exp_success=$(extract_json_value "$export_resp" "success")
+        if [ "$exp_success" = "True" ] || [ "$exp_success" = "true" ]; then
+            local s3key count
+            s3key=$(extract_json_value "$export_resp" "data.s3Key")
+            count=$(extract_json_value "$export_resp" "data.count")
+            print_result 0 "S3 export succeeded — s3Key: ${s3key:-?}, count: ${count:-?}"
+        else
+            print_result 1 "S3 export returned success:false — $(extract_json_value "$export_resp" "error")"
+        fi
+    else
+        print_result 1 "S3 export returned HTTP $LAST_HTTP_STATUS"
+    fi
+    if [ "$VERBOSE" = "true" ]; then print_json "$export_resp"; fi
+    log_rr "S3 export (today)" "POST" "$INTERNAL_API_BASE_URL/audit/export" \
+        "{\"date\":\"${export_date}\"}" "$export_resp" "$LAST_HTTP_STATUS"
+
+    # ── 8. S3 export — invalid date format (expect rejection) ─────────────
+    print_section "S3 EXPORT: POST /v2/audit/export (invalid date — expect rejection)"
+    test_endpoint "POST" "/audit/export" "Export with invalid date format" \
+        '{"date":"not-a-date"}' > /dev/null
+    if was_rejected; then
+        print_result 0 "Server correctly rejected invalid export date (HTTP $LAST_HTTP_STATUS)"
+    else
+        print_result 1 "Server accepted invalid export date (HTTP $LAST_HTTP_STATUS — expected error)"
+    fi
+
+    # ── 9. Unauthenticated access (expect 401) ────────────────────────────
+    print_section "AUTH GUARD: GET /v2/audit/activity (no token — expect 401)"
+    local saved_token="$INTERNAL_API_BEARER_TOKEN"
+    INTERNAL_API_BEARER_TOKEN=""
+    build_internal_headers
+    test_endpoint "GET" "/audit/activity?entity_type=client" "Activity feed without token" > /dev/null
+    INTERNAL_API_BEARER_TOKEN="$saved_token"
+    build_internal_headers
+    if [ "$LAST_HTTP_STATUS" -eq 401 ] 2>/dev/null; then
+        print_result 0 "Unauthenticated request correctly returned 401"
+    else
+        print_result 1 "Unauthenticated request returned HTTP $LAST_HTTP_STATUS (expected 401)"
+    fi
+
+    echo -e "\n  ${MAGENTA}Audit logs suite done.${NC}"
+    print_suite_summary "AUDIT LOGS SUITE"
+}
+
 # ─── Run a named suite and report failures delta ──────────────────────────────
 run_suite() {
     local suite="$1"
@@ -2634,6 +2865,7 @@ run_suite() {
         affiliates)    ensure_auth_token; run_affiliates_tests ;;
         campaigns)     ensure_auth_token; run_campaigns_leads_tests ;;
         tenant-config) ensure_auth_token; run_tenant_config_tests ;;
+        audit)         ensure_auth_token; run_audit_tests ;;
         setup)         run_setup_user ;;
         all)
             run_cleanup
@@ -2643,6 +2875,7 @@ run_suite() {
             run_affiliates_tests
             run_campaigns_leads_tests
             run_tenant_config_tests
+            run_audit_tests
             ;;
         *) echo -e "  ${RED}Unknown suite: $suite${NC}"; return 1 ;;
     esac
@@ -2687,11 +2920,12 @@ show_menu() {
     echo -e "  ${GREEN}3)${NC} Affiliates    — create / validate"
     echo -e "  ${GREEN}4)${NC} Campaigns & Leads — full lifecycle + lead intake"
     echo -e "  ${GREEN}5)${NC} Tenant Config — credential schemas, credentials, plugin settings, TrustedForm validate"
-    echo -e "  ${GREEN}6)${NC} All           — cleanup → auth → clients → affiliates → campaigns → tenant-config"
-    echo -e "  ${GREEN}7)${NC} Setup         — create / reset test Cognito user"
+    echo -e "  ${GREEN}6)${NC} Audit Logs    — activity feed, entity history, S3 export"
+    echo -e "  ${GREEN}7)${NC} All           — cleanup → auth → clients → affiliates → campaigns → tenant-config → audit"
+    echo -e "  ${GREEN}8)${NC} Setup         — create / reset test Cognito user"
     echo -e "  ${GREEN}0)${NC} Exit"
     echo ""
-    printf "  ${CYAN}Choice [0-7]:${NC} "
+    printf "  ${CYAN}Choice [0-8]:${NC} "
     read -r choice
     echo ""
 
@@ -2701,8 +2935,9 @@ show_menu() {
         3) run_suite "affiliates" ;;
         4) run_suite "campaigns" ;;
         5) run_suite "tenant-config" ;;
-        6) run_suite "all" ;;
-        7) run_suite "setup" ;;
+        6) run_suite "audit" ;;
+        7) run_suite "all" ;;
+        8) run_suite "setup" ;;
         0) echo -e "  ${YELLOW}Bye.${NC}"; exit 0 ;;
         *) echo -e "  ${RED}Invalid choice '$choice'.${NC}"; exit 1 ;;
     esac

@@ -620,6 +620,30 @@ export class CampaignController extends Controller {
     };
   }
 
+  /** Must be declared before /:id/criteria/:fieldId/mappings to avoid route shadowing */
+  @GET("/:id/criteria/:fieldId")
+  @produces("application/json")
+  async getCriteriaField(
+    @pathParam("id") id: string,
+    @pathParam("fieldId") fieldId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getCriteriaField(id, fieldId);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to get criteria field",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria field retrieved successfully",
+      data: result.data,
+    };
+  }
+
   @PUT("/:id/criteria/:fieldId/mappings")
   @produces("application/json")
   async setValueMappings(

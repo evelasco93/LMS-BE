@@ -43,6 +43,7 @@ export interface IIamStackConfig {
     qaLogicRules: IRoleConfig;
     auth: IRoleConfig;
     users: IRoleConfig;
+    audit: IRoleConfig;
   };
 }
 

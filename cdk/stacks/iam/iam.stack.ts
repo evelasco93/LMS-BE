@@ -27,6 +27,7 @@ export class IamStack extends Stack {
   public readonly qaLogicRulesLambdaRole: Role;
   public readonly authLambdaRole: Role;
   public readonly usersLambdaRole: Role;
+  public readonly auditLambdaRole: Role;
 
   constructor(scope: Construct, id: string, props: IIamStackProps) {
     super(scope, id, props);
@@ -108,6 +109,12 @@ export class IamStack extends Stack {
     this.usersLambdaRole = this.createRole(
       `${config.appPrefix}-UsersLambdaRole`,
       iamConfig.lambdaRoles.users,
+    );
+
+    // Create Audit Lambda Role
+    this.auditLambdaRole = this.createRole(
+      `${config.appPrefix}-AuditLambdaRole`,
+      iamConfig.lambdaRoles.audit,
     );
 
     // Apply tags

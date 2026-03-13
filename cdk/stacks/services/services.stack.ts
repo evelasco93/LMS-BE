@@ -12,6 +12,7 @@ import { QaTrustedFormServiceStack } from "./qa-trusted-form-service.stack";
 import { QaIpqsServiceStack } from "./qa-ipqs-service.stack";
 import { QaCriteriaValidationServiceStack } from "./qa-criteria-validation-service.stack";
 import { QaLogicRulesServiceStack } from "./qa-logic-rules-service.stack";
+import { AuditServiceStack } from "./audit-service.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 
 export class ServicesStack extends Stack {
@@ -26,6 +27,7 @@ export class ServicesStack extends Stack {
   public readonly qaIpqsLambda: IFunction;
   public readonly qaCriteriaValidationLambda: IFunction;
   public readonly qaLogicRulesLambda: IFunction;
+  public readonly auditLambda: IFunction;
 
   constructor(scope: Construct, id: string, props: IServicesStackProps) {
     super(scope, id, props);
@@ -154,6 +156,17 @@ export class ServicesStack extends Stack {
     );
     this.affiliatesLambda = affiliatesServiceStack.lambda;
 
+    const auditServiceStack = new AuditServiceStack(
+      this,
+      `${config.appPrefix}-AuditService`,
+      {
+        lambdaConfig: servicesConfig.audit.lambda,
+        roleName: servicesConfig.audit.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.auditLambda = auditServiceStack.lambda;
+
     new CfnOutput(this, `${config.appPrefix}-CampaignsLambdaArn`, {
       value: this.campaignsLambda.functionArn,
       description: "Campaigns Lambda Function ARN",
@@ -218,6 +231,12 @@ export class ServicesStack extends Stack {
       value: this.qaLogicRulesLambda.functionArn,
       description: "QA Logic Rules Lambda Function ARN",
       exportName: `${config.appPrefix}-qa-logic-rules-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-AuditLambdaArn`, {
+      value: this.auditLambda.functionArn,
+      description: "Audit Lambda Function ARN",
+      exportName: `${config.appPrefix}-audit-lambda-arn`,
     });
 
     if (config.tags) {

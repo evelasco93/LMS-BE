@@ -512,6 +512,13 @@ export class OrchestratorService {
       };
     }
 
+    if (cred.enabled === false) {
+      return {
+        outcome: "error",
+        reason: "TrustedForm credential is disabled",
+      };
+    }
+
     const username = cred.credentials["username"];
     const password = cred.credentials["password"];
     if (!username || !password) {

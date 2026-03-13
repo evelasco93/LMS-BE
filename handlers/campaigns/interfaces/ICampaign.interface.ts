@@ -326,5 +326,4 @@ export interface ICampaign {
   deleted_at?: string;
   is_deleted?: boolean;
   active?: boolean;
-  edit_history?: IEditHistoryEntry[];
 }

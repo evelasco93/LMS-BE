@@ -1,14 +1,6 @@
 import { AffiliateStatus } from "../enums/affiliate-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
 
-export interface IEditHistoryEntry {
-  field: string;
-  previous_value: unknown;
-  new_value: unknown;
-  changed_at: string; // ISO timestamp
-  changed_by?: RequestActor;
-}
-
 export interface IAffiliate {
   id: string;
   name: string;
@@ -25,5 +17,4 @@ export interface IAffiliate {
   deleted_at?: string;
   is_deleted?: boolean;
   active?: boolean;
-  edit_history?: IEditHistoryEntry[];
 }

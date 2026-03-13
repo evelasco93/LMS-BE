@@ -1,9 +1,11 @@
 import { injectable, inject } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
+import { AuditWriterService } from "@shared/services";
+import { AuditChange } from "@shared/interfaces";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { ClientConstants } from "../constants/client.constants";
-import { IClient, IEditHistoryEntry } from "../interfaces/IClient.interface";
+import { IClient } from "../interfaces/IClient.interface";
 import { ClientStatus } from "../enums/client-status.enum";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
@@ -21,6 +23,8 @@ export class ClientService {
     @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
     @inject("Logger") private readonly logger: Logger,
     @inject("ClientConstants") private readonly constants: ClientConstants,
+    @inject("AuditWriterService")
+    private readonly auditWriterService: AuditWriterService,
   ) {}
 
   async createClient(
@@ -67,6 +71,15 @@ export class ClientService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CLIENTS_TABLE_NAME,
         Item: client,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: client.id,
+        entity_type: "client",
+        action: "created",
+        changes: [],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Client created successfully", { clientId: client.id });
@@ -262,7 +275,7 @@ export class ClientService {
         "client_code",
         "status",
       ];
-      const newHistoryEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
       for (const key of tracked) {
         const prev = current[key as keyof IClient];
         const next = request[key as keyof UpdateClientRequest];
@@ -270,13 +283,7 @@ export class ClientService {
           next !== undefined &&
           JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)
         ) {
-          newHistoryEntries.push({
-            field: key,
-            previous_value: prev ?? null,
-            new_value: next,
-            changed_at: now,
-            changed_by: actor,
-          });
+          changes.push({ field: key, from: prev ?? null, to: next });
         }
       }
 
@@ -289,7 +296,6 @@ export class ClientService {
           ? { client_code: request.client_code }
           : {}),
         ...(request.status !== undefined ? { status: request.status } : {}),
-        edit_history: [...(current.edit_history ?? []), ...newHistoryEntries],
         updated_at: now,
         updated_by: actor,
       };
@@ -297,6 +303,15 @@ export class ClientService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CLIENTS_TABLE_NAME,
         Item: updated,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "client",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Client updated successfully", { clientId: id });
@@ -371,6 +386,15 @@ export class ClientService {
           Key: { id },
         });
 
+        const now = new Date().toISOString();
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "client",
+          action: "deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
         this.logger.info("Client permanently deleted", {
           clientId: id,
           actor,
@@ -393,6 +417,14 @@ export class ClientService {
           ...expression,
         });
 
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "client",
+          action: "soft_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
         this.logger.info("Client soft-deleted", { clientId: id, actor });
       }
 

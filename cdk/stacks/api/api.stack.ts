@@ -24,6 +24,7 @@ export class ApiStack extends Stack {
       leadsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
+      auditLambda,
       authLambdaRoleName,
       usersLambdaRoleName,
     } = props;
@@ -39,6 +40,7 @@ export class ApiStack extends Stack {
         leadsLambda,
         tenantConfigLambda,
         qaOrchestratorLambda,
+        auditLambda,
         apiConfig: apiConfig.internalApi,
         authLambdaRoleName,
         usersLambdaRoleName,

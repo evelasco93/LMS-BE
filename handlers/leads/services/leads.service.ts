@@ -2,6 +2,8 @@ import { injectable, inject } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { LambdaInvokeUtil } from "@shared/services/lambda-invoke.util";
+import { AuditWriterService } from "@shared/services";
+import { AuditChange } from "@shared/interfaces";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { LeadsConstants } from "../constants/leads.constants";
@@ -12,13 +14,12 @@ import {
   UpdateLeadRequest,
 } from "../types/lead-request.types";
 import { ServiceResult } from "../types/common.types";
-import {
-  ILead,
-  IEditHistoryEntry,
-  IMappedFieldEntry,
-} from "../interfaces/ILead.interface";
+import { ILead, IMappedFieldEntry } from "../interfaces/ILead.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
-import { RequestActor } from "@shared/utils/request-audit.util";
+import {
+  RequestActor,
+  IEditHistoryEntry,
+} from "@shared/utils/request-audit.util";
 import {
   REJECTION_DUPLICATE,
   REJECTION_AFFILIATE_DISABLED,
@@ -144,6 +145,8 @@ export class LeadsService {
     @inject("LambdaInvokeUtil")
     private readonly lambdaInvokeUtil: LambdaInvokeUtil,
     @inject("LeadsConstants") private readonly constants: LeadsConstants,
+    @inject("AuditWriterService")
+    private readonly auditWriterService: AuditWriterService,
   ) {}
 
   async createLead(
@@ -267,12 +270,6 @@ export class LeadsService {
           test: isTest,
           payload: mappedPayload,
           ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
-          ...(valueMapEditHistory.length > 0
-            ? {
-                edit_history: valueMapEditHistory,
-                edited_fields: valueMapEditedFields,
-              }
-            : {}),
           duplicate: false,
           duplicate_matches: { lead_ids: [] },
           created_at: now,
@@ -286,7 +283,7 @@ export class LeadsService {
           updated_at: now,
           updated_by: actor,
           is_deleted: false,
-          active: true,
+          active: false,
         };
 
         await this.dynamoDBUtil.put({
@@ -352,12 +349,6 @@ export class LeadsService {
           test: isTest,
           payload: mappedPayload,
           ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
-          ...(valueMapEditHistory.length > 0
-            ? {
-                edit_history: valueMapEditHistory,
-                edited_fields: valueMapEditedFields,
-              }
-            : {}),
           duplicate: false,
           duplicate_matches: { lead_ids: [] },
           created_at: now,
@@ -443,12 +434,6 @@ export class LeadsService {
         test: isTest,
         payload: mappedPayload,
         ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
-        ...(valueMapEditHistory.length > 0
-          ? {
-              edit_history: valueMapEditHistory,
-              edited_fields: valueMapEditedFields,
-            }
-          : {}),
         duplicate: duplicateDetected,
         duplicate_matches: {
           lead_ids: duplicateMatchIds,
@@ -637,7 +622,7 @@ export class LeadsService {
 
       const now = new Date().toISOString();
 
-      // Diff payload fields and append to edit_history
+      // Diff payload fields for audit
       const oldPayload = existing.payload ?? {};
       const newPayload = sanitized.payload
         ? (sanitized.payload as Record<string, unknown>)
@@ -646,17 +631,15 @@ export class LeadsService {
         ...Object.keys(oldPayload),
         ...Object.keys(newPayload),
       ]);
-      const newHistoryEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
       for (const key of allKeys) {
         const prev = oldPayload[key];
         const next = newPayload[key];
         if (JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)) {
-          newHistoryEntries.push({
+          changes.push({
             field: `payload.${key}`,
-            previous_value: prev ?? null,
-            new_value: next ?? null,
-            changed_at: now,
-            changed_by: actor,
+            from: prev ?? null,
+            to: next ?? null,
           });
         }
       }
@@ -664,19 +647,6 @@ export class LeadsService {
       const updated: ILead = {
         ...existing,
         ...(sanitized.payload ? { payload: newPayload } : {}),
-        edit_history: [...(existing.edit_history ?? []), ...newHistoryEntries],
-        ...(newHistoryEntries.length > 0
-          ? {
-              edited_fields: Array.from(
-                new Set([
-                  ...(existing.edited_fields ?? []),
-                  ...newHistoryEntries.map((e) =>
-                    e.field.replace(/^payload\./, ""),
-                  ),
-                ]),
-              ),
-            }
-          : {}),
         updated_at: now,
         updated_by: actor,
       };
@@ -684,6 +654,15 @@ export class LeadsService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.LEADS_TABLE_NAME,
         Item: updated,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "lead",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
 
       return { result: true, data: updated };

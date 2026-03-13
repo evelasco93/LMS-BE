@@ -1,9 +1,10 @@
 import { inject, injectable } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
+import { AuditWriterService } from "@shared/services";
+import { AuditChange } from "@shared/interfaces";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { encrypt, decrypt } from "@shared/utils/crypto.util";
-import { IEditHistoryEntry } from "@shared/utils/request-audit.util";
 import {
   TenantConfigConstants,
   AVAILABLE_PLUGINS,
@@ -40,6 +41,8 @@ export class TenantConfigService {
     @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
     @inject("TenantConfigConstants")
     private readonly constants: TenantConfigConstants,
+    @inject("AuditWriterService")
+    private readonly auditWriterService: AuditWriterService,
   ) {}
 
   // ── Index name helpers ─────────────────────────────────────────────────────
@@ -98,12 +101,19 @@ export class TenantConfigService {
         active: true,
         deleted_at: null,
         deleted_by: null,
-        edit_history: [],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: record,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: record.id,
+        entity_type: "credential",
+        action: "created",
+        changes: [],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential created", { id: record.id, provider });
       return { result: true, data: this.decryptRecord(record) };
@@ -145,7 +155,7 @@ export class TenantConfigService {
         "vendor",
         "enabled",
       ];
-      const historyEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
 
       for (const key of tracked) {
         const prev = existing[key];
@@ -154,22 +164,14 @@ export class TenantConfigService {
           next !== undefined &&
           JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)
         ) {
-          historyEntries.push({
-            field: key,
-            previous_value: prev ?? null,
-            new_value: next,
-            changed_at: now,
-            changed_by: actor,
-          });
+          changes.push({ field: key, from: prev ?? null, to: next });
         }
       }
       if (request.credentials) {
-        historyEntries.push({
+        changes.push({
           field: "credentials",
-          previous_value: "[redacted]",
-          new_value: "[updated]",
-          changed_at: now,
-          changed_by: actor,
+          from: "[redacted]",
+          to: "[updated]",
         });
       }
 
@@ -186,12 +188,19 @@ export class TenantConfigService {
             : existing.vendor,
         updated_at: now,
         updated_by: actor,
-        edit_history: [...(existing.edit_history ?? []), ...historyEntries],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "credential",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential updated", { id });
       return { result: true, data: this.decryptRecord(updated) };
@@ -296,14 +305,22 @@ export class TenantConfigService {
         };
       }
 
+      const now = new Date().toISOString();
       if (options.permanent) {
         await this.dynamoDBUtil.delete({
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Key: { id },
         });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "credential",
+          action: "hard_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
         this.logger.info("Credential hard-deleted", { id });
       } else {
-        const now = new Date().toISOString();
         const updated: TenantCredentialRecord = {
           ...existing,
           is_deleted: true,
@@ -312,20 +329,18 @@ export class TenantConfigService {
           deleted_by: actor ?? null,
           updated_at: now,
           updated_by: actor,
-          edit_history: [
-            ...(existing.edit_history ?? []),
-            {
-              field: "is_deleted",
-              previous_value: false,
-              new_value: true,
-              changed_at: now,
-              changed_by: actor,
-            },
-          ],
         };
         await this.dynamoDBUtil.put({
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Item: updated,
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "credential",
+          action: "soft_deleted",
+          changes: [{ field: "is_deleted", from: false, to: true }],
+          actor,
+          changed_at: now,
         });
         this.logger.info("Credential soft-deleted", { id });
       }
@@ -356,21 +371,19 @@ export class TenantConfigService {
         enabled: false,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "enabled",
-            previous_value: existing.enabled,
-            new_value: false,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "credential",
+        action: "credential_disabled",
+        changes: [{ field: "enabled", from: existing.enabled, to: false }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential disabled", { id });
       return { result: true, data: this.decryptRecord(updated) };
@@ -399,21 +412,19 @@ export class TenantConfigService {
         enabled: true,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "enabled",
-            previous_value: existing.enabled,
-            new_value: true,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "credential",
+        action: "credential_enabled",
+        changes: [{ field: "enabled", from: existing.enabled, to: true }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential enabled", { id });
       return { result: true, data: this.decryptRecord(updated) };
@@ -445,21 +456,19 @@ export class TenantConfigService {
         deleted_by: null,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "is_deleted",
-            previous_value: true,
-            new_value: false,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "credential",
+        action: "restored",
+        changes: [{ field: "is_deleted", from: true, to: false }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential restored", { id });
       return { result: true, data: this.decryptRecord(updated) };
@@ -553,12 +562,19 @@ export class TenantConfigService {
         active: true,
         deleted_at: null,
         deleted_by: null,
-        edit_history: [],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: record,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: record.id,
+        entity_type: "credential_schema",
+        action: "created",
+        changes: [],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential schema created", {
         id: record.id,
@@ -590,36 +606,26 @@ export class TenantConfigService {
         };
 
       const now = new Date().toISOString();
-      const historyEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
 
       if (request.name !== undefined && request.name !== existing.name) {
-        historyEntries.push({
-          field: "name",
-          previous_value: existing.name,
-          new_value: request.name,
-          changed_at: now,
-          changed_by: actor,
-        });
+        changes.push({ field: "name", from: existing.name, to: request.name });
       }
       if (
         request.description !== undefined &&
         request.description !== existing.description
       ) {
-        historyEntries.push({
+        changes.push({
           field: "description",
-          previous_value: existing.description ?? null,
-          new_value: request.description,
-          changed_at: now,
-          changed_by: actor,
+          from: existing.description ?? null,
+          to: request.description,
         });
       }
       if (request.fields !== undefined) {
-        historyEntries.push({
+        changes.push({
           field: "fields",
-          previous_value: JSON.stringify(existing.fields),
-          new_value: JSON.stringify(request.fields),
-          changed_at: now,
-          changed_by: actor,
+          from: JSON.stringify(existing.fields),
+          to: JSON.stringify(request.fields),
         });
       }
 
@@ -633,12 +639,19 @@ export class TenantConfigService {
         fields: request.fields ?? existing.fields,
         updated_at: now,
         updated_by: actor,
-        edit_history: [...(existing.edit_history ?? []), ...historyEntries],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "credential_schema",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential schema updated", { id });
       return { result: true, data: updated };
@@ -718,14 +731,22 @@ export class TenantConfigService {
         };
       }
 
+      const now = new Date().toISOString();
       if (options.permanent) {
         await this.dynamoDBUtil.delete({
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Key: { id },
         });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "credential_schema",
+          action: "hard_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
         this.logger.info("Credential schema hard-deleted", { id });
       } else {
-        const now = new Date().toISOString();
         const updated: ICredentialSchemaRecord = {
           ...existing,
           is_deleted: true,
@@ -734,20 +755,18 @@ export class TenantConfigService {
           deleted_by: actor ?? null,
           updated_at: now,
           updated_by: actor,
-          edit_history: [
-            ...(existing.edit_history ?? []),
-            {
-              field: "is_deleted",
-              previous_value: false,
-              new_value: true,
-              changed_at: now,
-              changed_by: actor,
-            },
-          ],
         };
         await this.dynamoDBUtil.put({
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Item: updated,
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "credential_schema",
+          action: "soft_deleted",
+          changes: [{ field: "is_deleted", from: false, to: true }],
+          actor,
+          changed_at: now,
         });
         this.logger.info("Credential schema soft-deleted", { id });
       }
@@ -782,21 +801,19 @@ export class TenantConfigService {
         deleted_by: null,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "is_deleted",
-            previous_value: true,
-            new_value: false,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "credential_schema",
+        action: "restored",
+        changes: [{ field: "is_deleted", from: true, to: false }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Credential schema restored", { id });
       return { result: true, data: updated };
@@ -849,28 +866,24 @@ export class TenantConfigService {
       const existing = await this.getPluginSettingByProvider(provider);
 
       const now = new Date().toISOString();
-      const historyEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
       if (existing) {
         const newCredId = request.credentials_id ?? existing.credentials_id;
         if (existing.credentials_id !== newCredId) {
-          historyEntries.push({
+          changes.push({
             field: "credentials_id",
-            previous_value: existing.credentials_id,
-            new_value: newCredId,
-            changed_at: now,
-            changed_by: actor,
+            from: existing.credentials_id,
+            to: newCredId,
           });
         }
         if (
           request.enabled !== undefined &&
           existing.enabled !== request.enabled
         ) {
-          historyEntries.push({
+          changes.push({
             field: "enabled",
-            previous_value: existing.enabled,
-            new_value: request.enabled,
-            changed_at: now,
-            changed_by: actor,
+            from: existing.enabled,
+            to: request.enabled,
           });
         }
       }
@@ -892,13 +905,31 @@ export class TenantConfigService {
         active: true,
         deleted_at: null,
         deleted_by: null,
-        edit_history: [...(existing?.edit_history ?? []), ...historyEntries],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: record,
       });
+      if (existing) {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: record.id,
+          entity_type: "plugin_setting",
+          action: "updated",
+          changes,
+          actor,
+          changed_at: now,
+        });
+      } else {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: record.id,
+          entity_type: "plugin_setting",
+          action: "created",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
+      }
       this.logger.info("Plugin setting upserted", { id: record.id, provider });
       return { result: true, data: record };
     } catch (error: any) {
@@ -978,7 +1009,6 @@ export class TenantConfigService {
                 active: false,
                 deleted_at: null,
                 deleted_by: null,
-                edit_history: [],
               };
         return {
           ...setting,
@@ -1025,30 +1055,26 @@ export class TenantConfigService {
       }
 
       const now = new Date().toISOString();
-      const historyEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
 
       if (
         request.credentials_id &&
         request.credentials_id !== existing.credentials_id
       ) {
-        historyEntries.push({
+        changes.push({
           field: "credentials_id",
-          previous_value: existing.credentials_id,
-          new_value: request.credentials_id,
-          changed_at: now,
-          changed_by: actor,
+          from: existing.credentials_id,
+          to: request.credentials_id,
         });
       }
       if (
         request.enabled !== undefined &&
         request.enabled !== existing.enabled
       ) {
-        historyEntries.push({
+        changes.push({
           field: "enabled",
-          previous_value: existing.enabled,
-          new_value: request.enabled,
-          changed_at: now,
-          changed_by: actor,
+          from: existing.enabled,
+          to: request.enabled,
         });
       }
 
@@ -1058,12 +1084,19 @@ export class TenantConfigService {
         enabled: request.enabled ?? existing.enabled,
         updated_at: now,
         updated_by: actor,
-        edit_history: [...(existing.edit_history ?? []), ...historyEntries],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: existing.id,
+        entity_type: "plugin_setting",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
       this.logger.info("Plugin setting updated", { provider });
 
@@ -1097,17 +1130,25 @@ export class TenantConfigService {
       if (!existing)
         return { result: false, error: "Plugin setting not found" };
 
+      const now = new Date().toISOString();
       if (options.permanent) {
         await this.dynamoDBUtil.delete({
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Key: { id: existing.id },
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: existing.id,
+          entity_type: "plugin_setting",
+          action: "hard_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
         });
         this.logger.info("Plugin setting hard-deleted", {
           provider,
           id: existing.id,
         });
       } else {
-        const now = new Date().toISOString();
         const updated: IPluginSettingRecord = {
           ...existing,
           is_deleted: true,
@@ -1116,20 +1157,18 @@ export class TenantConfigService {
           deleted_by: actor ?? null,
           updated_at: now,
           updated_by: actor,
-          edit_history: [
-            ...(existing.edit_history ?? []),
-            {
-              field: "is_deleted",
-              previous_value: false,
-              new_value: true,
-              changed_at: now,
-              changed_by: actor,
-            },
-          ],
         };
         await this.dynamoDBUtil.put({
           TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
           Item: updated,
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: existing.id,
+          entity_type: "plugin_setting",
+          action: "soft_deleted",
+          changes: [{ field: "is_deleted", from: false, to: true }],
+          actor,
+          changed_at: now,
         });
         this.logger.info("Plugin setting soft-deleted", { provider });
       }
@@ -1164,21 +1203,19 @@ export class TenantConfigService {
         enabled: false,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "enabled",
-            previous_value: existing.enabled,
-            new_value: false,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: existing.id,
+        entity_type: "plugin_setting",
+        action: "plugin_setting_disabled",
+        changes: [{ field: "enabled", from: existing.enabled, to: false }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Plugin setting disabled", { provider });
 
@@ -1217,21 +1254,19 @@ export class TenantConfigService {
         enabled: true,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "enabled",
-            previous_value: existing.enabled,
-            new_value: true,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: existing.id,
+        entity_type: "plugin_setting",
+        action: "plugin_setting_enabled",
+        changes: [{ field: "enabled", from: existing.enabled, to: true }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Plugin setting enabled", { provider });
       return { result: true, data: updated };
@@ -1264,21 +1299,19 @@ export class TenantConfigService {
         deleted_by: null,
         updated_at: now,
         updated_by: actor,
-        edit_history: [
-          ...(existing.edit_history ?? []),
-          {
-            field: "is_deleted",
-            previous_value: true,
-            new_value: false,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
       };
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
         Item: updated,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: existing.id,
+        entity_type: "plugin_setting",
+        action: "restored",
+        changes: [{ field: "is_deleted", from: true, to: false }],
+        actor,
+        changed_at: now,
       });
       this.logger.info("Plugin setting restored", { provider });
       return { result: true, data: updated };

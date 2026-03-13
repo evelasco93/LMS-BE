@@ -50,6 +50,7 @@ export interface IServicesStackConfig {
   qaIpqs: IServiceConfig;
   qaCriteriaValidation: IServiceConfig;
   qaLogicRules: IServiceConfig;
+  audit: IServiceConfig;
 }
 
 /**

@@ -1,6 +1,8 @@
 import { injectable, inject } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
+import { AuditWriterService } from "@shared/services";
+import { AuditChange } from "@shared/interfaces";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 import {
@@ -56,6 +58,8 @@ export class CampaignService {
     @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
     @inject("Logger") private readonly logger: Logger,
     @inject("CampaignConstants") private readonly constants: CampaignConstants,
+    @inject("AuditWriterService")
+    private readonly auditWriterService: AuditWriterService,
   ) {}
 
   async createCampaign(
@@ -102,6 +106,15 @@ export class CampaignService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaign.id,
+        entity_type: "campaign",
+        action: "created",
+        changes: [],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Campaign created", { campaignId: campaign.id });
@@ -217,28 +230,27 @@ export class CampaignService {
       Object.assign(campaign, normalized);
 
       const now = new Date().toISOString();
-      const newHistoryEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
       if (campaign.name !== name) {
-        newHistoryEntries.push({
-          field: "name",
-          previous_value: campaign.name,
-          new_value: name,
-          changed_at: now,
-          changed_by: actor,
-        });
+        changes.push({ field: "name", from: campaign.name, to: name });
       }
 
       campaign.name = name;
-      campaign.edit_history = [
-        ...(campaign.edit_history ?? []),
-        ...newHistoryEntries,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaign.id,
+        entity_type: "campaign",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Campaign updated", { campaignId: campaign.id, actor });
@@ -1475,6 +1487,31 @@ export class CampaignService {
       return {
         result: false,
         error: error.message || "Failed to get criteria",
+      };
+    }
+  }
+
+  async getCriteriaField(
+    campaignId: string,
+    fieldId: string,
+  ): Promise<ServiceResult<IBaseCriteriaField>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const field = (campaign.base_criteria ?? []).find(
+        (f) => f.id === fieldId,
+      );
+      if (!field) {
+        return { result: false, error: `Criteria field ${fieldId} not found` };
+      }
+      return { result: true, data: field };
+    } catch (error: any) {
+      this.logger.error("Failed to get criteria field", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get criteria field",
       };
     }
   }

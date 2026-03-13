@@ -1,12 +1,11 @@
 import { injectable, inject } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
+import { AuditWriterService } from "@shared/services";
+import { AuditChange } from "@shared/interfaces";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { AffiliateConstants } from "../constants/affiliate.constants";
-import {
-  IAffiliate,
-  IEditHistoryEntry,
-} from "../interfaces/IAffiliate.interface";
+import { IAffiliate } from "../interfaces/IAffiliate.interface";
 import { AffiliateStatus } from "../enums/affiliate-status.enum";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
@@ -25,6 +24,8 @@ export class AffiliateService {
     @inject("Logger") private readonly logger: Logger,
     @inject("AffiliateConstants")
     private readonly constants: AffiliateConstants,
+    @inject("AuditWriterService")
+    private readonly auditWriterService: AuditWriterService,
   ) {}
 
   async createAffiliate(
@@ -71,6 +72,15 @@ export class AffiliateService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.AFFILIATES_TABLE_NAME,
         Item: affiliate,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: affiliate.id,
+        entity_type: "affiliate",
+        action: "created",
+        changes: [],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Affiliate created successfully", {
@@ -269,7 +279,7 @@ export class AffiliateService {
         "affiliate_code",
         "status",
       ];
-      const newHistoryEntries: IEditHistoryEntry[] = [];
+      const changes: AuditChange[] = [];
       for (const key of tracked) {
         const prev = current[key as keyof IAffiliate];
         const next = request[key as keyof UpdateAffiliateRequest];
@@ -277,13 +287,7 @@ export class AffiliateService {
           next !== undefined &&
           JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)
         ) {
-          newHistoryEntries.push({
-            field: key,
-            previous_value: prev ?? null,
-            new_value: next,
-            changed_at: now,
-            changed_by: actor,
-          });
+          changes.push({ field: key, from: prev ?? null, to: next });
         }
       }
 
@@ -297,7 +301,6 @@ export class AffiliateService {
           ? { affiliate_code: request.affiliate_code }
           : {}),
         ...(request.status !== undefined ? { status: request.status } : {}),
-        edit_history: [...(current.edit_history ?? []), ...newHistoryEntries],
         updated_at: now,
         updated_by: actor,
       };
@@ -305,6 +308,15 @@ export class AffiliateService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.AFFILIATES_TABLE_NAME,
         Item: updated,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "affiliate",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Affiliate updated successfully", { affiliateId: id });
@@ -379,6 +391,15 @@ export class AffiliateService {
           Key: { id },
         });
 
+        const now = new Date().toISOString();
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "affiliate",
+          action: "deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
         this.logger.info("Affiliate permanently deleted", {
           affiliateId: id,
           actor,
@@ -401,6 +422,14 @@ export class AffiliateService {
           ...expression,
         });
 
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "affiliate",
+          action: "soft_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
         this.logger.info("Affiliate soft-deleted", { affiliateId: id, actor });
       }
 

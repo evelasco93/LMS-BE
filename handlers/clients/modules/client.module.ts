@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { Container } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
+import { AuditWriterService } from "@shared/services";
 import { ClientConstants } from "../constants/client.constants";
 import { ClientService } from "../services/client.service";
 import { ClientController } from "../controllers/client.controller";
@@ -22,6 +23,15 @@ container
   .inSingletonScope();
 
 // Bind services
+container
+  .bind<AuditWriterService>("AuditWriterService")
+  .toDynamicValue(
+    () =>
+      new AuditWriterService(
+        container.get<DynamoDBUtil>("DynamoDBUtil"),
+        process.env.AUDIT_LOGS_TABLE_NAME!,
+      ),
+  );
 container.bind<ClientService>("ClientService").to(ClientService);
 
 // Bind controllers with class identifiers so ts-lambda-api can resolve them

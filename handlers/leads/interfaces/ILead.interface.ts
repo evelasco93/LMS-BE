@@ -1,13 +1,5 @@
 import type { RequestActor } from "@shared/utils/request-audit.util";
 
-export interface IEditHistoryEntry {
-  field: string; // dot-notation path, e.g. "payload.name"
-  previous_value: unknown;
-  new_value: unknown;
-  changed_at: string; // ISO timestamp
-  changed_by?: RequestActor;
-}
-
 export interface ITrustedFormResult {
   success: boolean;
   cert_id: string;
@@ -98,12 +90,6 @@ export interface ILead {
   created_by?: RequestActor;
   updated_at?: string;
   updated_by?: RequestActor;
-  edit_history?: IEditHistoryEntry[];
-  /**
-   * Set of payload field keys that were manually edited after intake.
-   * Used by the frontend to visually distinguish edited fields.
-   */
-  edited_fields?: string[];
   is_deleted?: boolean;
   active?: boolean;
   deleted_at?: string;

@@ -1,5 +1,6 @@
 import { Stack, CfnOutput } from "aws-cdk-lib";
 import { Table } from "aws-cdk-lib/aws-dynamodb";
+import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { IDataStackProps } from "./types/data.types";
 import { ClientsDataStack } from "./clients-data.stack";
@@ -7,6 +8,7 @@ import { AffiliatesDataStack } from "./affiliates-data.stack";
 import { CampaignsDataStack } from "./campaigns-data.stack";
 import { LeadsDataStack } from "./leads-data.stack";
 import { TenantSettingsDataStack } from "./tenant-settings-data.stack";
+import { AuditLogsDataStack } from "./audit-logs-data.stack";
 
 /**
  * Main Data Stack
@@ -18,6 +20,10 @@ export class DataStack extends Stack {
   public readonly leadsTable: Table;
   /** Consolidated single table for credentials, credential schemas, and plugin settings */
   public readonly tenantSettingsTable: Table;
+  /** Centralized audit log table */
+  public readonly auditLogsTable: Table;
+  /** S3 bucket for daily audit log NDJSON exports */
+  public readonly auditLogsBucket: Bucket;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -74,6 +80,18 @@ export class DataStack extends Stack {
     this.campaignsTable = campaignsDataStack.table;
     this.leadsTable = leadsDataStack.table;
     this.tenantSettingsTable = tenantSettingsDataStack.table;
+
+    const auditLogsDataStack = new AuditLogsDataStack(
+      this,
+      `${config.appPrefix}-AuditLogsData`,
+      {
+        tableConfig: dataConfig.tables.auditLogs,
+        s3BucketName: dataConfig.auditLogsBucketName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.auditLogsTable = auditLogsDataStack.table;
+    this.auditLogsBucket = auditLogsDataStack.bucket;
 
     new CfnOutput(this, `${config.appPrefix}-TenantSettingsTableName`, {
       value: this.tenantSettingsTable.tableName,

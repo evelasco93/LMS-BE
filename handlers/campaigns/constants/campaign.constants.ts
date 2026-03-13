@@ -89,6 +89,7 @@ export class CampaignConstants {
   public readonly TENANT_SETTINGS_TABLE_NAME: string;
   /** Base URL for the external leads submission endpoint, returned in affiliate link responses */
   public readonly LEADS_BASE_URL: string;
+  public readonly AUDIT_LOGS_TABLE_NAME: string;
 
   constructor() {
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
@@ -100,6 +101,7 @@ export class CampaignConstants {
     this.LEADS_BASE_URL =
       process.env.LEADS_BASE_URL ??
       "https://a1tu1h2ev8.execute-api.us-east-1.amazonaws.com/dev/v2/leads";
+    this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
 
     if (!this.CAMPAIGNS_TABLE_NAME) {
       throw new Error("CAMPAIGNS_TABLE_NAME env var is required");

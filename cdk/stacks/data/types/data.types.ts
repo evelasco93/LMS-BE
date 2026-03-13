@@ -42,7 +42,11 @@ export interface IDataStackConfig {
     leads: ITableConfig;
     /** Consolidated single table for credentials, credential schemas, and plugin settings */
     tenantSettings: ITableConfig;
+    /** Centralized audit log table — one item per mutation across all entity types */
+    auditLogs: ITableConfig;
   };
+  /** S3 bucket name for daily audit log NDJSON exports (Athena-queryable) */
+  auditLogsBucketName: string;
 }
 
 /**

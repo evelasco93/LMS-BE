@@ -26,6 +26,8 @@ import {
 } from "../types/users-request.types";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
+import { AuditWriterService } from "@shared/services";
+import { AuditChange } from "@shared/interfaces";
 
 const KNOWN_ROLES: UserRole[] = ["admin", "staff"];
 
@@ -35,6 +37,8 @@ export class UsersService {
 
   constructor(
     @inject("UsersConstants") private readonly constants: UsersConstants,
+    @inject("AuditWriterService")
+    private readonly auditWriterService: AuditWriterService,
   ) {
     this.cognitoClient = new CognitoIdentityProviderClient({
       region: this.constants.REGION,
@@ -95,6 +99,26 @@ export class UsersService {
           GroupName: role,
         }),
       );
+
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [
+        { field: "email", from: null, to: email },
+        { field: "role", from: null, to: role },
+        ...(firstName !== undefined
+          ? [{ field: "given_name", from: null, to: firstName }]
+          : []),
+        ...(lastName !== undefined
+          ? [{ field: "family_name", from: null, to: lastName }]
+          : []),
+      ];
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: email,
+        entity_type: "user",
+        action: "created",
+        changes,
+        actor,
+        changed_at: now,
+      });
 
       return {
         result: true,
@@ -304,6 +328,27 @@ export class UsersService {
         );
       }
 
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [
+        ...(firstName !== undefined
+          ? [{ field: "given_name", from: undefined, to: firstName }]
+          : []),
+        ...(lastName !== undefined
+          ? [{ field: "family_name", from: undefined, to: lastName }]
+          : []),
+        ...(role !== undefined
+          ? [{ field: "role", from: undefined, to: role }]
+          : []),
+      ];
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: username,
+        entity_type: "user",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
+      });
+
       return this.getUser(username, actor);
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
@@ -337,6 +382,14 @@ export class UsersService {
           Permanent: true,
         }),
       );
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: username,
+        entity_type: "user",
+        action: "password_reset",
+        changes: [{ field: "password", from: "[redacted]", to: "[updated]" }],
+        actor,
+        changed_at: new Date().toISOString(),
+      });
       return { result: true, data: { actor } as any };
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
@@ -376,7 +429,20 @@ export class UsersService {
           }),
         );
       }
-      return { result: true, data: { permanent: !!options.permanent, actor } as any };
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: username,
+        entity_type: "user",
+        action: options.permanent ? "deleted" : "soft_deleted",
+        changes: options.permanent
+          ? []
+          : [{ field: "enabled", from: true, to: false }],
+        actor,
+        changed_at: new Date().toISOString(),
+      });
+      return {
+        result: true,
+        data: { permanent: !!options.permanent, actor } as any,
+      };
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
         return { result: false, error: "User not found" };
@@ -400,6 +466,14 @@ export class UsersService {
           Username: username,
         }),
       );
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: username,
+        entity_type: "user",
+        action: "status_changed",
+        changes: [{ field: "enabled", from: false, to: true }],
+        actor,
+        changed_at: new Date().toISOString(),
+      });
       return this.getUser(username, actor);
     } catch (error) {
       if (error instanceof CognitoUserNotFoundException) {
@@ -409,4 +483,5 @@ export class UsersService {
         error instanceof Error ? error.message : "Failed to enable user";
       return { result: false, error: message };
     }
-  }}
+  }
+}

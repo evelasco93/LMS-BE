@@ -12,7 +12,7 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 - Move campaign to ACTIVE only when campaign is currently TEST and it has at least one LIVE client and one LIVE affiliate (DISABLED participants are ignored for the LIVE requirement).
 - Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`. `plugins.trusted_form.enabled=false` and `plugins.ipqs.enabled=false` on creation. `duplicate_check` is **always auto-enabled** when a campaign is promoted to ACTIVE — TrustedForm and IPQS are optional. Each plugin has a `stage` (integer ≥ 2) that controls execution order and a `gate` flag that controls whether a failure halts the pipeline.
 - The campaign response includes `submit_url` and `submit_url_test` — display these to affiliates so they know exactly where to send leads.
-- Lead submission (`POST /leads`, `POST /leads/test`) returns a slim response containing only `id`, `test`, `duplicate`, `rejected`, `rejection_reason`, and `message`. Internal lead detail is only available via `GET /leads/{id}` (internal API).
+- Lead submission (`POST /leads`, `POST /leads/test`) returns two distinct shapes. Accepted leads: `{ id, test, duplicate, rejected, message }`. Rejected leads (any reason): `{ result: "failed", lead_id, msg, errors[] }`. Internal lead detail is only available via `GET /leads/{id}` (internal API).
 - Rotate keys if compromised: use the new key rotation endpoints to issue a fresh `campaign_key` for an affiliate or `client_key` for a linked client.
 - Deletion safeguards: campaigns can only be deleted in DRAFT/TEST when empty and without leads; clients/affiliates must be disabled in all campaigns before soft delete and cannot be hard deleted when campaigns have leads.
 - Internal API is protected by Bearer token auth — call `POST /v2/auth/login` to get a token, then send `Authorization: Bearer <id_token>` on all internal API requests. **Use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
@@ -29,15 +29,16 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 
 Every entity now carries the following audit and soft-delete fields:
 
-| Field          | Type                                   | Description                                                    |
-| -------------- | -------------------------------------- | -------------------------------------------------------------- |
-| `created_by`   | RequestActor                           | Identity that created the record                               |
-| `updated_by`   | RequestActor \| null                   | Identity that last mutated the record                          |
-| `deleted_by`   | RequestActor \| null                   | Identity that soft-deleted the record; `null` when not deleted |
-| `deleted_at`   | ISO timestamp \| null                  | When the soft-delete occurred; `null` when not deleted         |
-| `is_deleted`   | boolean                                | `true` when soft-deleted                                       |
-| `active`       | boolean                                | Convenience inverse of `is_deleted` (`false` when deleted)     |
-| `edit_history` | array (Client/Affiliate/Lead/Campaign) | Ordered log of field-level changes; see below.                 |
+| Field        | Type                 | Description                                                    |
+| ------------ | -------------------- | -------------------------------------------------------------- |
+| `created_by` | RequestActor         | Identity that created the record                               |
+| `updated_by` | RequestActor \| null | Identity that last mutated the record                          |
+| `deleted_by` | RequestActor \| null | Identity that soft-deleted the record; `null` when not deleted |
+
+`RequestActor` shape: `{ sub, username, email, first_name, last_name, full_name }`. **Always use `full_name` to display a human-readable actor name.** Fall back to `email` only if `full_name` is absent (e.g. legacy records).
+| `deleted_at` | ISO timestamp \| null | When the soft-delete occurred; `null` when not deleted |
+| `is_deleted` | boolean | `true` when soft-deleted |
+| `active` | boolean | Convenience inverse of `is_deleted` (`false` when deleted) |
 
 Use `active` / `is_deleted` in the UI to show/hide deleted records without re-fetching.
 
@@ -84,7 +85,7 @@ Response returns the client with `id` and timestamps.
 
 **Update client** `PUT /clients/{id}`
 
-All fields optional — only supplied fields are updated. Every changed field is automatically appended to `edit_history`.
+All fields optional — only supplied fields are updated. Every change is recorded in the audit log automatically.
 
 ```json
 { "name": "New Name", "phone": "+15550001111", "status": "INACTIVE" }
@@ -92,41 +93,25 @@ All fields optional — only supplied fields are updated. Every changed field is
 
 **Update affiliate** `PUT /affiliates/{id}`
 
-Same pattern — all fields optional. Changed fields recorded in `edit_history`.
+Same pattern — all fields optional. Every change is recorded in the audit log automatically.
 
 ```json
 { "name": "Updated Partner", "company": "New Co", "status": "INACTIVE" }
 ```
 
-**Edit history (clients, affiliates, leads, campaigns)**
+**Change history (clients, affiliates, leads, campaigns)**
 
-Every `PUT` to a client, affiliate, lead, or campaign records a history entry per changed field. The `edit_history` array on each object grows with each update and is never truncated.
+All mutations — create, update, delete — are recorded in the centralized audit log. There is no `edit_history` field on entity objects; query the audit API instead.
 
-```json
-"edit_history": [
-  {
-    "field": "name",
-    "previous_value": "Old Name",
-    "new_value": "New Name",
-    "changed_at": "2026-03-04T18:00:00.000Z",
-    "changed_by": {
-      "sub": "...",
-      "username": "edgar@summitedgelegal.com",
-      "email": "edgar@summitedgelegal.com",
-      "first_name": "Edgar",
-      "last_name": "Velasco",
-      "full_name": "Edgar Velasco"
-    }
-  }
-]
-```
+See the [Audit Logs](#audit-logs) section for the full API reference and usage examples. Quick reference:
 
-- Client tracks: `name`, `email`, `phone`, `client_code`, `status`
-- Affiliate tracks: `name`, `email`, `phone`, `company`, `affiliate_code`, `status`
-- Lead tracks: every key inside `payload` (e.g. `payload.name`, `payload.email`)
-- Campaign tracks: `name`
+- `GET /audit/{entityId}` — full change history for one entity (e.g. `GET /audit/CLA0G9L9RF`)
+- `GET /audit/activity?entity_type=client` — recent changes across all clients
+- `GET /audit/activity?entity_type=campaign` — recent changes across all campaigns
+- `GET /audit/activity?actor_sub=<cognito-sub>` — everything a specific user has done
+- Add `&from=<ISO>&to=<ISO>` to either activity query to filter by date range
 
-Note: `edit_history` is **read-only** from the frontend perspective — never send it in a PUT request body.
+Each record includes `action` (`created` | `updated` | `deleted` | `soft_deleted` | ...) and a `changes[]` array of `{ field, from, to }` diffs. For create and delete events, `changes` is an empty array — the action itself is the record.
 
 **Create campaign** `POST /campaigns`
 
@@ -208,7 +193,14 @@ Example participant object returned from any campaign endpoint:
       "from": null,
       "to": "TEST",
       "changed_at": "2026-03-01T10:00:00.000Z",
-      "changed_by": { "username": "edgar@example.com" }
+      "changed_by": {
+        "sub": "a1b2c3d4-...",
+        "username": "edgar@example.com",
+        "email": "edgar@example.com",
+        "first_name": "Edgar",
+        "last_name": "Velasco",
+        "full_name": "Edgar Velasco"
+      }
     },
     {
       "event": "status_changed",
@@ -216,7 +208,14 @@ Example participant object returned from any campaign endpoint:
       "from": "TEST",
       "to": "LIVE",
       "changed_at": "2026-03-02T09:15:00.000Z",
-      "changed_by": { "username": "edgar@example.com" }
+      "changed_by": {
+        "sub": "a1b2c3d4-...",
+        "username": "edgar@example.com",
+        "email": "edgar@example.com",
+        "first_name": "Edgar",
+        "last_name": "Velasco",
+        "full_name": "Edgar Velasco"
+      }
     },
     {
       "event": "key_rotated",
@@ -224,7 +223,14 @@ Example participant object returned from any campaign endpoint:
       "from": "oldkey000001",
       "to": "abc123xyz789",
       "changed_at": "2026-03-03T14:30:00.000Z",
-      "changed_by": { "username": "edgar@example.com" }
+      "changed_by": {
+        "sub": "a1b2c3d4-...",
+        "username": "edgar@example.com",
+        "email": "edgar@example.com",
+        "first_name": "Edgar",
+        "last_name": "Velasco",
+        "full_name": "Edgar Velasco"
+      }
     }
   ]
 }
@@ -341,7 +347,7 @@ Every lead submission runs through a configurable staged pipeline:
 | `true` (default) | Pipeline halts; later stages skipped; lead saved as `rejected=true`; `pipeline_halted=true` on the lead record.                               |
 | `false`          | Failure is recorded (`trusted_form_result` / `ipqs_result`); pipeline continues to next stage; lead is **not** rejected by this plugin alone. |
 
-> **Always saved:** regardless of pipeline outcome the lead is always written to DynamoDB. When rejected, `rejected=true` and `rejection_reason` are populated with a human-readable message.
+> **Always saved:** all leads — including those rejected by missing required fields (criteria validation), logic rules, and downstream QA plugins — are written to DynamoDB. Rejected leads have `rejected=true`, `rejection_reason` (human-readable string), `rejection_errors` (array of per-field error strings for the frontend), and `active=false`.
 
 **Submit test lead (external API)** `POST /leads/test`
 
@@ -370,33 +376,39 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
 
 **Affiliate submission response** (`POST /leads` and `POST /leads/test`)
 
-Both endpoints return a slim response — internal QA details are not exposed to affiliates:
+Both endpoints return two distinct shapes depending on outcome:
+
+**Accepted:**
 
 ```json
 {
-  "id": "LDABC12345",
-  "test": false,
-  "duplicate": false,
-  "rejected": false,
-  "rejection_reason": null,
-  "message": "Your lead has been received and accepted."
+  "success": true,
+  "message": "Lead accepted",
+  "data": {
+    "id": "LDABC12345",
+    "test": false,
+    "duplicate": false,
+    "rejected": false,
+    "rejection_reason": null,
+    "message": "Your lead has been received and accepted."
+  }
 }
 ```
 
-When rejected:
+**Rejected** (criteria validation, logic rules, or QA plugin gate):
 
 ```json
 {
-  "id": "LDABC12345",
-  "test": false,
-  "duplicate": false,
-  "rejected": true,
-  "rejection_reason": "The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."
+  "result": "failed",
+  "lead_id": "LDABC12345",
+  "msg": "Lead Rejected",
+  "errors": ["Last Name is required", "state must equal California"]
 }
 ```
 
-- `message` is only present when `rejected=false`.
-- For test leads `message` reads: `"Your test lead has been received and accepted."`
+- Check `result === "failed"` to detect rejection. Use `errors[]` to display per-field messages to the user.
+- `lead_id` is always populated — the lead is saved to DynamoDB even when rejected, so it can be reviewed internally.
+- For test leads the accepted `message` reads: `"Your test lead has been received and accepted."`
 - The `submit_url` and `submit_url_test` fields on the campaign response give affiliates the exact URLs to POST to.
 
 **Internal lead reads/updates/deletes (internal API only)**
@@ -443,6 +455,7 @@ Display these to affiliates so they know exactly where to submit leads.
   "affiliate_status_at_intake": "TEST",
   "rejected": false,
   "rejection_reason": null,
+  "rejection_errors": [],
   "pipeline_halted": false,
   "halt_stage": null,
   "halt_plugin": null,
@@ -458,7 +471,14 @@ Display these to affiliates so they know exactly where to submit leads.
     "expires_at": "2026-06-03T22:48:05Z"
   },
   "created_at": "2024-01-01T00:00:00Z",
-  "created_by": "123456789012",
+  "created_by": {
+    "sub": "a1b2c3d4-...",
+    "username": "affiliate-key",
+    "email": null,
+    "first_name": null,
+    "last_name": null,
+    "full_name": null
+  },
   "updated_by": null,
   "deleted_by": null,
   "deleted_at": null,
@@ -466,6 +486,10 @@ Display these to affiliates so they know exactly where to submit leads.
   "active": true
 }
 ```
+
+> **Note:** for leads submitted by external affiliates, `created_by` is populated from the JWT of the affiliate API call. If the affiliate's JWT contains no name claims, `full_name` will be `null` — fall back to `email` or `username` in that case.
+
+````
 
 `trusted_form_result` is `null` when TrustedForm is disabled or no credential is linked.
 
@@ -478,28 +502,34 @@ When the pipeline halts (`pipeline_halted=true`), the halt fields are populated:
   "halt_plugin": "trusted_form",
   "halt_reason": "The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."
 }
-```
+````
 
 Rejection behavior:
 
-- `rejected=true` when affiliate is DISABLED for the campaign.
-- `rejected=true` when duplicate-check detects a matching lead — `rejection_reason`: _"A matching lead has already been received for this contact."_
-- `rejected=true` when a QA plugin has `gate=true` and its check fails — `rejection_reason` is a human-readable message from the failing plugin.
-- `rejected=false` when none of the above apply.
+- `rejected=true`, `active=false` when a required field is missing (criteria validation) — `rejection_errors` lists each missing field, e.g. `["Last Name is required"]`.
+- `rejected=true`, `active=false` when a logic rule rejects the lead — `rejection_errors` lists each failing condition, e.g. `["state must equal California"]`.
+- `rejected=true`, `active=false` when affiliate is DISABLED for the campaign — `rejection_reason`: _"This submission could not be accepted at this time."_
+- `rejected=true`, `active=true` when duplicate-check detects a matching lead — `rejection_reason`: _"A matching lead has already been received for this contact."_
+- `rejected=true`, `active=true` when a QA plugin has `gate=true` and its check fails — `rejection_reason` is a human-readable message from the failing plugin.
+- `rejected=false`, `active=true` when none of the above apply.
+
+Use `rejection_errors` (array) to display per-field error messages in the UI. Use `rejection_reason` as a fallback summary string when `rejection_errors` is absent.
 
 **Rejection message reference**
 
-| Trigger                             | `rejection_reason` value                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Affiliate disabled                  | _"This submission could not be accepted at this time. Please contact your account manager."_                 |
-| Duplicate lead detected             | _"A matching lead has already been received for this contact."_                                              |
-| TrustedForm — invalid/unknown error | _"The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."_ |
-| TrustedForm — certificate expired   | _"The form certificate has expired. Please have the contact complete the form again and resubmit."_          |
-| TrustedForm — already claimed       | _"This form certificate has already been used. Please have the contact complete the form again."_            |
-| IPQS — phone failed                 | _"The phone number provided did not pass our quality checks."_                                               |
-| IPQS — email failed                 | _"The email address provided did not pass our quality checks."_                                              |
-| IPQS — phone + email failed         | _"The phone number and email address provided did not pass our quality checks."_                             |
-| IPQS — all three failed             | _"The phone number, email address and IP address provided did not pass our quality checks."_                 |
+| Trigger                             | Field(s) set                                                                                 | Notes                                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Missing required field              | `rejection_errors[]`, `rejection_reason`                                                     | `rejection_errors` entry: `"<Field Label> is required"`                                                      |
+| Logic rule failed                   | `rejection_errors[]`, `rejection_reason`                                                     | `rejection_errors` entries per failing condition, e.g. `"state must equal California"`                       |
+| Affiliate disabled                  | `rejection_reason`                                                                           | _"This submission could not be accepted at this time. Please contact your account manager."_                 |
+| Duplicate lead detected             | `rejection_reason`                                                                           | _"A matching lead has already been received for this contact."_                                              |
+| TrustedForm — invalid/unknown error | `rejection_reason`, `trusted_form_result.error`                                              | _"The form certificate could not be verified. Please ensure the form was completed correctly and resubmit."_ |
+| TrustedForm — certificate expired   | `rejection_reason`, `trusted_form_result.error`                                              | _"The form certificate has expired. Please have the contact complete the form again and resubmit."_          |
+| TrustedForm — already claimed       | `rejection_reason`, `trusted_form_result.error`                                              | _"This form certificate has already been used. Please have the contact complete the form again."_            |
+| IPQS — phone failed                 | `rejection_reason`, `ipqs_result.phone.criteria_results`                                     | _"The phone number provided did not pass our quality checks."_                                               |
+| IPQS — email failed                 | `rejection_reason`, `ipqs_result.email.criteria_results`                                     | _"The email address provided did not pass our quality checks."_                                              |
+| IPQS — phone + email failed         | _"The phone number and email address provided did not pass our quality checks."_             |
+| IPQS — all three failed             | _"The phone number, email address and IP address provided did not pass our quality checks."_ |
 
 ## Base Criteria
 
@@ -541,7 +571,14 @@ Criteria are managed via the internal API (Bearer token required on all endpoint
   "affiliate_override": false,
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z",
-  "created_by": { "username": "admin@example.com" },
+  "created_by": {
+    "sub": "a1b2c3d4-...",
+    "username": "admin@example.com",
+    "email": "admin@example.com",
+    "first_name": "Edgar",
+    "last_name": "Velasco",
+    "full_name": "Edgar Velasco"
+  },
   "updated_by": null
 }
 ```
@@ -656,8 +693,6 @@ Send `{ "value_mappings": [] }` to clear all mappings.
 
 ### US state mapping preset (`state_mapping`)
 
-Instead of manually listing all 50 state mappings, set `state_mapping` on a Text field to activate a built-in preset:
-
 | Value            | Direction                | Example                 |
 | ---------------- | ------------------------ | ----------------------- |
 | `"abbr_to_name"` | Abbreviation → full name | `"CA"` → `"California"` |
@@ -692,7 +727,8 @@ Criteria validation **fails open** — if the criteria-validation lambda itself 
 - Surface `campaign_key` to affiliates once linked; they need it for both test and live lead intake.
 - When sending leads, display backend message and `rejected` flag to make DISABLED affiliate behavior clear.
 - Display duplicate metadata: `duplicate=true` means lead matched existing campaign leads; use `duplicate_matches.lead_ids` to show linked duplicates.
-- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).- **Edit history**: display `edit_history` in a collapsible timeline on client, affiliate, lead, and campaign detail views. Each entry shows `field`, `previous_value → new_value`, `changed_at`, and `changed_by.full_name` (or fall back to `changed_by.email`).
+- Only enable “Activate campaign” when the rules above are satisfied (LIVE participants present, none left in TEST).
+- **Change history**: display entity change history on client, affiliate, lead, and campaign detail views by querying `GET /audit/{entityId}`. Each entry shows `action`, field-level diffs (`changes[].field`, `changes[].from → changes[].to`), `changed_at`, and `actor.full_name`. Fall back to `actor.email` only when `full_name` is absent. See the [Audit Logs](#audit-logs) section for full query patterns.
 - **Soft-delete UI**: use `active` (boolean) to control visibility. Show a "deleted" badge or hide the row when `active=false`. Offer a restore action that calls `PUT /users/{id}/enable` (users) or a future restore endpoint for other entities.
 - **Audit trail**: display `created_by` and `updated_by` in detail views / tooltips. Show `deleted_by` + `deleted_at` in soft-deleted record summaries.
 - **All responses are HTTP 200** — check `success` (boolean) in the body, not the HTTP status, to determine if an operation succeeded. On `success: false`, display the `error` field to the user.
@@ -919,7 +955,6 @@ Credentials are stored in the `tenant-settings` DynamoDB table with sensitive fi
   "active": true,
   "deleted_at": null,
   "deleted_by": null,
-  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z"
 }
@@ -961,21 +996,24 @@ All three record types (credentials, credential schemas, plugin settings) suppor
 - **Hard-delete** (`?permanent=true`): Permanently removes the record. Blocked with a `400` if the record is still referenced — a credential cannot be hard-deleted while plugin settings point to it, and a schema cannot be hard-deleted while credentials reference it.
 - **Restore**: `PUT /{id}/restore` to undo a soft-delete.
 
-### Edit history (audit trail)
+### Change history (audit trail)
 
-Every PUT update writes an `IEditHistoryEntry` to the record's `edit_history` array:
+All mutations to credentials, credential schemas, and plugin settings are recorded in the centralized audit log. Use the audit API to surface change history in admin views:
 
-```json
-{
-  "field": "name",
-  "previous_value": "TrustedForm Staging",
-  "new_value": "TrustedForm Prod",
-  "changed_at": "2024-06-01T12:00:00.000Z",
-  "changed_by": { "id": "user@example.com", "name": "Admin" }
-}
-```
+- `GET /audit/{id}` — full history for a single credential, schema, or plugin setting record
+- `GET /audit/activity?entity_type=credential` — recent changes across all credentials
+- `GET /audit/activity?entity_type=credential_schema` — recent changes across all credential schemas
+- `GET /audit/activity?entity_type=plugin_setting` — recent changes across all plugin settings
 
-Use `edit_history` to surface change logs in admin audit views.
+Tracked actions per entity type:
+
+| Entity type         | Tracked actions                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `credential`        | `created`, `updated`, `soft_deleted`, `hard_deleted`, `restored`, `credential_disabled`, `credential_enabled`         |
+| `credential_schema` | `created`, `updated`, `soft_deleted`, `hard_deleted`, `restored`                                                      |
+| `plugin_setting`    | `created`, `updated`, `soft_deleted`, `hard_deleted`, `restored`, `plugin_setting_disabled`, `plugin_setting_enabled` |
+
+See the [Audit Logs](#audit-logs) section for the full API reference.
 
 ### Disable / enable a credential
 
@@ -1235,13 +1273,12 @@ Credential schemas describe the credential fields that each plugin integration r
   "active": true,
   "deleted_at": null,
   "deleted_by": null,
-  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z"
 }
 ```
 
-> IDs are now **CS-prefixed** (was PS). Schemas now carry full audit fields: `is_deleted`, `active`, `deleted_at`, `deleted_by`, `edit_history`.
+> IDs are now **CS-prefixed** (was PS). Schemas now carry full audit fields: `is_deleted`, `active`, `deleted_at`, `deleted_by`.
 
 ### Field types
 
@@ -1353,7 +1390,6 @@ Returns the static `AVAILABLE_PLUGINS` list with no database call. Use this to k
   "active": true,
   "deleted_at": null,
   "deleted_by": null,
-  "edit_history": [],
   "created_at": "2024-01-01T00:00:00.000Z",
   "updated_at": "2024-01-01T00:00:00.000Z",
   "name": "TrustedForm",
@@ -1394,7 +1430,6 @@ PUT /v2/tenant-config/plugin-settings/trusted_form
     "active": true,
     "deleted_at": null,
     "deleted_by": null,
-    "edit_history": [],
     "created_at": "2024-01-01T00:00:00.000Z",
     "updated_at": "2024-06-01T12:00:00.000Z"
   }
@@ -1446,3 +1481,184 @@ TrustedForm certificate validation and IPQS checks are handled by the QA Orchest
 | ------ | --------------------------- | ------------------------------------------------------------------- |
 | `POST` | `/qa/trusted-form/validate` | Validate cert using globally configured plugin-setting credentials  |
 | `POST` | `/qa/ipqs/check`            | Run an IPQS fraud-score check using globally configured credentials |
+
+---
+
+## Audit Logs
+
+All mutating operations (create, update, delete, role changes, password resets) are recorded in a centralized `audit-logs` DynamoDB table. The audit Lambda exposes three endpoints — all require an admin Bearer token.
+
+### Audit record shape
+
+Every audit log entry (`AuditLogItem`) has this structure:
+
+```typescript
+interface AuditLogItem {
+  log_id: string; // ULID — lexicographically ordered by creation time
+  entity_id: string; // ID of the entity that was changed
+  entity_type: // Type of entity
+    | "lead"
+    | "campaign"
+    | "client"
+    | "affiliate"
+    | "credential"
+    | "credential_schema"
+    | "plugin_setting"
+    | "user";
+  action: // What happened
+    | "created"
+    | "updated"
+    | "deleted"
+    | "soft_deleted"
+    | "restored"
+    | "status_changed"
+    | "key_rotated"
+    | "participant_linked"
+    | "participant_updated"
+    | "participant_removed"
+    | "criteria_field_added"
+    | "criteria_field_updated"
+    | "criteria_field_deleted"
+    | "logic_rule_added"
+    | "logic_rule_updated"
+    | "logic_rule_deleted"
+    | "mappings_updated"
+    | "plugins_updated"
+    | "hard_deleted"
+    | "credential_disabled"
+    | "credential_enabled"
+    | "plugin_setting_disabled"
+    | "plugin_setting_enabled"
+    | "password_reset";
+  changes: Array<{
+    field: string;
+    from: unknown; // Previous value (null for newly created fields)
+    to: unknown; // New value (null for deleted fields)
+  }>;
+  actor?: {
+    sub?: string; // Cognito sub — use this for actor_sub queries
+    username?: string;
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+    full_name?: string; // Always prefer full_name for display
+  };
+  changed_at: string; // ISO 8601 timestamp of the mutation
+  date: string; // YYYY-MM-DD — used for S3 export partitioning
+  actor_sub: string; // Cognito sub of the actor (GSI key)
+}
+```
+
+### Pagination
+
+Both audit query endpoints return cursor-based pagination:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [...],
+    "nextCursor": "eyJlbnRpdHlfaWQiOiI..."
+  }
+}
+```
+
+Pass `nextCursor` as the `cursor` query parameter in the next request. When `nextCursor` is absent (or null), you have reached the last page.
+
+### API endpoints
+
+| Method | Path                | Description                                                         |
+| ------ | ------------------- | ------------------------------------------------------------------- |
+| `GET`  | `/audit`            | Full table scan — all records, paginated, no filter required        |
+| `GET`  | `/audit/activity`   | Cross-entity activity feed — filter by `entity_type` or `actor_sub` |
+| `GET`  | `/audit/{entityId}` | Full history for a single entity                                    |
+| `POST` | `/audit/export`     | Manually trigger an S3 NDJSON export for a given date               |
+
+All require `Authorization: Bearer <id_token>` (admin role).
+
+**GET `/audit`** — Full table scan with cursor-based pagination. No filters required.
+
+| Parameter | Required        | Description                              |
+| --------- | --------------- | ---------------------------------------- |
+| `limit`   | No (default 50) | Max records to return (1–500)            |
+| `cursor`  | No              | Pagination cursor from previous response |
+
+Results are in DynamoDB scan order (not sorted by date). Iterate using `nextCursor` until it is absent to retrieve all records.
+
+**GET `/audit/activity`** — Query parameters:
+
+| Parameter     | Required                   | Description                              |
+| ------------- | -------------------------- | ---------------------------------------- |
+| `entity_type` | One of the two is required | Filter by entity type                    |
+| `actor_sub`   | One of the two is required | Filter by Cognito sub of the actor       |
+| `from`        | No                         | ISO 8601 start timestamp (inclusive)     |
+| `to`          | No                         | ISO 8601 end timestamp (inclusive)       |
+| `limit`       | No (default 50)            | Max records to return (1–500)            |
+| `cursor`      | No                         | Pagination cursor from previous response |
+
+**GET `/audit/{entityId}`** — Query parameters: `limit` (default 50), `cursor`.
+
+`entityId` is the raw entity ID value — for users it is their email address (URL-encoded). For other entities it is their `id` field.
+
+**POST `/audit/export`** — Body:
+
+```json
+{ "date": "2025-06-01" }
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "s3Key": "audit/2025/06/01/audit.ndjson",
+    "count": 142
+  }
+}
+```
+
+### Usage examples
+
+```typescript
+// Activity feed — all changes to clients today
+const today = new Date().toISOString().slice(0, 10);
+const res = await api.get("/audit/activity", {
+  params: { entity_type: "client", from: `${today}T00:00:00.000Z`, limit: 100 },
+});
+const { items, nextCursor } = res.data.data;
+
+// History for a single lead
+const leadHistory = await api.get(`/audit/${leadId}`, {
+  params: { limit: 50 },
+});
+
+// Activity for a specific admin user (use their Cognito sub)
+const adminActivity = await api.get("/audit/activity", {
+  params: { actor_sub: "a1b2c3d4-e5f6-7890-abcd-ef1234567890", limit: 50 },
+});
+
+// Paginate to the next page
+if (nextCursor) {
+  const nextPage = await api.get("/audit/activity", {
+    params: { entity_type: "client", cursor: nextCursor },
+  });
+}
+```
+
+### User management audit trail
+
+All Cognito user management operations (`POST /users`, `PUT /users/{id}`, `DELETE /users/{id}`, `PUT /users/{id}/enable`, `PUT /users/{id}/password`) are recorded with `entity_type: "user"`. The `entity_id` is the user's email address (also their Cognito username).
+
+To view the full history for a specific user account:
+
+```typescript
+const encodedEmail = encodeURIComponent("jane@example.com");
+const history = await api.get(`/audit/${encodedEmail}`);
+```
+
+Password reset events use `action: "password_reset"` with a redacted change record:
+
+```json
+{ "field": "password", "from": "[redacted]", "to": "[updated]" }
+```

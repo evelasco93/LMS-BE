@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { Container } from "inversify";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
+import { AuditWriterService } from "@shared/services";
 import { TenantConfigConstants } from "../constants/tenant-config.constants";
 import { TenantConfigService } from "../services/tenant-config.service";
 import { TenantConfigController } from "../controllers/tenant-config.controller";
@@ -17,6 +18,15 @@ container
   .bind<TenantConfigConstants>("TenantConfigConstants")
   .to(TenantConfigConstants)
   .inSingletonScope();
+container
+  .bind<AuditWriterService>("AuditWriterService")
+  .toDynamicValue(
+    () =>
+      new AuditWriterService(
+        container.get<DynamoDBUtil>("DynamoDBUtil"),
+        process.env.AUDIT_LOGS_TABLE_NAME!,
+      ),
+  );
 container
   .bind<TenantConfigService>("TenantConfigService")
   .to(TenantConfigService);
