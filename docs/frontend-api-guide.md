@@ -700,6 +700,20 @@ Send `{ "value_mappings": [] }` to clear all mappings.
 
 The preset covers all 50 US states. It runs in addition to any custom `value_mappings` defined on the field (custom mappings are applied first). To disable, update the field with `"state_mapping": null`.
 
+### Criteria audit trail
+
+All criteria mutations are recorded in the centralized audit log with `entity_type: "campaign"` and the campaign's `id` as `entity_id`. Use `GET /audit/{campaignId}` to see the full change history for a campaign, including all criteria and logic rule events.
+
+| Action                      | Trigger                                          | `changes[]` content                                                            |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `criteria_field_added`      | `POST /criteria` or `POST /criteria/base-fields` | `field_id`, `field_name`, `field_label`, `data_type` (from `null`)             |
+| `criteria_field_updated`    | `PUT /criteria/{fieldId}`                        | One entry per changed property: `{fieldId}.{property}` with `from`/`to` values |
+| `criteria_field_deleted`    | `DELETE /criteria/{fieldId}`                     | `field_id`, `field_name`, `field_label` (to `null`)                            |
+| `criteria_fields_reordered` | `PUT /criteria/reorder`                          | `order`: previous and new field ID arrays                                      |
+| `logic_rule_added`          | `POST /logic-rules`                              | `rule_id`, `name`, `action` (from `null`)                                      |
+| `logic_rule_updated`        | `PUT /logic-rules/{ruleId}`                      | One entry per changed property (`name`, `action`, `enabled`, `groups`)         |
+| `logic_rule_deleted`        | `DELETE /logic-rules/{ruleId}`                   | `rule_id`, `name`, `action` (to `null`)                                        |
+
 ### Criteria-validation rejection messages
 
 When a lead is rejected by criteria validation the response includes:
@@ -1519,6 +1533,7 @@ interface AuditLogItem {
     | "criteria_field_added"
     | "criteria_field_updated"
     | "criteria_field_deleted"
+    | "criteria_fields_reordered"
     | "logic_rule_added"
     | "logic_rule_updated"
     | "logic_rule_deleted"

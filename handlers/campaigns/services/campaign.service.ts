@@ -1581,6 +1581,18 @@ export class CampaignService {
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
       });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "criteria_field_added",
+        changes: newFields.map((f) => ({
+          field: f.field_name,
+          from: null,
+          to: f.field_label,
+        })),
+        actor,
+        changed_at: now,
+      });
 
       this.logger.info("Base criteria fields added", {
         campaignId,
@@ -1697,6 +1709,19 @@ export class CampaignService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "criteria_field_added",
+        changes: [
+          { field: "field_id", from: null, to: newField.id },
+          { field: "field_name", from: null, to: newField.field_name },
+          { field: "field_label", from: null, to: newField.field_label },
+          { field: "data_type", from: null, to: newField.data_type },
+        ],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Criteria field added", {
@@ -1948,6 +1973,18 @@ export class CampaignService {
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
       });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "criteria_field_updated",
+        changes: changes.map((c) => ({
+          field: `${fieldId}.${c.field}`,
+          from: c.previous_value,
+          to: c.new_value,
+        })),
+        actor,
+        changed_at: now,
+      });
 
       this.logger.info("Criteria field updated", { campaignId, fieldId });
 
@@ -2003,6 +2040,18 @@ export class CampaignService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "criteria_field_deleted",
+        changes: [
+          { field: "field_id", from: removed.id, to: null },
+          { field: "field_name", from: removed.field_name, to: null },
+          { field: "field_label", from: removed.field_label, to: null },
+        ],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Criteria field removed", { campaignId, fieldId });
@@ -2071,6 +2120,20 @@ export class CampaignService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "criteria_fields_reordered",
+        changes: [
+          {
+            field: "order",
+            from: existing.map((f) => f.id),
+            to: providedIds,
+          },
+        ],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Criteria fields reordered", { campaignId });
@@ -2264,6 +2327,18 @@ export class CampaignService {
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
       });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "logic_rule_added",
+        changes: [
+          { field: "rule_id", from: null, to: rule.id },
+          { field: "name", from: null, to: rule.name },
+          { field: "action", from: null, to: rule.action },
+        ],
+        actor,
+        changed_at: now,
+      });
 
       this.logger.info("Logic rule created", { campaignId, ruleId: rule.id });
       return { result: true, data: rule };
@@ -2339,6 +2414,50 @@ export class CampaignService {
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
       });
+      const logicRuleChanges: Array<{
+        field: string;
+        from: unknown;
+        to: unknown;
+      }> = [];
+      if (request.name !== undefined && request.name.trim() !== existing.name) {
+        logicRuleChanges.push({
+          field: "name",
+          from: existing.name,
+          to: request.name.trim(),
+        });
+      }
+      if (request.action !== undefined && request.action !== existing.action) {
+        logicRuleChanges.push({
+          field: "action",
+          from: existing.action,
+          to: request.action,
+        });
+      }
+      if (
+        request.enabled !== undefined &&
+        request.enabled !== existing.enabled
+      ) {
+        logicRuleChanges.push({
+          field: "enabled",
+          from: existing.enabled,
+          to: request.enabled,
+        });
+      }
+      if (request.groups !== undefined) {
+        logicRuleChanges.push({
+          field: "groups",
+          from: "[previous]",
+          to: "[updated]",
+        });
+      }
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "logic_rule_updated",
+        changes: logicRuleChanges,
+        actor,
+        changed_at: now,
+      });
 
       this.logger.info("Logic rule updated", { campaignId, ruleId });
       return { result: true, data: updated };
@@ -2363,7 +2482,8 @@ export class CampaignService {
       }
 
       const existing = campaign.logic_rules ?? [];
-      if (!existing.find((r) => r.id === ruleId)) {
+      const ruleToDelete = existing.find((r) => r.id === ruleId);
+      if (!ruleToDelete) {
         return { result: false, error: `Logic rule ${ruleId} not found` };
       }
 
@@ -2375,6 +2495,18 @@ export class CampaignService {
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "logic_rule_deleted",
+        changes: [
+          { field: "rule_id", from: ruleToDelete.id, to: null },
+          { field: "name", from: ruleToDelete.name, to: null },
+          { field: "action", from: ruleToDelete.action, to: null },
+        ],
+        actor,
+        changed_at: now,
       });
 
       this.logger.info("Logic rule deleted", { campaignId, ruleId });

@@ -22,6 +22,7 @@ export type AuditAction =
   | "criteria_field_added"
   | "criteria_field_updated"
   | "criteria_field_deleted"
+  | "criteria_fields_reordered"
   | "logic_rule_added"
   | "logic_rule_updated"
   | "logic_rule_deleted"
