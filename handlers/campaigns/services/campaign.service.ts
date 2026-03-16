@@ -864,6 +864,33 @@ export class CampaignService {
       // ── Record plugin history (diff current vs next) ──────────────────────
       const now = new Date().toISOString();
       const pluginHistoryEntries: IEditHistoryEntry[] = [];
+
+      // Deep structural equality — order-independent, handles nested objects and
+      // arrays. JSON.stringify is order-sensitive and would produce false positives
+      // when the same object is reconstructed with different key insertion order.
+      const deepEqual = (a: unknown, b: unknown): boolean => {
+        if (a === b) return true;
+        if (a === null || b === null) return a === b;
+        if (typeof a !== "object" || typeof b !== "object") return a === b;
+        if (Array.isArray(a) !== Array.isArray(b)) return false;
+        if (Array.isArray(a)) {
+          const arrA = a as unknown[];
+          const arrB = b as unknown[];
+          if (arrA.length !== arrB.length) return false;
+          return arrA.every((v, i) => deepEqual(v, arrB[i]));
+        }
+        const objA = a as Record<string, unknown>;
+        const objB = b as Record<string, unknown>;
+        const keysA = Object.keys(objA);
+        const keysB = Object.keys(objB);
+        if (keysA.length !== keysB.length) return false;
+        return keysA.every(
+          (key) =>
+            Object.prototype.hasOwnProperty.call(objB, key) &&
+            deepEqual(objA[key], objB[key]),
+        );
+      };
+
       const diffFields = <T extends object>(
         prefix: string,
         before: T,
@@ -871,7 +898,7 @@ export class CampaignService {
         keys: (keyof T)[],
       ) => {
         for (const key of keys) {
-          if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+          if (!deepEqual(before[key], after[key])) {
             pluginHistoryEntries.push({
               field: `${prefix}.${String(key)}`,
               previous_value: before[key],
@@ -934,8 +961,10 @@ export class CampaignService {
           ...Object.keys(afterCriteria),
         ])) {
           if (
-            JSON.stringify(beforeCriteria[criteriaKey] ?? null) !==
-            JSON.stringify(afterCriteria[criteriaKey] ?? null)
+            !deepEqual(
+              beforeCriteria[criteriaKey] ?? null,
+              afterCriteria[criteriaKey] ?? null,
+            )
           ) {
             pluginHistoryEntries.push({
               field: `ipqs.${sub}.criteria.${criteriaKey}`,

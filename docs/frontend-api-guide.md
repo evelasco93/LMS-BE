@@ -749,7 +749,7 @@ Example `changes[]` for a rule update that renamed the rule, removed one conditi
 
 ### Plugin configuration audit trail
 
-All changes made via `PUT /campaigns/{id}/plugins` are recorded with `entity_type: "campaign"` and `action: "plugins_updated"`. Each mutated field produces one entry in `changes[]`. Nothing is written if no fields actually changed.
+All changes made via `PUT /campaigns/{id}/plugins` are recorded with `entity_type: "campaign"` and `action: "plugins_updated"`. Each genuinely modified field produces one entry in `changes[]`. Fields present in the request but whose value is unchanged are excluded — comparison is deep structural equality, so property insertion order does not matter. Nothing is written if no fields actually changed.
 
 | `changes[].field`                 | What it represents                                   |
 | --------------------------------- | ---------------------------------------------------- |
@@ -776,7 +776,19 @@ All changes made via `PUT /campaigns/{id}/plugins` are recorded with `entity_typ
 | `ipqs.ip.criteria.proxy`          | IP proxy check config object                         |
 | `ipqs.ip.criteria.vpn`            | IP VPN check config object                           |
 
-Example `changes[]` for a single IPQS phone fraud-score threshold change:
+Example `changes[]` when only `ipqs.phone.criteria.country` was enabled — no other fields appear even if they were referenced in the request body:
+
+```json
+[
+  {
+    "field": "ipqs.phone.criteria.country",
+    "from": { "enabled": false, "allowed": [] },
+    "to": { "enabled": true, "allowed": ["US"] }
+  }
+]
+```
+
+Example `changes[]` for a fraud-score threshold change:
 
 ```json
 [

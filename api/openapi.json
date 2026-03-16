@@ -1474,7 +1474,7 @@
     "/campaigns/{id}/plugins": {
       "put": {
         "summary": "Update campaign plugins configuration",
-        "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change \u2014 omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed.",
+        "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change \u2014 omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed. Fields are compared using deep structural equality \u2014 only fields whose value genuinely differs are included in changes[].",
         "tags": ["campaigns"],
         "parameters": [
           {
