@@ -3,6 +3,8 @@
 *.d.ts
 node_modules
 dist
+**/coverage/
+**/.nyc_output/
 
 # CDK asset staging directory
 .cdk.staging

@@ -142,10 +142,12 @@ export class LeadsService {
         if (affiliateStatus === CampaignParticipantStatus.TEST) {
           // TEST affiliate: test endpoint only; DRAFT and INACTIVE campaigns are blocked.
           if (!isTest) {
+            const baseUrl = await this.resolveExternalLeadsBaseUrl();
+            const testUrl = baseUrl ? `${baseUrl}/test` : "/leads/test";
             return {
               result: "failed",
               message: "Lead rejected",
-              error: "Affiliate must be LIVE for live leads",
+              error: `This campaign is in test mode. Please send your lead to: ${testUrl}`,
             };
           }
           if (campaign.status === CampaignStatus.INACTIVE) {
@@ -167,10 +169,12 @@ export class LeadsService {
         } else {
           // LIVE affiliate: live endpoint only; full campaign-status validation applies.
           if (isTest) {
+            const baseUrl = await this.resolveExternalLeadsBaseUrl();
+            const liveUrl = baseUrl || "/leads";
             return {
               result: "failed",
               message: "Test lead rejected",
-              error: "Affiliate is not set to TEST for this campaign",
+              error: `This campaign is live. Please send your lead to: ${liveUrl}`,
             };
           }
           const statusCheck = await this.validateStatus(campaign.status, false);

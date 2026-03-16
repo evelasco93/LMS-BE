@@ -248,7 +248,23 @@ describe("LeadsService", () => {
       );
 
       expect(result.result).toBe("failed");
-      expect(result.error).toContain("Affiliate is not set to TEST");
+      expect(result.error).toContain("campaign is live");
+      expect(result.error).toContain("/leads");
+    });
+
+    it("rejects TEST affiliate attempting to use the live endpoint", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce(
+        buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.TEST),
+      );
+
+      const result = await leadsService.createLead(
+        { campaign_id: "CM123", campaign_key: "KEY123", payload: {} },
+        false,
+      );
+
+      expect(result.result).toBe("failed");
+      expect(result.error).toContain("test mode");
+      expect(result.error).toContain("/leads/test");
     });
 
     it("stores lead but marks rejected when affiliate is DISABLED", async () => {
