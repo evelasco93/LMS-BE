@@ -28,6 +28,7 @@ import {
   SetValueMappingsRequest,
   CreateLogicRuleRequest,
   UpdateLogicRuleRequest,
+  GeneratePostingInstructionsRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -813,6 +814,39 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Logic rule deleted successfully",
+      data: result.data,
+    };
+  }
+
+  // ── Posting Instructions ──────────────────────────────────────────────────
+
+  /**
+   * POST /:id/posting-instructions/generate
+   * Generates posting instructions for a specific affiliate on this campaign.
+   */
+  @POST("/:id/posting-instructions/generate")
+  @produces("application/json")
+  async generatePostingInstructions(
+    @pathParam("id") id: string,
+    @body payload: GeneratePostingInstructionsRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.generatePostingInstructions(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to generate posting instructions",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Posting instructions generated successfully",
       data: result.data,
     };
   }

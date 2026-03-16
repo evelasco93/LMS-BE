@@ -16,6 +16,9 @@ const tenantSettingsTableArn = arnBuilder.dynamoTable(
 const auditLogsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("audit-logs"),
 );
+const leadIntakeLogsTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("lead-intake-logs"),
+);
 
 // ── Lambda ARNs ───────────────────────────────────────────────────────────────
 const qaOrchestratorArn = arnBuilder.lambda(
@@ -73,6 +76,11 @@ export const iamConfig: IIamStackConfig = {
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
         },
+        {
+          name: "ApiGatewayRead",
+          actions: ["apigateway:GET"],
+          resources: ["*"],
+        },
       ],
     },
     affiliates: {
@@ -107,6 +115,11 @@ export const iamConfig: IIamStackConfig = {
           name: "AuditLogsWrite",
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
+        },
+        {
+          name: "ApiGatewayRead",
+          actions: ["apigateway:GET"],
+          resources: ["*"],
         },
       ],
     },
@@ -150,6 +163,11 @@ export const iamConfig: IIamStackConfig = {
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
         },
+        {
+          name: "ApiGatewayRead",
+          actions: ["apigateway:GET"],
+          resources: ["*"],
+        },
       ],
     },
     leads: {
@@ -188,6 +206,19 @@ export const iamConfig: IIamStackConfig = {
           name: "AuditLogsWrite",
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
+        },
+        {
+          name: "LeadIntakeLogsWrite",
+          actions: ["dynamodb:PutItem", "dynamodb:Query", "dynamodb:Scan"],
+          resources: [
+            leadIntakeLogsTableArn,
+            `${leadIntakeLogsTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "ApiGatewayRead",
+          actions: ["apigateway:GET"],
+          resources: ["*"],
         },
       ],
     },

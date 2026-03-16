@@ -1474,7 +1474,7 @@
     "/campaigns/{id}/plugins": {
       "put": {
         "summary": "Update campaign plugins configuration",
-        "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change — omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed.",
+        "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change \u2014 omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed.",
         "tags": ["campaigns"],
         "parameters": [
           {
@@ -1528,13 +1528,19 @@
                       "phone": {
                         "enabled": true,
                         "criteria": {
-                          "valid": { "enabled": true, "required": true },
+                          "valid": {
+                            "enabled": true,
+                            "required": true
+                          },
                           "fraud_score": {
                             "enabled": true,
                             "operator": "lte",
                             "value": 75
                           },
-                          "country": { "enabled": true, "allowed": ["US"] }
+                          "country": {
+                            "enabled": true,
+                            "allowed": ["US"]
+                          }
                         }
                       },
                       "ip": {
@@ -1545,8 +1551,14 @@
                             "operator": "lte",
                             "value": 75
                           },
-                          "proxy": { "enabled": true, "allowed": false },
-                          "vpn": { "enabled": true, "allowed": false }
+                          "proxy": {
+                            "enabled": true,
+                            "allowed": false
+                          },
+                          "vpn": {
+                            "enabled": true,
+                            "allowed": false
+                          }
                         }
                       }
                     }
@@ -1581,8 +1593,16 @@
         "summary": "List base criteria fields for a campaign",
         "description": "Returns all criteria fields defined on the campaign in their configured order.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Criteria fields list",
@@ -1594,15 +1614,25 @@
               }
             }
           },
-          "404": { "description": "Campaign not found" }
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       },
       "post": {
         "summary": "Add a criteria field to a campaign",
-        "description": "Appends a new field to the campaign's base_criteria array. Required fields gate lead intake — leads missing a required field are saved as rejected.",
+        "description": "Appends a new field to the campaign's base_criteria array. Required fields gate lead intake \u2014 leads missing a required field are saved as rejected.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1618,7 +1648,7 @@
                     "field_name": "state",
                     "data_type": "Text",
                     "required": true,
-                    "description": "US state — abbreviations are expanded to full names at intake",
+                    "description": "US state \u2014 abbreviations are expanded to full names at intake",
                     "state_mapping": "abbr_to_name"
                   }
                 },
@@ -1630,8 +1660,14 @@
                     "data_type": "List",
                     "required": false,
                     "options": [
-                      { "label": "Google", "value": "google" },
-                      { "label": "Facebook", "value": "facebook" }
+                      {
+                        "label": "Google",
+                        "value": "google"
+                      },
+                      {
+                        "label": "Facebook",
+                        "value": "facebook"
+                      }
                     ]
                   }
                 },
@@ -1643,8 +1679,14 @@
                     "data_type": "Text",
                     "required": false,
                     "value_mappings": [
-                      { "from": ["M", "male", "m"], "to": "Male" },
-                      { "from": ["F", "female", "f"], "to": "Female" }
+                      {
+                        "from": ["M", "male", "m"],
+                        "to": "Male"
+                      },
+                      {
+                        "from": ["F", "female", "f"],
+                        "to": "Female"
+                      }
                     ]
                   }
                 }
@@ -1663,21 +1705,33 @@
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
     "/campaigns/{id}/criteria/base-fields": {
       "post": {
         "summary": "Seed campaign with standard base criteria fields",
-        "description": "Appends the platform-standard base criteria fields (first_name, last_name, phone, state, email, ip_address, marketing_source, pub_id, campaign_id, campaign_key) to the campaign. Fields that already exist by field_name are silently skipped — safe to call multiple times (idempotent).",
+        "description": "Appends the platform-standard base criteria fields (first_name, last_name, phone, state, email, ip_address, marketing_source, pub_id, campaign_id, campaign_key) to the campaign. Fields that already exist by field_name are silently skipped \u2014 safe to call multiple times (idempotent).",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Base fields added — returns the full updated criteria list",
+            "description": "Base fields added \u2014 returns the full updated criteria list",
             "content": {
               "application/json": {
                 "schema": {
@@ -1686,18 +1740,30 @@
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
     "/campaigns/{id}/criteria/reorder": {
       "put": {
         "summary": "Reorder criteria fields",
-        "description": "Replaces the order of all criteria fields on a campaign. Supply the complete ordered list of field IDs — all existing field IDs must be present.",
+        "description": "Replaces the order of all criteria fields on a campaign. Supply the complete ordered list of field IDs \u2014 all existing field IDs must be present.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1708,7 +1774,9 @@
                 "properties": {
                   "field_ids": {
                     "type": "array",
-                    "items": { "type": "string" },
+                    "items": {
+                      "type": "string"
+                    },
                     "description": "Complete ordered list of criteria field IDs (CF-prefixed). Must include every existing field ID.",
                     "example": ["CF000002", "CF000001", "CF000003"]
                   }
@@ -1719,7 +1787,7 @@
         },
         "responses": {
           "200": {
-            "description": "Fields reordered — returns the updated criteria list",
+            "description": "Fields reordered \u2014 returns the updated criteria list",
             "content": {
               "application/json": {
                 "schema": {
@@ -1729,9 +1797,11 @@
             }
           },
           "400": {
-            "description": "Validation error — field_ids does not match the campaign's current field set"
+            "description": "Validation error \u2014 field_ids does not match the campaign's current field set"
           },
-          "404": { "description": "Campaign not found" }
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
@@ -1739,10 +1809,18 @@
       "get": {
         "summary": "Get a single criteria field",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/CriteriaFieldId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/CriteriaFieldId"
+          }
         ],
         "responses": {
           "200": {
@@ -1755,17 +1833,27 @@
               }
             }
           },
-          "404": { "description": "Campaign or field not found" }
+          "404": {
+            "description": "Campaign or field not found"
+          }
         }
       },
       "put": {
         "summary": "Update a criteria field",
-        "description": "Partially updates a criteria field. All fields are optional — only supplied fields are changed. To remove state_mapping, send `\"state_mapping\": null`.",
+        "description": "Partially updates a criteria field. All fields are optional \u2014 only supplied fields are changed. To remove state_mapping, send `\"state_mapping\": null`.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/CriteriaFieldId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/CriteriaFieldId"
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1782,7 +1870,9 @@
                   }
                 },
                 "disableStateMapping": {
-                  "value": { "state_mapping": null }
+                  "value": {
+                    "state_mapping": null
+                  }
                 }
               }
             }
@@ -1799,21 +1889,37 @@
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign or field not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign or field not found"
+          }
         }
       },
       "delete": {
         "summary": "Remove a criteria field from a campaign",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/CriteriaFieldId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/CriteriaFieldId"
+          }
         ],
         "responses": {
-          "200": { "description": "Field removed" },
-          "404": { "description": "Campaign or field not found" }
+          "200": {
+            "description": "Field removed"
+          },
+          "404": {
+            "description": "Campaign or field not found"
+          }
         }
       }
     },
@@ -1822,10 +1928,18 @@
         "summary": "Set (replace) value mappings on a criteria field",
         "description": "Fully replaces the value_mappings array on the specified field. Send an empty array to clear all mappings. Each mapping maps one or more raw input values (`from`) to a canonical stored value (`to`). Matching is case-insensitive.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/CriteriaFieldId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/CriteriaFieldId"
+          }
         ],
         "requestBody": {
           "required": true,
@@ -1838,23 +1952,40 @@
                 "stateMappings": {
                   "value": {
                     "value_mappings": [
-                      { "from": ["CA", "ca", "calif"], "to": "California" },
-                      { "from": ["TX", "tx", "tex"], "to": "Texas" },
-                      { "from": ["NY", "ny", "new york"], "to": "New York" }
+                      {
+                        "from": ["CA", "ca", "calif"],
+                        "to": "California"
+                      },
+                      {
+                        "from": ["TX", "tx", "tex"],
+                        "to": "Texas"
+                      },
+                      {
+                        "from": ["NY", "ny", "new york"],
+                        "to": "New York"
+                      }
                     ]
                   }
                 },
                 "genderMappings": {
                   "value": {
                     "value_mappings": [
-                      { "from": ["M", "male", "m"], "to": "Male" },
-                      { "from": ["F", "female", "f"], "to": "Female" }
+                      {
+                        "from": ["M", "male", "m"],
+                        "to": "Male"
+                      },
+                      {
+                        "from": ["F", "female", "f"],
+                        "to": "Female"
+                      }
                     ]
                   }
                 },
                 "clearMappings": {
                   "summary": "Clear all value mappings",
-                  "value": { "value_mappings": [] }
+                  "value": {
+                    "value_mappings": []
+                  }
                 }
               }
             }
@@ -1862,7 +1993,7 @@
         },
         "responses": {
           "200": {
-            "description": "Value mappings replaced — returns the updated field",
+            "description": "Value mappings replaced \u2014 returns the updated field",
             "content": {
               "application/json": {
                 "schema": {
@@ -1871,8 +2002,12 @@
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign or field not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign or field not found"
+          }
         }
       }
     },
@@ -1881,8 +2016,16 @@
         "summary": "List logic rules for a campaign",
         "description": "Returns all logic rules attached to the campaign. Logic rules are evaluated after criteria validation to apply pass/fail decisions on incoming leads.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Logic rules list",
@@ -1891,25 +2034,39 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "result": { "type": "boolean" },
+                    "result": {
+                      "type": "boolean"
+                    },
                     "data": {
                       "type": "array",
-                      "items": { "$ref": "#/components/schemas/LogicRule" }
+                      "items": {
+                        "$ref": "#/components/schemas/LogicRule"
+                      }
                     }
                   }
                 }
               }
             }
           },
-          "404": { "description": "Campaign not found" }
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       },
       "post": {
         "summary": "Create a logic rule for a campaign",
-        "description": "Appends a new logic rule to the campaign. Rules are evaluated in order — the first matching rule's action (pass or fail) is applied. If no rules match the lead passes by default.",
+        "description": "Appends a new logic rule to the campaign. Rules are evaluated in order \u2014 the first matching rule's action (pass or fail) is applied. If no rules match the lead passes by default.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CampaignId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1968,15 +2125,23 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "result": { "type": "boolean" },
-                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                    "result": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LogicRule"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
         }
       }
     },
@@ -1984,10 +2149,18 @@
       "get": {
         "summary": "Get a single logic rule",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/LogicRuleId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/LogicRuleId"
+          }
         ],
         "responses": {
           "200": {
@@ -1997,24 +2170,38 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "result": { "type": "boolean" },
-                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                    "result": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LogicRule"
+                    }
                   }
                 }
               }
             }
           },
-          "404": { "description": "Campaign or rule not found" }
+          "404": {
+            "description": "Campaign or rule not found"
+          }
         }
       },
       "put": {
         "summary": "Update a logic rule",
         "description": "Partially updates a logic rule. Supply only the fields you want to change. All changes are recorded in the audit log with action: logic_rule_updated. Scalar changes (name, action, enabled) each produce one entry. Groups changes use content-based diffing (matched by field_name + operator + value, not by condition ID): condition.added and condition.removed entries are emitted only for genuinely new or deleted conditions. If only grouping/ordering changed, a groups.structure entry is recorded instead.",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/LogicRuleId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/LogicRuleId"
+          }
         ],
         "requestBody": {
           "required": true,
@@ -2034,24 +2221,40 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "result": { "type": "boolean" },
-                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                    "result": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LogicRule"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Validation error" },
-          "404": { "description": "Campaign or rule not found" }
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign or rule not found"
+          }
         }
       },
       "delete": {
         "summary": "Delete a logic rule",
         "tags": ["campaigns"],
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/CampaignId" },
-          { "$ref": "#/components/parameters/LogicRuleId" }
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "$ref": "#/components/parameters/LogicRuleId"
+          }
         ],
         "responses": {
           "200": {
@@ -2061,14 +2264,20 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "result": { "type": "boolean" },
-                    "data": { "$ref": "#/components/schemas/LogicRule" }
+                    "result": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LogicRule"
+                    }
                   }
                 }
               }
             }
           },
-          "404": { "description": "Campaign or rule not found" }
+          "404": {
+            "description": "Campaign or rule not found"
+          }
         }
       }
     },
@@ -2106,7 +2315,7 @@
         },
         "responses": {
           "200": {
-            "description": "Lead processed. The lead is always saved to the database. Check `rejected` and `rejection_reason` to determine whether it was accepted.",
+            "description": "Lead processed. Returns a unified LeadIntakeResponse. Check `result` ('passed' or 'failed') to determine outcome. Accepted: includes `data.lead_id`. Soft-rejected (criteria/rules/duplicate/disabled): includes `lead_id` + `errors[]`. Pre-validation rejection: includes `error` (no record stored).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2187,6 +2396,172 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LeadListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads/intake-logs": {
+      "get": {
+        "summary": "List lead intake logs (INTERNAL API)",
+        "description": "Returns raw intake records captured for all inbound lead submissions (live and test). Supports optional campaign/status/date filters and cursor pagination.",
+        "tags": ["leads"],
+        "servers": [
+          {
+            "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
+            "description": "Development - Internal API"
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["accepted", "rejected", "test"]
+            }
+          },
+          {
+            "name": "from_date",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive lower bound for received_at"
+          },
+          {
+            "name": "to_date",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive upper bound for received_at"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "lastEvaluatedKey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Base64-encoded pagination token"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Intake logs list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "campaign_id": {
+                            "type": "string"
+                          },
+                          "campaign_key": {
+                            "type": "string"
+                          },
+                          "received_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["accepted", "rejected", "test"]
+                          },
+                          "is_test": {
+                            "type": "boolean"
+                          },
+                          "first_name": {
+                            "type": "string"
+                          },
+                          "last_name": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "phone": {
+                            "type": "string"
+                          },
+                          "trusted_form_cert": {
+                            "type": "string"
+                          },
+                          "rejection_reason": {
+                            "type": "string"
+                          },
+                          "rejection_errors": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "raw_body": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "raw_headers": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "response_status_code": {
+                            "type": "integer",
+                            "description": "HTTP status code returned to the caller for this submission"
+                          },
+                          "response_body": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "description": "Exact API response payload returned to the caller"
+                          }
+                        }
+                      }
+                    },
+                    "lastEvaluatedKey": {
+                      "type": "string"
+                    }
+                  }
                 }
               }
             }
@@ -2353,7 +2728,7 @@
     },
     "/leads/test": {
       "post": {
-        "summary": "Submit test lead (EXTERNAL API; campaign must be TEST; affiliate campaign_status must be TEST)",
+        "summary": "Submit test lead (EXTERNAL API; affiliate campaign_status must be TEST; campaign must be TEST or ACTIVE)",
         "tags": ["leads"],
         "servers": [
           {
@@ -2385,7 +2760,7 @@
         },
         "responses": {
           "200": {
-            "description": "Test lead processed. The lead is always saved with test=true. Check `rejected` and `rejection_reason` to determine acceptance.",
+            "description": "Test lead processed. Returns a unified LeadIntakeResponse. Check `result` ('passed' or 'failed') to determine outcome. Accepted: includes `data.lead_id`. Soft-rejected: includes `lead_id` + `errors[]`. Pre-validation rejection: includes `error` (no record stored).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2407,7 +2782,11 @@
       "post": {
         "tags": ["tenant-config"],
         "summary": "Create a credential",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2442,7 +2821,11 @@
       "get": {
         "tags": ["tenant-config"],
         "summary": "List credentials",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "provider",
@@ -2483,7 +2866,11 @@
       "get": {
         "tags": ["tenant-config"],
         "summary": "Get a credential by ID",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -2518,7 +2905,11 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Update a credential",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -2563,7 +2954,11 @@
       "delete": {
         "tags": ["tenant-config"],
         "summary": "Delete a credential",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -2600,8 +2995,16 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Disable a credential (soft-disable, does not delete)",
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CredentialId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CredentialId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Credential disabled",
@@ -2610,9 +3013,15 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
-                    "data": { "$ref": "#/components/schemas/CredentialRecord" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CredentialRecord"
+                    }
                   }
                 }
               }
@@ -2625,8 +3034,16 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Re-enable a previously disabled credential",
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CredentialId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CredentialId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Credential enabled",
@@ -2635,9 +3052,15 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
-                    "data": { "$ref": "#/components/schemas/CredentialRecord" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CredentialRecord"
+                    }
                   }
                 }
               }
@@ -2650,8 +3073,16 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Restore a soft-deleted credential",
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/CredentialId" }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CredentialId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Credential restored",
@@ -2660,9 +3091,15 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
-                    "data": { "$ref": "#/components/schemas/CredentialRecord" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CredentialRecord"
+                    }
                   }
                 }
               }
@@ -2675,8 +3112,12 @@
       "get": {
         "tags": ["tenant-config"],
         "summary": "List all available plugins (registry)",
-        "description": "Returns the canonical AVAILABLE_PLUGINS registry — the fixed list of all plugins the platform supports. No database call; safe to cache. Use this to populate a plugin selection list, know each plugin's credential_type, and show plugin descriptions. This list is independent of whether plugins have been configured or enabled.",
-        "security": [{ "BearerAuth": [] }],
+        "description": "Returns the canonical AVAILABLE_PLUGINS registry \u2014 the fixed list of all plugins the platform supports. No database call; safe to cache. Use this to populate a plugin selection list, know each plugin's credential_type, and show plugin descriptions. This list is independent of whether plugins have been configured or enabled.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of available plugins",
@@ -2685,8 +3126,12 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
                     "data": {
                       "type": "array",
                       "items": {
@@ -2706,7 +3151,11 @@
         "tags": ["tenant-config"],
         "summary": "Create a credential schema definition",
         "description": "Defines the credential fields a plugin integration requires. The frontend reads these to dynamically render credential creation forms.",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2734,13 +3183,19 @@
         "tags": ["tenant-config"],
         "summary": "List all credential schema definitions",
         "description": "Returns all stored credential schema records. Frontend uses this list to render dynamic credential forms per plugin. Pass `?includeDeleted=true` to include soft-deleted records.",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "includeDeleted",
             "in": "query",
             "required": false,
-            "schema": { "type": "boolean" },
+            "schema": {
+              "type": "boolean"
+            },
             "description": "When true, soft-deleted schemas are included in the response"
           }
         ],
@@ -2762,13 +3217,19 @@
       "get": {
         "tags": ["tenant-config"],
         "summary": "Get a credential schema by ID",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "example": "CSa1b2c3d4"
           }
         ],
@@ -2788,13 +3249,19 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Update a credential schema",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "example": "CSa1b2c3d4"
           }
         ],
@@ -2825,25 +3292,35 @@
         "tags": ["tenant-config"],
         "summary": "Delete a credential schema",
         "description": "Soft-deletes the schema by default. Pass `?permanent=true` to hard-delete (only allowed when no credentials reference this schema). Hard-delete is blocked if any credentials are linked.",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "example": "CSa1b2c3d4"
           },
           {
             "name": "permanent",
             "in": "query",
             "required": false,
-            "schema": { "type": "boolean" },
+            "schema": {
+              "type": "boolean"
+            },
             "description": "When true, permanently deletes the record (blocked if credentials reference this schema)"
           }
         ],
         "responses": {
-          "200": { "description": "Schema deleted" },
+          "200": {
+            "description": "Schema deleted"
+          },
           "400": {
             "description": "Cannot hard-delete: credentials still reference this schema"
           }
@@ -2854,13 +3331,19 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Restore a soft-deleted credential schema",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "example": "CSa1b2c3d4"
           }
         ],
@@ -2882,14 +3365,20 @@
       "get": {
         "tags": ["tenant-config"],
         "summary": "List all global plugin settings",
-        "description": "Returns exactly one entry per canonical plugin in the AVAILABLE_PLUGINS registry (currently: trusted_form, ipqs). Each entry merges the registry metadata (name, credential_type, description) with the current setting state (credentials_id, enabled). Unconfigured plugins are included with enabled=false and credentials_id=null — the list size is always fixed regardless of how many credential schemas exist. Pass `?includeDeleted=true` to include soft-deleted records.",
-        "security": [{ "BearerAuth": [] }],
+        "description": "Returns exactly one entry per canonical plugin in the AVAILABLE_PLUGINS registry (currently: trusted_form, ipqs). Each entry merges the registry metadata (name, credential_type, description) with the current setting state (credentials_id, enabled). Unconfigured plugins are included with enabled=false and credentials_id=null \u2014 the list size is always fixed regardless of how many credential schemas exist. Pass `?includeDeleted=true` to include soft-deleted records.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "includeDeleted",
             "in": "query",
             "required": false,
-            "schema": { "type": "boolean" },
+            "schema": {
+              "type": "boolean"
+            },
             "description": "When true, soft-deleted plugin settings are included in the response"
           }
         ],
@@ -2912,13 +3401,20 @@
         "tags": ["tenant-config"],
         "summary": "Get the global plugin setting for a provider",
         "description": "Returns the global default plugin setting for the given provider identifier (e.g. trusted_form, ipqs).",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "schema": {
+              "type": "string",
+              "enum": ["trusted_form", "ipqs"]
+            },
             "example": "trusted_form",
             "description": "Canonical plugin provider identifier"
           }
@@ -2942,14 +3438,21 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Set (upsert) the global default plugin setting for a provider",
-        "description": "Creates or replaces the global default plugin setting for the given provider. Validates that the provider exists in the canonical AVAILABLE_PLUGINS registry. `credentials_id` is optional — omit it to register/enable the plugin without assigning a credential yet.",
-        "security": [{ "BearerAuth": [] }],
+        "description": "Creates or replaces the global default plugin setting for the given provider. Validates that the provider exists in the canonical AVAILABLE_PLUGINS registry. `credentials_id` is optional \u2014 omit it to register/enable the plugin without assigning a credential yet.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "schema": {
+              "type": "string",
+              "enum": ["trusted_form", "ipqs"]
+            },
             "example": "trusted_form",
             "description": "Canonical plugin provider identifier"
           }
@@ -2981,25 +3484,36 @@
         "tags": ["tenant-config"],
         "summary": "Delete a plugin setting",
         "description": "Soft-deletes the setting by default. Pass `?permanent=true` to hard-delete.",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "schema": {
+              "type": "string",
+              "enum": ["trusted_form", "ipqs"]
+            },
             "example": "trusted_form"
           },
           {
             "name": "permanent",
             "in": "query",
             "required": false,
-            "schema": { "type": "boolean" },
+            "schema": {
+              "type": "boolean"
+            },
             "description": "When true, permanently deletes the record"
           }
         ],
         "responses": {
-          "200": { "description": "Plugin setting deleted" }
+          "200": {
+            "description": "Plugin setting deleted"
+          }
         }
       }
     },
@@ -3007,13 +3521,20 @@
       "put": {
         "tags": ["tenant-config"],
         "summary": "Restore a soft-deleted plugin setting",
-        "security": [{ "BearerAuth": [] }],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "provider",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "enum": ["trusted_form", "ipqs"] },
+            "schema": {
+              "type": "string",
+              "enum": ["trusted_form", "ipqs"]
+            },
             "example": "trusted_form"
           }
         ],
@@ -3035,8 +3556,12 @@
       "post": {
         "tags": ["qa"],
         "summary": "Validate a TrustedForm certificate",
-        "description": "Proxies a validation request directly to the TrustedForm API (`GET https://cert.trustedform.com/{cert_id}/validate`). If `credentials_id` is omitted the endpoint auto-resolves the active TrustedForm credential configured in the tenant plugin settings. Passing `credentials_id` performs an ad-hoc validation using that specific credential — useful for testing before committing a plugin setting.",
-        "security": [{ "BearerAuth": [] }],
+        "description": "Proxies a validation request directly to the TrustedForm API (`GET https://cert.trustedform.com/{cert_id}/validate`). If `credentials_id` is omitted the endpoint auto-resolves the active TrustedForm credential configured in the tenant plugin settings. Passing `credentials_id` performs an ad-hoc validation using that specific credential \u2014 useful for testing before committing a plugin setting.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3063,8 +3588,12 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
                     "data": {
                       "type": "object",
                       "description": "Raw TrustedForm validate API response",
@@ -3093,8 +3622,12 @@
       "post": {
         "tags": ["qa"],
         "summary": "Run an IPQS check directly",
-        "description": "Proxy endpoint for running an IPQualityScore (IPQS) fraud-score check directly — without going through a full lead submission. Credentials are auto-resolved from the active 'ipqs' plugin setting in the tenant configuration. At least one of `phone`, `email`, or `ip_address` must be provided.",
-        "security": [{ "BearerAuth": [] }],
+        "description": "Proxy endpoint for running an IPQualityScore (IPQS) fraud-score check directly \u2014 without going through a full lead submission. Credentials are auto-resolved from the active 'ipqs' plugin setting in the tenant configuration. At least one of `phone`, `email`, or `ip_address` must be provided.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3130,13 +3663,179 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "data": { "$ref": "#/components/schemas/IpqsResult" },
-                    "error": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/IpqsResult"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
                   }
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/posting-instructions/generate": {
+      "post": {
+        "tags": ["Campaigns"],
+        "summary": "Generate posting instructions",
+        "description": "Generates a structured posting instructions document for a specific affiliate linked to a campaign. Includes campaign details, affiliate link info, and the sorted list of submission criteria fields. Writes a `posting_instructions_generated` audit event.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["affiliate_id"],
+                "properties": {
+                  "affiliate_id": {
+                    "type": "string",
+                    "description": "ID of the affiliate to generate instructions for"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Posting instructions generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "campaign": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            },
+                            "submit_url": {
+                              "type": "string"
+                            },
+                            "submit_url_test": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "affiliate": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "campaign_key": {
+                              "type": "string"
+                            },
+                            "link_status": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "criteria_fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field_name": {
+                                "type": "string"
+                              },
+                              "field_label": {
+                                "type": "string"
+                              },
+                              "data_type": {
+                                "type": "string"
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "options": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              },
+                              "state_mapping": {
+                                "type": "string",
+                                "enum": ["abbr_to_name", "name_to_abbr"]
+                              },
+                              "order": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "generated_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Affiliate not linked to campaign or not found"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Campaign or affiliate not found"
           }
         }
       }
@@ -3145,9 +3844,13 @@
   "/audit": {
     "get": {
       "summary": "Full audit log scan",
-      "description": "Returns all audit log entries with cursor-based pagination. No filter required — use this to page through the entire audit table. Results are in DynamoDB scan order (not sorted). Admin only.",
+      "description": "Returns all audit log entries with cursor-based pagination. No filter required \u2014 use this to page through the entire audit table. Results are in DynamoDB scan order (not sorted). Admin only.",
       "tags": ["audit"],
-      "security": [{ "BearerAuth": [] }],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
       "parameters": [
         {
           "name": "limit",
@@ -3164,7 +3867,9 @@
           "name": "cursor",
           "in": "query",
           "description": "Opaque pagination cursor returned as nextCursor from a previous response",
-          "schema": { "type": "string" }
+          "schema": {
+            "type": "string"
+          }
         }
       ],
       "responses": {
@@ -3172,21 +3877,31 @@
           "description": "Audit records retrieved",
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+              "schema": {
+                "$ref": "#/components/schemas/AuditQueryResponse"
+              }
             }
           }
         },
-        "401": { "description": "Unauthorized — valid Bearer token required" },
-        "403": { "description": "Forbidden — admin role required" }
+        "401": {
+          "description": "Unauthorized \u2014 valid Bearer token required"
+        },
+        "403": {
+          "description": "Forbidden \u2014 admin role required"
+        }
       }
     }
   },
   "/audit/activity": {
     "get": {
-      "summary": "Activity feed — cross-entity audit log query",
+      "summary": "Activity feed \u2014 cross-entity audit log query",
       "description": "Returns a paginated list of audit log entries across all entities. Requires either entity_type or actor_sub. Supports optional date range filtering. Results are ordered newest-first.",
       "tags": ["audit"],
-      "security": [{ "BearerAuth": [] }],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
       "parameters": [
         {
           "name": "entity_type",
@@ -3210,19 +3925,27 @@
           "name": "actor_sub",
           "in": "query",
           "description": "Filter by Cognito sub of the actor who made the change",
-          "schema": { "type": "string" }
+          "schema": {
+            "type": "string"
+          }
         },
         {
           "name": "from",
           "in": "query",
-          "description": "ISO 8601 timestamp — only return entries at or after this time",
-          "schema": { "type": "string", "format": "date-time" }
+          "description": "ISO 8601 timestamp \u2014 only return entries at or after this time",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
         },
         {
           "name": "to",
           "in": "query",
-          "description": "ISO 8601 timestamp — only return entries at or before this time",
-          "schema": { "type": "string", "format": "date-time" }
+          "description": "ISO 8601 timestamp \u2014 only return entries at or before this time",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
         },
         {
           "name": "limit",
@@ -3239,7 +3962,9 @@
           "name": "cursor",
           "in": "query",
           "description": "Opaque pagination cursor returned as nextCursor from a previous response",
-          "schema": { "type": "string" }
+          "schema": {
+            "type": "string"
+          }
         }
       ],
       "responses": {
@@ -3247,13 +3972,21 @@
           "description": "Activity feed retrieved",
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+              "schema": {
+                "$ref": "#/components/schemas/AuditQueryResponse"
+              }
             }
           }
         },
-        "400": { "description": "entity_type or actor_sub is required" },
-        "401": { "description": "Unauthorized — valid Bearer token required" },
-        "403": { "description": "Forbidden — admin role required" }
+        "400": {
+          "description": "entity_type or actor_sub is required"
+        },
+        "401": {
+          "description": "Unauthorized \u2014 valid Bearer token required"
+        },
+        "403": {
+          "description": "Forbidden \u2014 admin role required"
+        }
       }
     }
   },
@@ -3262,14 +3995,20 @@
       "summary": "Entity audit history",
       "description": "Returns paginated audit log entries for a single entity (identified by its ID). Results are ordered newest-first.",
       "tags": ["audit"],
-      "security": [{ "BearerAuth": [] }],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
       "parameters": [
         {
           "name": "entityId",
           "in": "path",
           "required": true,
           "description": "The entity ID to fetch audit history for (e.g. CLA... for a client, CM... for a campaign, LD... for a lead). For user entities, use the user's email address (URL-encoded).",
-          "schema": { "type": "string" }
+          "schema": {
+            "type": "string"
+          }
         },
         {
           "name": "limit",
@@ -3286,7 +4025,9 @@
           "name": "cursor",
           "in": "query",
           "description": "Opaque pagination cursor returned as nextCursor from a previous response",
-          "schema": { "type": "string" }
+          "schema": {
+            "type": "string"
+          }
         }
       ],
       "responses": {
@@ -3294,13 +4035,21 @@
           "description": "Audit history retrieved",
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AuditQueryResponse" }
+              "schema": {
+                "$ref": "#/components/schemas/AuditQueryResponse"
+              }
             }
           }
         },
-        "401": { "description": "Unauthorized" },
-        "403": { "description": "Forbidden — admin role required" },
-        "404": { "description": "Entity not found" }
+        "401": {
+          "description": "Unauthorized"
+        },
+        "403": {
+          "description": "Forbidden \u2014 admin role required"
+        },
+        "404": {
+          "description": "Entity not found"
+        }
       }
     }
   },
@@ -3309,14 +4058,24 @@
       "summary": "Trigger S3 export for a calendar date",
       "description": "Exports all audit log entries for the specified date (YYYY-MM-DD) to S3 as NDJSON. Also triggered automatically by EventBridge Scheduler at midnight UTC. Admin only.",
       "tags": ["audit"],
-      "security": [{ "BearerAuth": [] }],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
       "requestBody": {
         "required": true,
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/AuditExportRequest" },
+            "schema": {
+              "$ref": "#/components/schemas/AuditExportRequest"
+            },
             "examples": {
-              "default": { "value": { "date": "2025-06-01" } }
+              "default": {
+                "value": {
+                  "date": "2025-06-01"
+                }
+              }
             }
           }
         }
@@ -3326,13 +4085,21 @@
           "description": "Export completed",
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AuditExportResponse" }
+              "schema": {
+                "$ref": "#/components/schemas/AuditExportResponse"
+              }
             }
           }
         },
-        "400": { "description": "Invalid date format" },
-        "401": { "description": "Unauthorized" },
-        "403": { "description": "Forbidden — admin role required" }
+        "400": {
+          "description": "Invalid date format"
+        },
+        "401": {
+          "description": "Unauthorized"
+        },
+        "403": {
+          "description": "Forbidden \u2014 admin role required"
+        }
       }
     }
   },
@@ -3553,47 +4320,6 @@
           }
         }
       },
-      "ParticipantHistoryEntry": {
-        "type": "object",
-        "description": "A single audit record describing a change to a campaign participant (affiliate or client).",
-        "required": ["event", "changed_at"],
-        "properties": {
-          "event": {
-            "type": "string",
-            "enum": ["linked", "status_changed", "key_rotated"],
-            "description": "Type of change: 'linked' on initial or re-link, 'status_changed' when the participant status is updated, 'key_rotated' when the affiliate campaign_key is regenerated."
-          },
-          "field": {
-            "type": "string",
-            "description": "The name of the field that changed (e.g. 'status', 'campaign_key')."
-          },
-          "from": {
-            "type": "string",
-            "description": "Value before the change. Absent when the field did not previously exist."
-          },
-          "to": {
-            "type": "string",
-            "description": "Value after the change."
-          },
-          "changed_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "ISO-8601 timestamp of when the change occurred."
-          },
-          "changed_by": {
-            "type": "object",
-            "description": "Identity of the actor who made the change.",
-            "properties": {
-              "username": {
-                "type": "string"
-              },
-              "email": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      },
       "CampaignAffiliate": {
         "type": "object",
         "properties": {
@@ -3609,13 +4335,6 @@
           },
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
-          },
-          "history": {
-            "type": "array",
-            "description": "Chronological log of all changes made to this affiliate's participation (status changes, key rotations, initial link).",
-            "items": {
-              "$ref": "#/components/schemas/ParticipantHistoryEntry"
-            }
           }
         }
       },
@@ -3631,13 +4350,6 @@
           },
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
-          },
-          "history": {
-            "type": "array",
-            "description": "Chronological log of all changes made to this client's participation (status changes, initial link).",
-            "items": {
-              "$ref": "#/components/schemas/ParticipantHistoryEntry"
-            }
           }
         }
       },
@@ -3722,24 +4434,6 @@
               }
             }
           },
-          "status_history": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "from": {
-                  "$ref": "#/components/schemas/CampaignStatus"
-                },
-                "to": {
-                  "$ref": "#/components/schemas/CampaignStatus"
-                },
-                "changed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              }
-            }
-          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -3792,8 +4486,10 @@
           },
           "base_criteria": {
             "type": "array",
-            "description": "Ordered list of criteria fields that define the expected lead payload shape. Required fields gate intake — leads missing a required field are saved with rejected=true.",
-            "items": { "$ref": "#/components/schemas/BaseCriteriaField" }
+            "description": "Ordered list of criteria fields that define the expected lead payload shape. Required fields gate intake \u2014 leads missing a required field are saved with rejected=true.",
+            "items": {
+              "$ref": "#/components/schemas/BaseCriteriaField"
+            }
           }
         }
       },
@@ -3945,16 +4641,22 @@
         "type": "object",
         "description": "Result of a single IPQS check (phone, email, or IP)",
         "properties": {
-          "success": { "type": "boolean" },
+          "success": {
+            "type": "boolean"
+          },
           "raw": {
             "type": "object",
             "additionalProperties": true,
             "description": "Raw IPQS API response"
           },
-          "error": { "type": "string" },
+          "error": {
+            "type": "string"
+          },
           "criteria_results": {
             "type": "object",
-            "additionalProperties": { "type": "boolean" },
+            "additionalProperties": {
+              "type": "boolean"
+            },
             "description": "Per-criterion pass/fail results"
           }
         }
@@ -3967,53 +4669,89 @@
             "type": "boolean",
             "description": "true only if all executed checks passed"
           },
-          "phone": { "$ref": "#/components/schemas/IpqsCheckResult" },
-          "email": { "$ref": "#/components/schemas/IpqsCheckResult" },
-          "ip": { "$ref": "#/components/schemas/IpqsCheckResult" },
-          "error": { "type": "string" }
+          "phone": {
+            "$ref": "#/components/schemas/IpqsCheckResult"
+          },
+          "email": {
+            "$ref": "#/components/schemas/IpqsCheckResult"
+          },
+          "ip": {
+            "$ref": "#/components/schemas/IpqsCheckResult"
+          },
+          "error": {
+            "type": "string"
+          }
         }
       },
       "IpqsFraudScoreCheck": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
-          "operator": { "type": "string", "enum": ["lte", "gte", "eq"] },
-          "value": { "type": "number" }
+          "enabled": {
+            "type": "boolean"
+          },
+          "operator": {
+            "type": "string",
+            "enum": ["lte", "gte", "eq"]
+          },
+          "value": {
+            "type": "number"
+          }
         }
       },
       "IpqsCountryCheck": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
-          "allowed": { "type": "array", "items": { "type": "string" } }
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "IpqsValidCheck": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
-          "required": { "type": "boolean" }
+          "enabled": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          }
         }
       },
       "IpqsBoolCheck": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
-          "allowed": { "type": "boolean" }
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowed": {
+            "type": "boolean"
+          }
         }
       },
       "IpqsPhoneCheckConfig": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
+          "enabled": {
+            "type": "boolean"
+          },
           "criteria": {
             "type": "object",
             "properties": {
-              "valid": { "$ref": "#/components/schemas/IpqsValidCheck" },
+              "valid": {
+                "$ref": "#/components/schemas/IpqsValidCheck"
+              },
               "fraud_score": {
                 "$ref": "#/components/schemas/IpqsFraudScoreCheck"
               },
-              "country": { "$ref": "#/components/schemas/IpqsCountryCheck" }
+              "country": {
+                "$ref": "#/components/schemas/IpqsCountryCheck"
+              }
             }
           }
         }
@@ -4021,11 +4759,15 @@
       "IpqsEmailCheckConfig": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
+          "enabled": {
+            "type": "boolean"
+          },
           "criteria": {
             "type": "object",
             "properties": {
-              "valid": { "$ref": "#/components/schemas/IpqsValidCheck" },
+              "valid": {
+                "$ref": "#/components/schemas/IpqsValidCheck"
+              },
               "fraud_score": {
                 "$ref": "#/components/schemas/IpqsFraudScoreCheck"
               }
@@ -4036,7 +4778,9 @@
       "IpqsIpCheckConfig": {
         "type": "object",
         "properties": {
-          "enabled": { "type": "boolean" },
+          "enabled": {
+            "type": "boolean"
+          },
           "criteria": {
             "type": "object",
             "properties": {
@@ -4046,8 +4790,12 @@
               "country_code": {
                 "$ref": "#/components/schemas/IpqsCountryCheck"
               },
-              "proxy": { "$ref": "#/components/schemas/IpqsBoolCheck" },
-              "vpn": { "$ref": "#/components/schemas/IpqsBoolCheck" }
+              "proxy": {
+                "$ref": "#/components/schemas/IpqsBoolCheck"
+              },
+              "vpn": {
+                "$ref": "#/components/schemas/IpqsBoolCheck"
+              }
             }
           }
         }
@@ -4058,7 +4806,7 @@
         "properties": {
           "enabled": {
             "type": "boolean",
-            "description": "Master toggle — must be true for TrustedForm validation to run",
+            "description": "Master toggle \u2014 must be true for TrustedForm validation to run",
             "default": false
           },
           "stage": {
@@ -4089,7 +4837,7 @@
         "properties": {
           "enabled": {
             "type": "boolean",
-            "description": "Master toggle — must be true for any sub-check to run",
+            "description": "Master toggle \u2014 must be true for any sub-check to run",
             "default": false
           },
           "stage": {
@@ -4103,9 +4851,15 @@
             "default": true,
             "description": "When true, an IPQS failure halts the pipeline and the lead is saved as rejected. When false, failure is recorded but the pipeline continues."
           },
-          "phone": { "$ref": "#/components/schemas/IpqsPhoneCheckConfig" },
-          "email": { "$ref": "#/components/schemas/IpqsEmailCheckConfig" },
-          "ip": { "$ref": "#/components/schemas/IpqsIpCheckConfig" }
+          "phone": {
+            "$ref": "#/components/schemas/IpqsPhoneCheckConfig"
+          },
+          "email": {
+            "$ref": "#/components/schemas/IpqsEmailCheckConfig"
+          },
+          "ip": {
+            "$ref": "#/components/schemas/IpqsIpCheckConfig"
+          }
         }
       },
       "CampaignPlugins": {
@@ -4434,33 +5188,48 @@
       },
       "LeadSubmissionResponse": {
         "type": "object",
-        "description": "Slim response returned to affiliates on POST /leads and POST /leads/test. Does not include internal QA details (TrustedForm/IPQS results, edit history, etc.).",
+        "description": "Unified response returned to affiliates on every lead submission attempt (POST /leads and POST /leads/test).",
+        "required": ["result", "message"],
         "properties": {
-          "id": {
+          "result": {
             "type": "string",
-            "description": "Unique lead ID assigned at intake",
-            "example": "LDABC12345"
-          },
-          "test": {
-            "type": "boolean",
-            "description": "True when this was submitted to the test endpoint"
-          },
-          "duplicate": {
-            "type": "boolean",
-            "description": "True when a matching lead already exists for this campaign based on the duplicate_check criteria"
-          },
-          "rejected": {
-            "type": "boolean",
-            "description": "True when the lead was not accepted (duplicate, affiliate disabled, or QA gate failure)"
-          },
-          "rejection_reason": {
-            "type": "string",
-            "nullable": true,
-            "description": "Human-readable reason the lead was rejected. Null when rejected=false."
+            "enum": ["passed", "failed"],
+            "description": "'passed' when lead was accepted; 'failed' for any rejection (pre-validation or soft-reject)."
           },
           "message": {
             "type": "string",
-            "description": "Confirmation message when the lead was accepted (e.g. 'Your lead has been received and accepted.'). Omitted when rejected=true."
+            "description": "Human-readable outcome summary (e.g. 'Lead accepted', 'Lead rejected', 'Test lead accepted')."
+          },
+          "error": {
+            "type": "string",
+            "description": "Present on pre-validation failures (no lead stored). Explains why the request was rejected."
+          },
+          "lead_id": {
+            "type": "string",
+            "description": "Present when a lead record was stored (soft-rejected or accepted).",
+            "example": "LDABC12345"
+          },
+          "errors": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Per-field or per-rule rejection messages. Present only when the lead was soft-rejected."
+          },
+          "data": {
+            "type": "object",
+            "description": "Present only when the lead was accepted.",
+            "required": ["lead_id", "message"],
+            "properties": {
+              "lead_id": {
+                "type": "string",
+                "description": "Unique lead ID.",
+                "example": "LDABC12345"
+              },
+              "message": {
+                "type": "string",
+                "description": "Affiliate-facing acceptance message.",
+                "example": "Your lead has been received and accepted."
+              }
+            }
           }
         }
       },
@@ -4826,7 +5595,9 @@
           },
           "options": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Choices for select-type fields"
           }
         }
@@ -4854,7 +5625,9 @@
           },
           "fields": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/PluginSchemaField" }
+            "items": {
+              "$ref": "#/components/schemas/PluginSchemaField"
+            }
           },
           "description": {
             "type": "string",
@@ -4877,8 +5650,14 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "CreateCredentialSchemaRequest": {
@@ -4901,7 +5680,9 @@
           "fields": {
             "type": "array",
             "minItems": 1,
-            "items": { "$ref": "#/components/schemas/PluginSchemaField" },
+            "items": {
+              "$ref": "#/components/schemas/PluginSchemaField"
+            },
             "description": "Ordered list of credential fields the frontend should render"
           },
           "description": {
@@ -4913,37 +5694,55 @@
       "UpdateCredentialSchemaRequest": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string" },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
           "fields": {
             "type": "array",
             "minItems": 1,
-            "items": { "$ref": "#/components/schemas/PluginSchemaField" }
+            "items": {
+              "$ref": "#/components/schemas/PluginSchemaField"
+            }
           }
         }
       },
       "CredentialSchemaResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/CredentialSchemaRecord" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CredentialSchemaRecord"
+          }
         }
       },
       "CredentialSchemaListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/CredentialSchemaRecord" }
+            "items": {
+              "$ref": "#/components/schemas/CredentialSchemaRecord"
+            }
           }
         }
       },
       "PluginSettingRecord": {
         "type": "object",
-        "description": "Global default plugin setting — exactly one record per canonical plugin in the AVAILABLE_PLUGINS registry.",
+        "description": "Global default plugin setting \u2014 exactly one record per canonical plugin in the AVAILABLE_PLUGINS registry.",
         "properties": {
           "id": {
             "type": "string",
@@ -4952,14 +5751,14 @@
           },
           "provider": {
             "type": "string",
-            "description": "Canonical plugin provider identifier — the unique key for this plugin",
+            "description": "Canonical plugin provider identifier \u2014 the unique key for this plugin",
             "example": "trusted_form",
             "enum": ["trusted_form", "ipqs"]
           },
           "credentials_id": {
             "type": "string",
             "nullable": true,
-            "description": "FK to TenantCredentialRecord.id — the default credential for this plugin. Null when the plugin has not been configured yet.",
+            "description": "FK to TenantCredentialRecord.id \u2014 the default credential for this plugin. Null when the plugin has not been configured yet.",
             "example": "CRA1B2C3D4"
           },
           "enabled": {
@@ -4984,8 +5783,14 @@
             "$ref": "#/components/schemas/RequestActor",
             "nullable": true
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "AvailablePlugin": {
@@ -5020,26 +5825,42 @@
         "type": "object",
         "description": "Returned by GET /plugin-settings. Merges PluginSettingRecord fields with AvailablePlugin registry metadata so the frontend gets everything it needs in one call.",
         "allOf": [
-          { "$ref": "#/components/schemas/PluginSettingRecord" },
-          { "$ref": "#/components/schemas/AvailablePlugin" }
+          {
+            "$ref": "#/components/schemas/PluginSettingRecord"
+          },
+          {
+            "$ref": "#/components/schemas/AvailablePlugin"
+          }
         ]
       },
       "PluginSettingResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/PluginSettingRecord" }
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PluginSettingRecord"
+          }
         }
       },
       "PluginSettingListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/PluginView" }
+            "items": {
+              "$ref": "#/components/schemas/PluginView"
+            }
           }
         }
       },
@@ -5049,7 +5870,7 @@
           "credentials_id": {
             "type": "string",
             "nullable": true,
-            "description": "FK to TenantCredentialRecord.id — the default credential to use for this plugin. Omit to register/enable the plugin without assigning a credential yet.",
+            "description": "FK to TenantCredentialRecord.id \u2014 the default credential to use for this plugin. Omit to register/enable the plugin without assigning a credential yet.",
             "example": "CRA1B2C3D4"
           },
           "enabled": {
@@ -5155,7 +5976,9 @@
         "properties": {
           "from": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "List of raw input values that should be normalised to `to`",
             "example": ["CA", "ca", "calif"]
           },
@@ -5199,8 +6022,15 @@
           "value": {
             "description": "The value to compare against. Omit for is_empty / is_not_empty. For is / is_not, may be an array to match any.",
             "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             ]
           }
         }
@@ -5217,14 +6047,16 @@
           },
           "conditions": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/LogicRuleCondition" },
+            "items": {
+              "$ref": "#/components/schemas/LogicRuleCondition"
+            },
             "minItems": 1
           }
         }
       },
       "LogicRule": {
         "type": "object",
-        "description": "A logic rule attached to a campaign. Evaluated after criteria validation — first matching rule wins.",
+        "description": "A logic rule attached to a campaign. Evaluated after criteria validation \u2014 first matching rule wins.",
         "required": ["id", "name", "action", "enabled", "groups"],
         "properties": {
           "id": {
@@ -5248,21 +6080,36 @@
           },
           "groups": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/LogicRuleGroup" },
+            "items": {
+              "$ref": "#/components/schemas/LogicRuleGroup"
+            },
             "description": "Groups evaluated with OR. A rule matches when any group matches (all conditions in the group are true).",
             "minItems": 1
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "type": "string" },
-          "updated_by": { "type": "string" }
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "updated_by": {
+            "type": "string"
+          }
         }
       },
       "CreateLogicRuleConditionRequest": {
         "type": "object",
         "required": ["field_name", "operator"],
         "properties": {
-          "field_name": { "type": "string", "example": "state" },
+          "field_name": {
+            "type": "string",
+            "example": "state"
+          },
           "operator": {
             "type": "string",
             "enum": [
@@ -5280,8 +6127,15 @@
           },
           "value": {
             "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             ]
           }
         }
@@ -5307,8 +6161,14 @@
             "type": "string",
             "example": "Reject non-California leads"
           },
-          "action": { "type": "string", "enum": ["pass", "fail"] },
-          "enabled": { "type": "boolean", "default": true },
+          "action": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
           "groups": {
             "type": "array",
             "items": {
@@ -5320,11 +6180,18 @@
       },
       "UpdateLogicRuleRequest": {
         "type": "object",
-        "description": "All fields are optional — supply only what you want to change.",
+        "description": "All fields are optional \u2014 supply only what you want to change.",
         "properties": {
-          "name": { "type": "string" },
-          "action": { "type": "string", "enum": ["pass", "fail"] },
-          "enabled": { "type": "boolean" },
+          "name": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
           "groups": {
             "type": "array",
             "items": {
@@ -5373,19 +6240,23 @@
           },
           "options": {
             "type": "array",
-            "description": "Selectable options — only used when data_type is List",
-            "items": { "$ref": "#/components/schemas/IFieldOption" }
+            "description": "Selectable options \u2014 only used when data_type is List",
+            "items": {
+              "$ref": "#/components/schemas/IFieldOption"
+            }
           },
           "value_mappings": {
             "type": "array",
             "description": "Optional input-normalisation rules. Each entry maps a set of raw input values to a canonical stored value. Applied before required-field validation.",
-            "items": { "$ref": "#/components/schemas/IValueMapping" }
+            "items": {
+              "$ref": "#/components/schemas/IValueMapping"
+            }
           },
           "state_mapping": {
             "type": "string",
             "enum": ["abbr_to_name", "name_to_abbr"],
             "nullable": true,
-            "description": "Built-in US state normalisation preset. `abbr_to_name` converts \"CA\" → \"California\"; `name_to_abbr` converts \"California\" → \"CA\". Omit or set null to disable."
+            "description": "Built-in US state normalisation preset. `abbr_to_name` converts \"CA\" \u2192 \"California\"; `name_to_abbr` converts \"California\" \u2192 \"CA\". Omit or set null to disable."
           },
           "client_override": {
             "type": "boolean",
@@ -5397,11 +6268,23 @@
             "description": "When true, the affiliate can provide an override value for this field",
             "example": false
           },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" },
-          "created_by": { "$ref": "#/components/schemas/RequestActor" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          },
           "updated_by": {
-            "allOf": [{ "$ref": "#/components/schemas/RequestActor" }],
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RequestActor"
+              }
+            ],
             "nullable": true
           }
         }
@@ -5432,12 +6315,16 @@
           },
           "options": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IFieldOption" },
+            "items": {
+              "$ref": "#/components/schemas/IFieldOption"
+            },
             "description": "Required when data_type is List"
           },
           "value_mappings": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IValueMapping" }
+            "items": {
+              "$ref": "#/components/schemas/IValueMapping"
+            }
           },
           "state_mapping": {
             "type": "string",
@@ -5458,18 +6345,32 @@
         "type": "object",
         "description": "Request body for updating a criteria field. All fields are optional.",
         "properties": {
-          "field_label": { "type": "string" },
-          "field_name": { "type": "string" },
-          "data_type": { "$ref": "#/components/schemas/BaseCriteriaDataType" },
-          "required": { "type": "boolean" },
-          "description": { "type": "string" },
+          "field_label": {
+            "type": "string"
+          },
+          "field_name": {
+            "type": "string"
+          },
+          "data_type": {
+            "$ref": "#/components/schemas/BaseCriteriaDataType"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
           "options": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IFieldOption" }
+            "items": {
+              "$ref": "#/components/schemas/IFieldOption"
+            }
           },
           "value_mappings": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IValueMapping" }
+            "items": {
+              "$ref": "#/components/schemas/IValueMapping"
+            }
           },
           "state_mapping": {
             "type": "string",
@@ -5477,8 +6378,12 @@
             "nullable": true,
             "description": "Set to null to remove the existing state_mapping."
           },
-          "client_override": { "type": "boolean" },
-          "affiliate_override": { "type": "boolean" }
+          "client_override": {
+            "type": "boolean"
+          },
+          "affiliate_override": {
+            "type": "boolean"
+          }
         }
       },
       "SetValueMappingsRequest": {
@@ -5488,11 +6393,19 @@
         "properties": {
           "value_mappings": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IValueMapping" },
+            "items": {
+              "$ref": "#/components/schemas/IValueMapping"
+            },
             "description": "New complete set of value mappings. Replaces any existing mappings.",
             "example": [
-              { "from": ["CA", "ca", "calif"], "to": "California" },
-              { "from": ["TX", "tx", "tex"], "to": "Texas" }
+              {
+                "from": ["CA", "ca", "calif"],
+                "to": "California"
+              },
+              {
+                "from": ["TX", "tx", "tex"],
+                "to": "Texas"
+              }
             ]
           }
         }
@@ -5500,18 +6413,28 @@
       "BaseCriteriaListResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean", "example": true },
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/BaseCriteriaField" }
+            "items": {
+              "$ref": "#/components/schemas/BaseCriteriaField"
+            }
           }
         }
       },
       "BaseCriteriaFieldResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean", "example": true },
-          "data": { "$ref": "#/components/schemas/BaseCriteriaField" }
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/BaseCriteriaField"
+          }
         }
       },
       "AuditChange": {
@@ -5543,15 +6466,27 @@
             "description": "Cognito sub (UUID)",
             "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
           },
-          "username": { "type": "string", "example": "admin@example.com" },
+          "username": {
+            "type": "string",
+            "example": "admin@example.com"
+          },
           "email": {
             "type": "string",
             "format": "email",
             "example": "admin@example.com"
           },
-          "first_name": { "type": "string", "example": "Jane" },
-          "last_name": { "type": "string", "example": "Doe" },
-          "full_name": { "type": "string", "example": "Jane Doe" }
+          "first_name": {
+            "type": "string",
+            "example": "Jane"
+          },
+          "last_name": {
+            "type": "string",
+            "example": "Doe"
+          },
+          "full_name": {
+            "type": "string",
+            "example": "Jane Doe"
+          }
         }
       },
       "AuditLogItem": {
@@ -5570,7 +6505,7 @@
         "properties": {
           "log_id": {
             "type": "string",
-            "description": "ULID — lexicographically ordered by creation time",
+            "description": "ULID \u2014 lexicographically ordered by creation time",
             "example": "01HV2XK5Z4BSDN9E8F3GTRQWMP"
           },
           "entity_id": {
@@ -5613,21 +6548,27 @@
               "logic_rule_updated",
               "logic_rule_deleted",
               "mappings_updated",
+              "value_mapped",
               "plugins_updated",
               "hard_deleted",
               "credential_disabled",
               "credential_enabled",
               "plugin_setting_disabled",
               "plugin_setting_enabled",
-              "password_reset"
+              "password_reset",
+              "posting_instructions_generated"
             ],
             "example": "updated"
           },
           "changes": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/AuditChange" }
+            "items": {
+              "$ref": "#/components/schemas/AuditChange"
+            }
           },
-          "actor": { "$ref": "#/components/schemas/AuditActor" },
+          "actor": {
+            "$ref": "#/components/schemas/AuditActor"
+          },
           "changed_at": {
             "type": "string",
             "format": "date-time",
@@ -5636,12 +6577,12 @@
           "date": {
             "type": "string",
             "format": "date",
-            "description": "Calendar date (YYYY-MM-DD) — GSI partition key for daily S3 export",
+            "description": "Calendar date (YYYY-MM-DD) \u2014 GSI partition key for daily S3 export",
             "example": "2025-06-01"
           },
           "actor_sub": {
             "type": "string",
-            "description": "Cognito sub of the actor — GSI partition key for per-user activity feed",
+            "description": "Cognito sub of the actor \u2014 GSI partition key for per-user activity feed",
             "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
           }
         }
@@ -5649,7 +6590,10 @@
       "AuditQueryResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean", "example": true },
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
           "message": {
             "type": "string",
             "example": "Audit history retrieved successfully"
@@ -5659,11 +6603,13 @@
             "properties": {
               "items": {
                 "type": "array",
-                "items": { "$ref": "#/components/schemas/AuditLogItem" }
+                "items": {
+                  "$ref": "#/components/schemas/AuditLogItem"
+                }
               },
               "nextCursor": {
                 "type": "string",
-                "description": "Opaque base64url cursor — pass as cursor in the next request to retrieve the next page. Absent when there are no more results.",
+                "description": "Opaque base64url cursor \u2014 pass as cursor in the next request to retrieve the next page. Absent when there are no more results.",
                 "nullable": true
               }
             }
@@ -5685,7 +6631,10 @@
       "AuditExportResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean", "example": true },
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
           "message": {
             "type": "string",
             "example": "Export completed successfully"
@@ -5714,7 +6663,9 @@
         "in": "path",
         "required": true,
         "description": "CF-prefixed criteria field ID",
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "CF000001"
       },
       "LogicRuleId": {
@@ -5722,7 +6673,9 @@
         "in": "path",
         "required": true,
         "description": "LR-prefixed logic rule ID",
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "example": "LR000001"
       },
       "CredentialId": {

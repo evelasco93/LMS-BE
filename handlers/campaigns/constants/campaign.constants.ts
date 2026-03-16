@@ -89,6 +89,12 @@ export class CampaignConstants {
   public readonly TENANT_SETTINGS_TABLE_NAME: string;
   /** Base URL for the external leads submission endpoint, returned in affiliate link responses */
   public readonly LEADS_BASE_URL: string;
+  /** External API Gateway name used for runtime endpoint discovery when LEADS_BASE_URL is not provided */
+  public readonly EXTERNAL_LEADS_API_NAME: string;
+  /** External API Gateway stage used for runtime endpoint discovery */
+  public readonly EXTERNAL_LEADS_API_STAGE: string;
+  /** AWS region used for runtime endpoint discovery */
+  public readonly AWS_REGION: string;
   public readonly AUDIT_LOGS_TABLE_NAME: string;
 
   constructor() {
@@ -98,9 +104,14 @@ export class CampaignConstants {
     this.LEADS_TABLE_NAME = process.env.LEADS_TABLE_NAME ?? "";
     this.TENANT_SETTINGS_TABLE_NAME =
       process.env.TENANT_SETTINGS_TABLE_NAME ?? "";
-    this.LEADS_BASE_URL =
-      process.env.LEADS_BASE_URL ??
-      "https://a1tu1h2ev8.execute-api.us-east-1.amazonaws.com/dev/v2/leads";
+    this.LEADS_BASE_URL = process.env.LEADS_BASE_URL ?? "";
+    this.EXTERNAL_LEADS_API_NAME = process.env.EXTERNAL_LEADS_API_NAME ?? "";
+    this.EXTERNAL_LEADS_API_STAGE = process.env.EXTERNAL_LEADS_API_STAGE ?? "";
+    this.AWS_REGION =
+      process.env.AWS_REGION ??
+      process.env.AWS_DEFAULT_REGION ??
+      process.env.CDK_DEFAULT_REGION ??
+      "us-east-1";
     this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
 
     if (!this.CAMPAIGNS_TABLE_NAME) {

@@ -33,7 +33,7 @@ describe("CampaignService", () => {
   });
 
   describe("createCampaign", () => {
-    it("creates a campaign with default DRAFT status and history", async () => {
+    it("creates a campaign with default DRAFT status", async () => {
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
       const request: CreateCampaignRequest = { name: "New Campaign" };
@@ -44,11 +44,6 @@ describe("CampaignService", () => {
       expect(result.data?.name).toBe(request.name);
       expect(result.data?.status).toBe(CampaignStatus.DRAFT);
       expect(result.data?.id).toMatch(/^CM[A-Z0-9]{8}$/);
-      expect(result.data?.status_history).toHaveLength(1);
-      expect(result.data?.status_history[0]).toMatchObject({
-        from: null,
-        to: CampaignStatus.DRAFT,
-      });
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -362,7 +357,7 @@ describe("CampaignService", () => {
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
 
-    it("updates status with history when valid", async () => {
+    it("updates status when valid", async () => {
       const campaign = {
         ...mockCampaign,
         status: CampaignStatus.TEST,
@@ -374,14 +369,6 @@ describe("CampaignService", () => {
             affiliate_id: "AF123",
             campaign_key: "111111111111",
             status: CampaignParticipantStatus.LIVE,
-          },
-        ],
-        status_history: [
-          { from: null, to: CampaignStatus.DRAFT, changed_at: "t0" },
-          {
-            from: CampaignStatus.DRAFT,
-            to: CampaignStatus.TEST,
-            changed_at: "t1",
           },
         ],
       };
@@ -396,11 +383,6 @@ describe("CampaignService", () => {
 
       expect(result.result).toBe(true);
       expect(result.data?.status).toBe(CampaignStatus.ACTIVE);
-      expect(result.data?.status_history).toHaveLength(3);
-      expect(result.data?.status_history[2]).toMatchObject({
-        from: CampaignStatus.TEST,
-        to: CampaignStatus.ACTIVE,
-      });
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
   });

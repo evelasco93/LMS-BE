@@ -9,7 +9,6 @@ import {
   getMockLambdaInvokeUtil,
   getMockConstants,
 } from "../setup";
-import { ILead } from "../../interfaces/ILead.interface";
 
 interface MockCampaign {
   id: string;
@@ -75,7 +74,7 @@ describe("LeadsService", () => {
       );
 
       // Gets through normalisation, reaches "Campaign not found" — not an Invalid fields error
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("Campaign not found");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
@@ -92,7 +91,7 @@ describe("LeadsService", () => {
         true,
       );
 
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("Campaign not found");
     });
 
@@ -117,7 +116,7 @@ describe("LeadsService", () => {
         false,
       );
 
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("Invalid campaign_key");
     });
     it("stores test lead when campaign is in TEST", async () => {
@@ -136,10 +135,8 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, true);
 
-      expect(result.result).toBe(true);
-      expect(result.data?.test).toBe(true);
-      expect(result.data?.campaign_id).toBe(campaign.id);
-      expect(result.data?.campaign_key).toBe("KEY123");
+      expect(result.result).toBe("passed");
+      expect(result.data?.lead_id).toBeDefined();
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -158,7 +155,7 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, true);
 
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("Invalid campaign_key");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
@@ -178,7 +175,7 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, true);
 
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("draft");
     });
 
@@ -198,7 +195,7 @@ describe("LeadsService", () => {
         false,
       );
 
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("inactive");
     });
 
@@ -215,27 +212,43 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, false);
 
-      expect(result.result).toBe(false);
-      expect(result.error).toContain("send to /lead/test");
+      expect(result.result).toBe("failed");
+      expect(result.error).toContain("send to /leads/test");
     });
 
-    it("rejects test endpoint when campaign is ACTIVE", async () => {
+    it("allows TEST affiliate to send test leads when campaign is ACTIVE", async () => {
       const campaign = buildCampaign(
         CampaignStatus.ACTIVE,
         CampaignParticipantStatus.TEST,
       );
       mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
       const payload: CreateLeadRequest = {
         campaign_id: campaign.id,
         campaign_key: "KEY123",
-        payload: {},
+        payload: { email: "test@example.com" },
       };
 
       const result = await leadsService.createLead(payload, true);
 
-      expect(result.result).toBe(false);
-      expect(result.error).toContain("Campaign is live");
+      expect(result.result).toBe("passed");
+      expect(result.data?.lead_id).toBeDefined();
+      expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects LIVE affiliate attempting to use the test endpoint", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce(
+        buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.LIVE),
+      );
+
+      const result = await leadsService.createLead(
+        { campaign_id: "CM123", campaign_key: "KEY123", payload: {} },
+        true,
+      );
+
+      expect(result.result).toBe("failed");
+      expect(result.error).toContain("Affiliate is not set to TEST");
     });
 
     it("stores lead but marks rejected when affiliate is DISABLED", async () => {
@@ -254,9 +267,9 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, false);
 
-      expect(result.result).toBe(true);
-      expect((result.data as ILead)?.rejected).toBe(true);
-      expect((result.data as ILead)?.rejection_reason).toContain("DISABLED");
+      expect(result.result).toBe("failed");
+      expect(result.lead_id).toBeDefined();
+      expect(result.errors?.[0]).toContain("contact your account manager");
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -276,9 +289,9 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, false);
 
-      expect(result.result).toBe(true);
-      expect((result.data as ILead)?.rejected).toBe(true);
-      expect((result.data as ILead)?.rejection_reason).toContain("DISABLED");
+      expect(result.result).toBe("failed");
+      expect(result.lead_id).toBeDefined();
+      expect(result.errors?.[0]).toContain("contact your account manager");
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -298,8 +311,8 @@ describe("LeadsService", () => {
 
       const result = await leadsService.createLead(payload, false);
 
-      expect(result.result).toBe(true);
-      expect(result.data?.test).toBe(false);
+      expect(result.result).toBe("passed");
+      expect(result.data?.lead_id).toBeDefined();
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -333,15 +346,11 @@ describe("LeadsService", () => {
         false,
       );
 
-      expect(result.result).toBe(true);
-      expect(result.data?.duplicate).toBe(true);
-      expect(result.data?.rejected).toBe(true);
-      expect(result.data?.rejection_reason).toContain(
-        "Duplicate lead detected",
+      expect(result.result).toBe("failed");
+      expect(result.lead_id).toBeDefined();
+      expect(result.errors?.[0]).toContain(
+        "A matching lead has already been received",
       );
-      expect(result.data?.duplicate_matches?.lead_ids).toEqual([
-        "LD-EXISTING-1",
-      ]);
       expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledTimes(1);
     });
 
@@ -375,10 +384,8 @@ describe("LeadsService", () => {
         false,
       );
 
-      expect(result.result).toBe(true);
-      expect(result.data?.duplicate).toBe(true);
-      expect(result.data?.rejected).toBe(false);
-      expect(result.data?.rejection_reason).toBeUndefined();
+      expect(result.result).toBe("passed");
+      expect(result.data?.lead_id).toBeDefined();
       expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledTimes(1);
     });
 
@@ -397,7 +404,7 @@ describe("LeadsService", () => {
         false,
       );
 
-      expect(result.result).toBe(false);
+      expect(result.result).toBe("failed");
       expect(result.error).toContain("dynamo fail");
     });
   });

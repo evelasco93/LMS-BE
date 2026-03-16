@@ -16,18 +16,11 @@ import { LeadsService } from "../services/leads.service";
 import {
   CreateLeadRequest,
   ListLeadsQuery,
+  ListIntakeLogsQuery,
   UpdateLeadRequest,
 } from "../types/lead-request.types";
-import {
-  LeadRejectionResponse,
-  LeadSubmissionResponse,
-  RestApiResponse,
-} from "../types/common.types";
+import { LeadIntakeResponse, RestApiResponse } from "../types/common.types";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
-import {
-  LEAD_ACCEPTED_MESSAGE,
-  LEAD_ACCEPTED_TEST_MESSAGE,
-} from "@shared/constants/rejection-messages.constants";
 
 @injectable()
 @apiController("/leads")
@@ -97,102 +90,66 @@ export class LeadsController extends Controller {
     };
   }
 
-  @POST("/")
+  @GET("/intake-logs")
   @produces("application/json")
-  async createLead(
-    @body payload: CreateLeadRequest,
-  ): Promise<RestApiResponse | LeadRejectionResponse> {
-    const result = await this.service.createLead(
-      payload,
-      false,
-      this.getActor(),
-    );
+  async listIntakeLogs(
+    @queryParam("campaign_id") campaign_id?: string,
+    @queryParam("status") status?: string,
+    @queryParam("from_date") from_date?: string,
+    @queryParam("to_date") to_date?: string,
+    @queryParam("limit") limit?: string,
+    @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.listIntakeLogs({
+      campaign_id,
+      status: status as ListIntakeLogsQuery["status"],
+      from_date,
+      to_date,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      lastEvaluatedKey,
+    });
 
     if (!result.result) {
       return {
         success: false,
-        message: "Lead rejected",
+        message: "Failed to list intake logs",
         error: result.error,
       };
     }
 
-    const lead = result.data!;
-    const isRejected = lead.rejected ?? false;
-
-    if (isRejected) {
-      return {
-        result: "failed",
-        lead_id: lead.id,
-        msg: "Lead Rejected",
-        errors:
-          lead.rejection_errors ??
-          (lead.rejection_reason ? [lead.rejection_reason] : []),
-      };
-    }
-
-    const submissionResponse: LeadSubmissionResponse = {
-      id: lead.id,
-      test: lead.test,
-      duplicate: lead.duplicate ?? false,
-      rejected: false,
-      rejection_reason: null,
-      message: LEAD_ACCEPTED_MESSAGE,
-    };
-
     return {
       success: true,
-      message: "Lead accepted",
-      data: submissionResponse,
+      message: "Intake logs retrieved successfully",
+      count: result.data?.count,
+      data: result.data?.items,
+      lastEvaluatedKey: result.data?.lastEvaluatedKey,
     };
+  }
+
+  @POST("/")
+  @produces("application/json")
+  async createLead(
+    @body payload: CreateLeadRequest,
+  ): Promise<LeadIntakeResponse> {
+    return this.service.createLead(
+      payload,
+      false,
+      this.getActor(),
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
   }
 
   @POST("/test")
   @produces("application/json")
   async createTestLead(
     @body payload: CreateLeadRequest,
-  ): Promise<RestApiResponse | LeadRejectionResponse> {
-    const result = await this.service.createLead(
+  ): Promise<LeadIntakeResponse> {
+    return this.service.createLead(
       payload,
       true,
       this.getActor(),
+      this.request.headers as Record<string, string | string[] | undefined>,
     );
-
-    if (!result.result) {
-      return {
-        success: false,
-        message: "Test lead rejected",
-        error: result.error,
-      };
-    }
-
-    const lead = result.data!;
-    const isRejected = lead.rejected ?? false;
-
-    if (isRejected) {
-      return {
-        result: "failed",
-        lead_id: lead.id,
-        msg: "Lead Rejected",
-        errors:
-          lead.rejection_errors ??
-          (lead.rejection_reason ? [lead.rejection_reason] : []),
-      };
-    }
-
-    const submissionResponse: LeadSubmissionResponse = {
-      id: lead.id,
-      test: lead.test,
-      duplicate: lead.duplicate ?? false,
-      rejected: false,
-      rejection_reason: null,
-      message: LEAD_ACCEPTED_TEST_MESSAGE,
-    };
-
-    return {
-      success: true,
-      message: "Test lead accepted",
-      data: submissionResponse,
-    };
   }
 
   @PUT("/:id")

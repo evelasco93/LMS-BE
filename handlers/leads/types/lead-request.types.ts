@@ -15,3 +15,12 @@ export type ListLeadsQuery = {
   lastEvaluatedKey?: string;
   includeDeleted?: boolean;
 };
+
+export type ListIntakeLogsQuery = {
+  campaign_id?: string;
+  status?: "accepted" | "rejected" | "test";
+  from_date?: string;
+  to_date?: string;
+  limit?: number;
+  lastEvaluatedKey?: string;
+};

@@ -16,11 +16,6 @@ export const mockCampaign: ICampaign = {
       status: CampaignParticipantStatus.LIVE,
     },
   ],
-  status_history: [
-    { from: null, to: CampaignStatus.DRAFT, changed_at: now },
-    { from: CampaignStatus.DRAFT, to: CampaignStatus.TEST, changed_at: now },
-    { from: CampaignStatus.TEST, to: CampaignStatus.ACTIVE, changed_at: now },
-  ],
   plugins: {
     duplicate_check: {
       enabled: true,
@@ -72,7 +67,6 @@ export const emptyCampaign: ICampaign = {
   status: CampaignStatus.DRAFT,
   clients: [],
   affiliates: [],
-  status_history: [{ from: null, to: CampaignStatus.DRAFT, changed_at: now }],
   plugins: {
     duplicate_check: {
       enabled: true,
@@ -129,11 +123,6 @@ export const campaignWithAffiliate: ICampaign = {
       campaign_key: "777777777777",
       status: CampaignParticipantStatus.LIVE,
     },
-  ],
-  status_history: [
-    { from: null, to: CampaignStatus.DRAFT, changed_at: now },
-    { from: CampaignStatus.DRAFT, to: CampaignStatus.TEST, changed_at: now },
-    { from: CampaignStatus.TEST, to: CampaignStatus.ACTIVE, changed_at: now },
   ],
   plugins: {
     duplicate_check: {

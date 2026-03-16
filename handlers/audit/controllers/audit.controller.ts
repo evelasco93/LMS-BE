@@ -11,13 +11,7 @@ import {
   Controller,
 } from "ts-lambda-api";
 import { AuditService } from "../services/audit.service";
-
-interface RestApiResponse {
-  success: boolean;
-  message: string;
-  data?: unknown;
-  error?: string;
-}
+import { RestApiResponse } from "../types/common.types";
 
 @injectable()
 @apiController("/audit")

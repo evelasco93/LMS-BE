@@ -12,7 +12,7 @@ This doc summarizes how the LMS API behaves so the frontend can model the UI. AP
 - Move campaign to ACTIVE only when campaign is currently TEST and it has at least one LIVE client and one LIVE affiliate (DISABLED participants are ignored for the LIVE requirement).
 - Campaigns now include `plugins` configuration. By default, `plugins.duplicate_check.enabled=true` with criteria `phone` and `email`. `plugins.trusted_form.enabled=false` and `plugins.ipqs.enabled=false` on creation. `duplicate_check` is **always auto-enabled** when a campaign is promoted to ACTIVE — TrustedForm and IPQS are optional. Each plugin has a `stage` (integer ≥ 2) that controls execution order and a `gate` flag that controls whether a failure halts the pipeline.
 - The campaign response includes `submit_url` and `submit_url_test` — display these to affiliates so they know exactly where to send leads.
-- Lead submission (`POST /leads`, `POST /leads/test`) returns two distinct shapes. Accepted leads: `{ id, test, duplicate, rejected, message }`. Rejected leads (any reason): `{ result: "failed", lead_id, msg, errors[] }`. Internal lead detail is only available via `GET /leads/{id}` (internal API).
+- Lead submission (`POST /leads`, `POST /leads/test`) always returns `{ result: "passed" | "failed", message, ... }`. Accepted: adds `data: { lead_id, message }`. Rejected (soft): adds `lead_id` + optional `errors[]`. Pre-validation rejection: adds `error` (no lead stored). Internal lead detail is only available via `GET /leads/{id}` (internal API).
 - Rotate keys if compromised: use the new key rotation endpoints to issue a fresh `campaign_key` for an affiliate or `client_key` for a linked client.
 - Deletion safeguards: campaigns can only be deleted in DRAFT/TEST when empty and without leads; clients/affiliates must be disabled in all campaigns before soft delete and cannot be hard deleted when campaigns have leads.
 - Internal API is protected by Bearer token auth — call `POST /v2/auth/login` to get a token, then send `Authorization: Bearer <id_token>` on all internal API requests. **Use `id_token`, not `access_token`** — the API Gateway Cognito authorizer validates ID tokens.
@@ -166,81 +166,13 @@ Returns updated campaign plus a new `campaign_key` for that affiliate. Use when 
 
 - Client: `DELETE /campaigns/{id}/clients/{clientId}`
 - Affiliate: `DELETE /campaigns/{id}/affiliates/{affiliateId}`
-  Removal is blocked when the campaign has leads; disable the participant instead. Removal writes a history entry (`removed_clients` / `removed_affiliates`) with timestamps and keys.
+  Removal is blocked when the campaign has leads; disable the participant instead. Removal metadata is captured in `removed_clients` / `removed_affiliates`, and full change history is available via the audit log endpoints.
 
-**Participant change history**
-
-Every linked client and affiliate object contains a `history` array that is appended to automatically by the backend — the frontend never writes to it directly. Each entry records exactly what changed, who changed it, and when.
-
-| `event`          | When it is written                                                          | `field`        |
-| ---------------- | --------------------------------------------------------------------------- | -------------- |
-| `linked`         | Initial link or re-link via `POST /campaigns/{id}/clients` or `/affiliates` | `status`       |
-| `status_changed` | `PUT /campaigns/{id}/clients/{id}` or `/affiliates/{id}`                    | `status`       |
-| `key_rotated`    | `POST /campaigns/{id}/affiliates/{affiliateId}/rotate-key`                  | `campaign_key` |
-
-Example participant object returned from any campaign endpoint:
-
-```json
-{
-  "affiliate_id": "AFABC12345",
-  "campaign_key": "abc123xyz789",
-  "added_at": "2026-03-01T10:00:00.000Z",
-  "status": "LIVE",
-  "history": [
-    {
-      "event": "linked",
-      "field": "status",
-      "from": null,
-      "to": "TEST",
-      "changed_at": "2026-03-01T10:00:00.000Z",
-      "changed_by": {
-        "sub": "a1b2c3d4-...",
-        "username": "edgar@example.com",
-        "email": "edgar@example.com",
-        "first_name": "Edgar",
-        "last_name": "Velasco",
-        "full_name": "Edgar Velasco"
-      }
-    },
-    {
-      "event": "status_changed",
-      "field": "status",
-      "from": "TEST",
-      "to": "LIVE",
-      "changed_at": "2026-03-02T09:15:00.000Z",
-      "changed_by": {
-        "sub": "a1b2c3d4-...",
-        "username": "edgar@example.com",
-        "email": "edgar@example.com",
-        "first_name": "Edgar",
-        "last_name": "Velasco",
-        "full_name": "Edgar Velasco"
-      }
-    },
-    {
-      "event": "key_rotated",
-      "field": "campaign_key",
-      "from": "oldkey000001",
-      "to": "abc123xyz789",
-      "changed_at": "2026-03-03T14:30:00.000Z",
-      "changed_by": {
-        "sub": "a1b2c3d4-...",
-        "username": "edgar@example.com",
-        "email": "edgar@example.com",
-        "first_name": "Edgar",
-        "last_name": "Velasco",
-        "full_name": "Edgar Velasco"
-      }
-    }
-  ]
-}
-```
-
-The same structure applies to `clients[]` entries — they track `linked` and `status_changed` events only (clients have no rotatable key).
+Participant and campaign state history is not embedded in campaign payloads. The frontend should source timelines from `GET /audit/{entityId}`.
 
 **Get campaign by id** `GET /campaigns/{id}`
 
-Returns the full campaign object including participants (with `history`), plugins, status history, and all audit fields.
+Returns the full campaign object including participants, plugins, and audit metadata fields.
 
 **Delete campaign** `DELETE /campaigns/{id}` (soft) · `DELETE /campaigns/{id}?permanent=true` (hard)
 
@@ -359,7 +291,7 @@ Every lead submission runs through a configurable staged pipeline:
 }
 ```
 
-Requirements: campaign status TEST; affiliate participant status TEST; `campaign_key` matches the affiliate’s key.
+Requirements: affiliate participant status TEST; campaign status TEST or ACTIVE; `campaign_key` matches the affiliate’s key.
 **Submit live lead (external API)** `POST /leads`
 
 ```json
@@ -378,47 +310,112 @@ No API key required — authentication is entirely via `campaign_id` + `campaign
 
 Both endpoints return two distinct shapes depending on outcome:
 
-**Accepted:**
+All responses share one shape: `result` is always present.
+
+**Accepted (live):**
 
 ```json
 {
-  "success": true,
+  "result": "passed",
   "message": "Lead accepted",
   "data": {
-    "id": "LDABC12345",
-    "test": false,
-    "duplicate": false,
-    "rejected": false,
-    "rejection_reason": null,
+    "lead_id": "LDABC12345",
     "message": "Your lead has been received and accepted."
   }
 }
 ```
 
-**Rejected** (criteria validation, logic rules, or QA plugin gate):
+**Accepted (test endpoint):**
+
+```json
+{
+  "result": "passed",
+  "message": "Test lead accepted",
+  "data": {
+    "lead_id": "LDABC12345",
+    "message": "Your test lead has been received and accepted."
+  }
+}
+```
+
+**Rejected — soft (criteria validation, logic rules, duplicate, affiliate disabled):**
 
 ```json
 {
   "result": "failed",
   "lead_id": "LDABC12345",
-  "msg": "Lead Rejected",
+  "message": "Lead Rejected",
   "errors": ["Last Name is required", "state must equal California"]
 }
 ```
 
-- Check `result === "failed"` to detect rejection. Use `errors[]` to display per-field messages to the user.
-- `lead_id` is always populated — the lead is saved to DynamoDB even when rejected, so it can be reviewed internally.
-- For test leads the accepted `message` reads: `"Your test lead has been received and accepted."`
+**Rejected — pre-validation (campaign inactive, wrong endpoint, etc.):**
+
+```json
+{
+  "result": "failed",
+  "message": "Lead rejected",
+  "error": "Campaign is live; send to https://abc123.execute-api.us-east-1.amazonaws.com/dev/v2/leads"
+}
+```
+
+- Always check `result === "failed"` vs `"passed"`. Use `error` for pre-validation failures and `errors[]` for field-level rejections.
+- `lead_id` is present on soft-rejects — the lead is saved to DynamoDB so it can be reviewed internally. It is **not** present on pre-validation failures (no record created).
 - The `submit_url` and `submit_url_test` fields on the campaign response give affiliates the exact URLs to POST to.
 
 **Internal lead reads/updates/deletes (internal API only)**
 
 - `GET /leads` — list all leads; supports `?campaign_id`, `?test`, `?includeDeleted=true`, `?limit`, `?lastEvaluatedKey`
 - `GET /leads/{id}` — get single lead
+- `GET /leads/intake-logs` — list raw intake logs for all incoming leads; supports `?campaign_id`, `?status=accepted|rejected|test`, `?from_date`, `?to_date`, `?limit`, `?lastEvaluatedKey`
 - `PUT /leads/{id}` — update lead payload
 - `DELETE /leads/{id}` — soft-delete; `DELETE /leads/{id}?permanent=true` for hard-delete
 
 `POST /leads` and `POST /leads/test` are intentionally **not** exposed on the internal API.
+
+### Intake logs (`GET /leads/intake-logs`)
+
+Use this endpoint to power intake troubleshooting and audit screens. Each record is written for every inbound lead submission attempt (accepted, rejected, and test), including request context.
+
+Response shape (trimmed):
+
+```json
+{
+  "success": true,
+  "message": "Intake logs retrieved successfully",
+  "count": 2,
+  "data": [
+    {
+      "id": "LDABC12345",
+      "campaign_id": "CMABCDEFG",
+      "received_at": "2026-03-15T18:44:11.000Z",
+      "status": "rejected",
+      "is_test": false,
+      "first_name": "Jane",
+      "last_name": "Doe",
+      "email": "jane@example.com",
+      "phone": "5551234567",
+      "raw_body": {
+        "campaign_id": "CMABCDEFG",
+        "payload": { "FIRST_NAME": "Jane" }
+      },
+      "raw_headers": { "content-type": "application/json" },
+      "response_status_code": 200,
+      "response_body": {
+        "result": "failed",
+        "lead_id": "LDABC12345",
+        "message": "Lead Rejected",
+        "errors": ["State is required"]
+      },
+      "rejection_reason": "Missing required field: State",
+      "rejection_errors": ["State is required"]
+    }
+  ],
+  "lastEvaluatedKey": "eyJjYW1wYWlnbl9pZCI6IkNNQUJDREVGRyIsInJlY2VpdmVkX2F0Ijoi..."
+}
+```
+
+Use `status` for badges (`accepted`, `rejected`, `test`), `raw_body`/`raw_headers` to inspect what was sent, and `response_status_code` + `response_body` to render exactly what the API returned.
 
 **Campaign response** (includes `submit_url`)
 
@@ -717,17 +714,18 @@ All criteria mutations are recorded in the centralized audit log with `entity_ty
 
 ### Logic rule update audit trail
 
-`logic_rule_updated` records are written whenever `PUT /logic-rules/{ruleId}` changes anything. Scalar fields produce one entry each; `groups` changes produce per-condition entries:
+`logic_rule_updated` records are written whenever `PUT /logic-rules/{ruleId}` changes anything. Scalar fields produce one entry each; `groups` changes produce per-condition entries.
 
-| `changes[].field`           | When emitted                                                      | `from` / `to` format                                |
-| --------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
-| `name`                      | Rule name changed                                                 | Previous / new string                               |
-| `action`                    | Rule action changed (`pass` ↔ `fail`)                             | `"pass"` or `"fail"`                                |
-| `enabled`                   | Rule enabled toggled                                              | `true` or `false`                                   |
-| `condition.{LC-id}.added`   | A new condition was added to a group                              | `null` → `"field_name operator [value]"`            |
-| `condition.{LC-id}.removed` | An existing condition was deleted                                 | `"field_name operator [value]"` → `null`            |
-| `condition.{LC-id}.updated` | A condition's field, operator, or value changed                   | Previous → new `"field_name operator value"` string |
-| `groups.structure`          | Only the grouping/ordering changed (no condition content changed) | `[[conditionIds…], …]` before → after               |
+Condition matching is **content-based** (fingerprinted by `field_name + operator + value`). The frontend does not need to send condition `id` fields — only content matters. This prevents false "all removed + all added" events when condition IDs are omitted on update.
+
+| `changes[].field`   | When emitted                                                      | `from` / `to` format                     |
+| ------------------- | ----------------------------------------------------------------- | ---------------------------------------- |
+| `name`              | Rule name changed                                                 | Previous / new string                    |
+| `action`            | Rule action changed (`pass` ↔ `fail`)                             | `"pass"` or `"fail"`                     |
+| `enabled`           | Rule enabled toggled                                              | `true` or `false`                        |
+| `condition.added`   | A net-new condition was added (by content)                        | `null` → `"field_name operator [value]"` |
+| `condition.removed` | A net-removed condition was deleted (by content)                  | `"field_name operator [value]"` → `null` |
+| `groups.structure`  | Only the grouping/ordering changed (no condition content changes) | `[["field op val"…], …]` before → after  |
 
 The condition summary string format is `"{field_name} {operator} {value}"` — e.g. `"state is_not California"`. For multi-value `is`/`is_not` operators the values are joined with `, `.
 
@@ -737,12 +735,12 @@ Example `changes[]` for a rule update that renamed the rule, removed one conditi
 [
   { "field": "name", "from": "Old name", "to": "New name" },
   {
-    "field": "condition.LC000001.removed",
+    "field": "condition.removed",
     "from": "state is_not California",
     "to": null
   },
   {
-    "field": "condition.LC000004.added",
+    "field": "condition.added",
     "from": null,
     "to": "state is Texas, Florida"
   }
@@ -810,6 +808,74 @@ When a lead is rejected by criteria validation the response includes:
 Criteria validation **fails open** — if the criteria-validation lambda itself errors, the lead is allowed through (not rejected). This ensures a lambda cold-start or transient error never silently drops a lead.
 
 > **Intake order:** criteria-validation → duplicate-check → QA plugins (TrustedForm, IPQS). A criteria-validation rejection does not run the QA pipeline.
+
+## Posting Instructions
+
+`POST /campaigns/{id}/posting-instructions/generate`
+
+Generates a structured posting instructions document for a specific affiliate linked to a campaign. Use this to build a PDF or on-screen guide showing the affiliate exactly what fields to submit and how.
+
+### Request body
+
+```json
+{ "affiliate_id": "AFF-xxxx" }
+```
+
+### Response `data` shape
+
+```json
+{
+  "campaign": {
+    "id": "CMP-xxxx",
+    "name": "Home Insurance Q3",
+    "status": "ACTIVE",
+    "submit_url": "https://leads.example.com",
+    "submit_url_test": "https://leads.example.com/test"
+  },
+  "affiliate": {
+    "id": "AFF-xxxx",
+    "name": "Acme Partners",
+    "campaign_key": "abc123xyz",
+    "link_status": "LIVE"
+  },
+  "criteria_fields": [
+    {
+      "field_name": "first_name",
+      "field_label": "First Name",
+      "data_type": "string",
+      "required": true,
+      "order": 1
+    },
+    {
+      "field_name": "state",
+      "field_label": "State",
+      "data_type": "string",
+      "required": true,
+      "state_mapping": "abbr_to_name",
+      "order": 2
+    }
+  ],
+  "generated_at": "2025-06-01T12:00:00.000Z"
+}
+```
+
+`criteria_fields` are sorted by `order` (ascending). Optional fields (`description`, `options`, `state_mapping`) are only present when set on the campaign.
+
+### Errors
+
+| Condition                                    | Response                                                                    |
+| -------------------------------------------- | --------------------------------------------------------------------------- |
+| Campaign not found or soft-deleted           | `{ "success": false, "error": "Campaign CMP-... not found" }` (404)         |
+| Affiliate not linked to campaign             | `{ "success": false, "error": "Affiliate AFF-... is not linked..." }` (400) |
+| Affiliate record missing in affiliates table | `{ "success": false, "error": "Affiliate AFF-... not found" }` (404)        |
+
+### Audit trail
+
+Each call writes a `posting_instructions_generated` audit event with `entity_type: "campaign"`:
+
+| `changes[].field` | `from` | `to`                      |
+| ----------------- | ------ | ------------------------- |
+| `affiliate_id`    | `null` | The affiliate's ID string |
 
 ## UI hints
 
@@ -1614,13 +1680,15 @@ interface AuditLogItem {
     | "logic_rule_updated"
     | "logic_rule_deleted"
     | "mappings_updated"
+    | "value_mapped"
     | "plugins_updated"
     | "hard_deleted"
     | "credential_disabled"
     | "credential_enabled"
     | "plugin_setting_disabled"
     | "plugin_setting_enabled"
-    | "password_reset";
+    | "password_reset"
+    | "posting_instructions_generated";
   changes: Array<{
     field: string;
     from: unknown; // Previous value (null for newly created fields)

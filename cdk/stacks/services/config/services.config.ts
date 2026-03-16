@@ -1,5 +1,9 @@
 import { IServicesStackConfig } from "../types/services.types";
-import { nameBuilder, arnBuilder } from "../../../config/base.config";
+import {
+  nameBuilder,
+  arnBuilder,
+  baseConfig,
+} from "../../../config/base.config";
 import * as path from "path";
 
 export const servicesConfig: IServicesStackConfig = {
@@ -55,8 +59,9 @@ export const servicesConfig: IServicesStackConfig = {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
-        LEADS_BASE_URL:
-          "https://a1tu1h2ev8.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
+        LEADS_BASE_URL: process.env.LEADS_BASE_URL ?? "",
+        EXTERNAL_LEADS_API_NAME: nameBuilder.api("external-leads"),
+        EXTERNAL_LEADS_API_STAGE: baseConfig.environment,
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("campaigns-lambda"),
@@ -75,13 +80,15 @@ export const servicesConfig: IServicesStackConfig = {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
+        LEAD_INTAKE_LOGS_TABLE_NAME: nameBuilder.table("lead-intake-logs"),
         QA_ORCHESTRATOR_LAMBDA_NAME: nameBuilder.lambda("qa-orchestrator"),
         CRITERIA_VALIDATION_LAMBDA_NAME: nameBuilder.lambda(
           "qa-criteria-validation",
         ),
         LOGIC_RULES_LAMBDA_NAME: nameBuilder.lambda("qa-logic-rules"),
-        EXTERNAL_LEADS_API_URL:
-          "https://u1jn88al42.execute-api.us-east-1.amazonaws.com/dev/v2/leads",
+        EXTERNAL_LEADS_API_URL: process.env.EXTERNAL_LEADS_API_URL ?? "",
+        EXTERNAL_LEADS_API_NAME: nameBuilder.api("external-leads"),
+        EXTERNAL_LEADS_API_STAGE: baseConfig.environment,
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("leads-lambda"),

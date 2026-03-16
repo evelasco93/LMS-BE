@@ -716,6 +716,17 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
+    // generate posting instructions for an affiliate linked to this campaign
+    const campaignPostingInstructionsResource = campaignResource
+      .addResource("posting-instructions")
+      .addResource("generate");
+    addProtectedMethod(
+      campaignPostingInstructionsResource,
+      "POST",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     // ============================================================================
     // LEADS INTEGRATION
     // ============================================================================
@@ -727,6 +738,12 @@ export class InternalApiStack extends NestedStack {
     const leadsResource = v2Resource.addResource("leads");
     // list leads (internal only)
     addProtectedMethod(leadsResource, "GET", leadsLambdaIntegration, [
+      readScope,
+    ]);
+
+    // list raw intake logs captured for all inbound lead submissions
+    const leadsIntakeLogsResource = leadsResource.addResource("intake-logs");
+    addProtectedMethod(leadsIntakeLogsResource, "GET", leadsLambdaIntegration, [
       readScope,
     ]);
 

@@ -39,7 +39,18 @@ export function createMockConstants() {
   return {
     LEADS_TABLE_NAME: "test-leads-table",
     CAMPAIGNS_TABLE_NAME: "test-campaigns-table",
+    // Empty string disables intake log writes so put call counts stay predictable
+    LEAD_INTAKE_LOGS_TABLE_NAME: "",
     QA_ORCHESTRATOR_LAMBDA_NAME: "",
+    AWS_REGION: "us-east-1",
+    EXTERNAL_LEADS_API_NAME: "",
+    EXTERNAL_LEADS_API_STAGE: "",
+  };
+}
+
+export function createMockAuditWriterService() {
+  return {
+    writeAuditEvent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -52,11 +63,15 @@ beforeEach(() => {
   const mockLogger = createMockLogger();
   const mockLambdaInvokeUtil = createMockLambdaInvokeUtil();
   const mockConstants = createMockConstants();
+  const mockAuditWriterService = createMockAuditWriterService();
 
   testContainer.bind("DynamoDBUtil").toConstantValue(mockDynamoDBUtil);
   testContainer.bind("Logger").toConstantValue(mockLogger);
   testContainer.bind("LambdaInvokeUtil").toConstantValue(mockLambdaInvokeUtil);
   testContainer.bind("LeadsConstants").toConstantValue(mockConstants);
+  testContainer
+    .bind("AuditWriterService")
+    .toConstantValue(mockAuditWriterService);
 });
 
 export function getMockDynamoDBUtil() {

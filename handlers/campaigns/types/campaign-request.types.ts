@@ -126,3 +126,38 @@ export type UpdateLogicRuleRequest = {
   enabled?: boolean;
   groups?: UpdateLogicRuleGroupRequest[];
 };
+
+// ── Posting Instructions ──────────────────────────────────────────────────────
+
+export type GeneratePostingInstructionsRequest = {
+  affiliate_id: string;
+};
+
+export type PostingInstructionsCriteriaField = {
+  field_name: string;
+  field_label: string;
+  data_type: string;
+  required: boolean;
+  description?: string;
+  options?: { label: string; value: string }[];
+  state_mapping?: "abbr_to_name" | "name_to_abbr";
+  order: number;
+};
+
+export type PostingInstructionsResult = {
+  campaign: {
+    id: string;
+    name: string;
+    status: string;
+    submit_url: string;
+    submit_url_test: string;
+  };
+  affiliate: {
+    id: string;
+    name: string;
+    campaign_key: string;
+    link_status: string;
+  };
+  criteria_fields: PostingInstructionsCriteriaField[];
+  generated_at: string;
+};

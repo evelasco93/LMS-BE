@@ -3,13 +3,7 @@ import { injectable, inject } from "inversify";
 import { apiController, POST, body, produces, Controller } from "ts-lambda-api";
 import { OrchestratorService } from "../services/orchestrator.service";
 import { Logger } from "@shared/services/logger.util";
-
-interface RestApiResponse {
-  success: boolean;
-  message?: string;
-  data?: unknown;
-  error?: string;
-}
+import { RestApiResponse } from "../types/common.types";
 
 @injectable()
 @apiController("/qa")

@@ -4,11 +4,7 @@ import { S3Util } from "@shared/clients/s3.util";
 import { Logger } from "@shared/services/logger.util";
 import { AuditConstants } from "../constants/audit.constants";
 import { AuditLogItem } from "@shared/interfaces/IAuditLog.interface";
-
-export interface AuditQueryResult {
-  items: AuditLogItem[];
-  nextCursor?: string;
-}
+import { AuditQueryResult } from "../interfaces/audit-query.interface";
 
 @injectable()
 export class AuditService {

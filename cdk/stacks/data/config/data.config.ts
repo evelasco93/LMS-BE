@@ -134,6 +134,25 @@ export const dataConfig: IDataStackConfig = {
       pointInTimeRecovery: true,
       deletionProtection: false,
     },
+    /**
+     * Lead intake log table.
+     * PK: id (UUID — same as ILead.id)
+     * GSI: campaign_id-received_at-index — campaign-scoped queries
+     */
+    leadIntakeLogs: {
+      tableName: nameBuilder.table("lead-intake-logs"),
+      partitionKey: { name: "id", type: "S" },
+      gsi: [
+        {
+          indexName: `${nameBuilder.table("lead-intake-logs")}-campaign-received-at-index`,
+          partitionKey: { name: "campaign_id", type: "S" },
+          sortKey: { name: "received_at", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: false,
+      deletionProtection: false,
+    },
   },
   auditLogsBucketName:
     `${nameBuilder.table("audit-logs-bucket")}`.toLowerCase(),

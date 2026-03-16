@@ -1,4 +1,8 @@
 import { injectable, inject } from "inversify";
+import {
+  APIGatewayClient,
+  GetRestApisCommand,
+} from "@aws-sdk/client-api-gateway";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { AuditWriterService } from "@shared/services";
@@ -18,7 +22,6 @@ import {
   ICampaignAffiliate,
   ICampaignClient,
   ICampaignPlugins,
-  ICampaignStatusChange,
   IEditHistoryEntry,
   IFieldOption,
   IIpqsEmailCheckConfig,
@@ -28,7 +31,6 @@ import {
   ILogicRule,
   ILogicRuleCondition,
   ILogicRuleGroup,
-  IParticipantHistoryEntry,
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -37,9 +39,11 @@ import {
   AddCriteriaFieldRequest,
   CreateCampaignRequest,
   CreateLogicRuleRequest,
+  GeneratePostingInstructionsRequest,
   LinkAffiliateRequest,
   LinkClientRequest,
   ListCampaignsQuery,
+  PostingInstructionsResult,
   ReorderCriteriaRequest,
   SetValueMappingsRequest,
   UpdateCampaignPluginsRequest,
@@ -54,6 +58,8 @@ import { RequestActor } from "@shared/utils/request-audit.util";
 
 @injectable()
 export class CampaignService {
+  private leadsBaseUrlCache?: string;
+
   constructor(
     @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
     @inject("Logger") private readonly logger: Logger,
@@ -88,13 +94,6 @@ export class CampaignService {
         clients: [],
         affiliates: [],
         plugins: this.getDefaultPlugins(),
-        status_history: [
-          {
-            from: null,
-            to: CampaignStatus.DRAFT,
-            changed_at: now,
-          } satisfies ICampaignStatusChange,
-        ],
         created_at: now,
         updated_at: now,
         created_by: actor,
@@ -297,28 +296,14 @@ export class CampaignService {
       );
       const now = new Date().toISOString();
 
-      const linkedEntry: IParticipantHistoryEntry = {
-        event: "linked",
-        field: "status",
-        from: existingClient?.status ?? undefined,
-        to: campaignStatus,
-        changed_at: now,
-        changed_by: actor,
-      };
-
       if (existingClient) {
         existingClient.status = campaignStatus;
         existingClient.added_at = existingClient.added_at ?? now;
-        existingClient.history = [
-          ...(existingClient.history ?? []),
-          linkedEntry,
-        ];
       } else {
         const newClient: ICampaignClient = {
           client_id: clientId,
           added_at: now,
           status: campaignStatus,
-          history: [linkedEntry],
         };
         campaign.clients = [...campaign.clients, newClient];
       }
@@ -392,26 +377,15 @@ export class CampaignService {
       const campaign_key =
         existing?.campaign_key ?? IdGenerator.generateCampaignKey(12);
 
-      const affLinkedEntry: IParticipantHistoryEntry = {
-        event: "linked",
-        field: "status",
-        from: existing?.status ?? undefined,
-        to: campaignStatus,
-        changed_at: now,
-        changed_by: actor,
-      };
-
       if (existing) {
         existing.status = campaignStatus;
         existing.added_at = existing.added_at ?? now;
-        existing.history = [...(existing.history ?? []), affLinkedEntry];
       } else {
         const newAffiliate: ICampaignAffiliate = {
           affiliate_id: affiliateId,
           campaign_key,
           added_at: now,
           status: campaignStatus,
-          history: [affLinkedEntry],
         };
         campaign.affiliates = [...campaign.affiliates, newAffiliate];
       }
@@ -433,7 +407,7 @@ export class CampaignService {
         Item: campaign,
       });
 
-      const leadsBase = this.constants.LEADS_BASE_URL;
+      const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
@@ -573,14 +547,6 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
-      campaign.status_history = [
-        ...(campaign.status_history ?? []),
-        {
-          from: previousStatus,
-          to: status,
-          changed_at: now,
-        },
-      ];
       campaign.status = status;
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -1059,17 +1025,6 @@ export class CampaignService {
       const oldKey = affiliate.campaign_key;
       const campaign_key = IdGenerator.generateCampaignKey(12);
       affiliate.campaign_key = campaign_key;
-      affiliate.history = [
-        ...(affiliate.history ?? []),
-        {
-          event: "key_rotated",
-          field: "campaign_key",
-          from: oldKey,
-          to: campaign_key,
-          changed_at: now,
-          changed_by: actor,
-        } satisfies IParticipantHistoryEntry,
-      ];
 
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -1084,7 +1039,7 @@ export class CampaignService {
         affiliateId,
       });
 
-      const leadsBase = this.constants.LEADS_BASE_URL;
+      const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
@@ -1125,7 +1080,7 @@ export class CampaignService {
       { recordRemoval: false },
     );
     if (!result.result) return { result: false, error: result.error };
-    const leadsBase = this.constants.LEADS_BASE_URL;
+    const leadsBase = await this.resolveLeadsBaseUrl();
     return {
       result: true,
       data: {
@@ -1236,7 +1191,6 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
-      const prevAffStatus = affiliate.status;
 
       if (options.recordRemoval) {
         campaign.removed_affiliates = [
@@ -1253,24 +1207,6 @@ export class CampaignService {
       }
 
       mutate(affiliate, campaign);
-
-      if (!options.recordRemoval) {
-        // The affiliate object was mutated in-place — record what changed
-        const historyEntries: IParticipantHistoryEntry[] = [];
-        if (affiliate.status !== prevAffStatus) {
-          historyEntries.push({
-            event: "status_changed",
-            field: "status",
-            from: prevAffStatus,
-            to: affiliate.status,
-            changed_at: now,
-            changed_by: actor,
-          });
-        }
-        if (historyEntries.length > 0) {
-          affiliate.history = [...(affiliate.history ?? []), ...historyEntries];
-        }
-      }
 
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -1332,7 +1268,6 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
-      const prevClientStatus = client.status;
 
       if (options.recordRemoval) {
         campaign.removed_clients = [
@@ -1348,23 +1283,6 @@ export class CampaignService {
       }
 
       mutate(client, campaign);
-
-      if (!options.recordRemoval) {
-        const historyEntries: IParticipantHistoryEntry[] = [];
-        if (client.status !== prevClientStatus) {
-          historyEntries.push({
-            event: "status_changed",
-            field: "status",
-            from: prevClientStatus,
-            to: client.status,
-            changed_at: now,
-            changed_by: actor,
-          });
-        }
-        if (historyEntries.length > 0) {
-          client.history = [...(client.history ?? []), ...historyEntries];
-        }
-      }
 
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -1412,7 +1330,7 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign with id ${id} not found` };
       }
-      const leadsBase = this.constants.LEADS_BASE_URL;
+      const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
@@ -2754,42 +2672,44 @@ export class CampaignService {
   }
 
   private normalizeParticipants(campaign: ICampaign): ICampaign {
-    const normalizeClients = (campaign.clients ?? []).map((c: any) =>
-      typeof c === "string"
-        ? {
-            client_id: c,
-            status: CampaignParticipantStatus.LIVE,
-            added_at: new Date().toISOString(),
-            history: [] as IParticipantHistoryEntry[],
-          }
-        : {
-            client_id: c.client_id,
-            added_at: c.added_at ?? new Date().toISOString(),
-            status: c.status ?? CampaignParticipantStatus.LIVE,
-            history: (c.history ?? []) as IParticipantHistoryEntry[],
-          },
+    const normalizeClients: ICampaignClient[] = (campaign.clients ?? []).map(
+      (c: any) =>
+        typeof c === "string"
+          ? {
+              client_id: c,
+              status: CampaignParticipantStatus.LIVE,
+              added_at: new Date().toISOString(),
+            }
+          : {
+              client_id: c.client_id,
+              added_at: c.added_at ?? new Date().toISOString(),
+              status: c.status ?? CampaignParticipantStatus.LIVE,
+            },
     );
 
-    const normalizeAffiliates = (campaign.affiliates ?? []).map((a: any) =>
+    const normalizeAffiliates: ICampaignAffiliate[] = (
+      campaign.affiliates ?? []
+    ).map((a: any) =>
       typeof a === "string"
         ? {
             affiliate_id: a,
             campaign_key: IdGenerator.generateCampaignKey(12),
             added_at: new Date().toISOString(),
             status: CampaignParticipantStatus.LIVE,
-            history: [] as IParticipantHistoryEntry[],
           }
         : {
             affiliate_id: a.affiliate_id,
             campaign_key: a.campaign_key,
             added_at: a.added_at ?? new Date().toISOString(),
             status: a.status ?? CampaignParticipantStatus.LIVE,
-            history: (a.history ?? []) as IParticipantHistoryEntry[],
           },
     );
 
+    const { status_history: _statusHistory, ...campaignWithoutStatusHistory } =
+      campaign as any;
+
     return {
-      ...campaign,
+      ...campaignWithoutStatusHistory,
       clients: normalizeClients,
       affiliates: normalizeAffiliates,
       plugins: this.normalizePlugins(campaign.plugins),
@@ -2977,5 +2897,152 @@ export class CampaignService {
         },
       },
     };
+  }
+
+  // ── Posting Instructions ──────────────────────────────────────────────────
+
+  async generatePostingInstructions(
+    campaignId: string,
+    request: GeneratePostingInstructionsRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<PostingInstructionsResult>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const normalized = this.normalizeParticipants(campaign);
+      const affiliateLink = (normalized.affiliates ?? []).find(
+        (a) => a.affiliate_id === request.affiliate_id,
+      );
+      if (!affiliateLink) {
+        return {
+          result: false,
+          error: `Affiliate ${request.affiliate_id} is not linked to campaign ${campaignId}`,
+        };
+      }
+
+      const affiliateRecord = await this.dynamoDBUtil.get<{
+        id: string;
+        name: string;
+      }>({
+        TableName: this.constants.AFFILIATES_TABLE_NAME,
+        Key: { id: request.affiliate_id },
+      });
+      if (!affiliateRecord) {
+        return {
+          result: false,
+          error: `Affiliate ${request.affiliate_id} not found`,
+        };
+      }
+
+      const criteriaFields = [...(campaign.base_criteria ?? [])]
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map((f) => ({
+          field_name: f.field_name,
+          field_label: f.field_label,
+          data_type: f.data_type,
+          required: f.required ?? false,
+          ...(f.description !== undefined && { description: f.description }),
+          ...(f.options !== undefined && { options: f.options }),
+          ...(f.state_mapping !== undefined && {
+            state_mapping: f.state_mapping,
+          }),
+          order: f.order ?? 0,
+        }));
+
+      const leadsBase = await this.resolveLeadsBaseUrl();
+      const now = new Date().toISOString();
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "posting_instructions_generated",
+        changes: [
+          { field: "affiliate_id", from: null, to: request.affiliate_id },
+          { field: "affiliate_name", from: null, to: affiliateRecord.name },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      this.logger.info("Posting instructions generated", {
+        campaignId,
+        affiliateId: request.affiliate_id,
+      });
+
+      return {
+        result: true,
+        data: {
+          campaign: {
+            id: campaign.id,
+            name: campaign.name,
+            status: campaign.status,
+            submit_url: leadsBase,
+            submit_url_test: `${leadsBase}/test`,
+          },
+          affiliate: {
+            id: affiliateRecord.id,
+            name: affiliateRecord.name,
+            campaign_key: affiliateLink.campaign_key,
+            link_status: affiliateLink.status ?? CampaignParticipantStatus.LIVE,
+          },
+          criteria_fields: criteriaFields,
+          generated_at: now,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to generate posting instructions", error);
+      return {
+        result: false,
+        error: error.message || "Failed to generate posting instructions",
+      };
+    }
+  }
+
+  private async resolveLeadsBaseUrl(): Promise<string> {
+    if (this.constants.LEADS_BASE_URL) {
+      return this.constants.LEADS_BASE_URL.replace(/\/+$/, "");
+    }
+
+    if (this.leadsBaseUrlCache) {
+      return this.leadsBaseUrlCache;
+    }
+
+    const apiName = this.constants.EXTERNAL_LEADS_API_NAME;
+    const stage = this.constants.EXTERNAL_LEADS_API_STAGE;
+    const region = this.constants.AWS_REGION;
+
+    if (!apiName || !stage) {
+      this.logger.warn(
+        "External leads API discovery not configured; using relative leads URL",
+      );
+      this.leadsBaseUrlCache = "/leads";
+      return this.leadsBaseUrlCache;
+    }
+
+    const client = new APIGatewayClient({ region });
+    let position: string | undefined;
+
+    do {
+      const response = await client.send(
+        new GetRestApisCommand({ limit: 500, position }),
+      );
+      const api = response.items?.find((item) => item.name === apiName);
+      if (api?.id) {
+        const safeStage = stage.replace(/^\/+|\/+$/g, "");
+        this.leadsBaseUrlCache = `https://${api.id}.execute-api.${region}.amazonaws.com/${safeStage}/v2/leads`;
+        return this.leadsBaseUrlCache;
+      }
+      position = response.position;
+    } while (position);
+
+    this.logger.warn(
+      "External leads API not found by name; using relative leads URL",
+      { apiName },
+    );
+    this.leadsBaseUrlCache = "/leads";
+    return this.leadsBaseUrlCache;
   }
 }

@@ -9,6 +9,7 @@ import { CampaignsDataStack } from "./campaigns-data.stack";
 import { LeadsDataStack } from "./leads-data.stack";
 import { TenantSettingsDataStack } from "./tenant-settings-data.stack";
 import { AuditLogsDataStack } from "./audit-logs-data.stack";
+import { LeadIntakeLogsDataStack } from "./lead-intake-logs-data.stack";
 
 /**
  * Main Data Stack
@@ -24,6 +25,8 @@ export class DataStack extends Stack {
   public readonly auditLogsTable: Table;
   /** S3 bucket for daily audit log NDJSON exports */
   public readonly auditLogsBucket: Bucket;
+  /** Raw HTTP intake log — one record per POST /leads submission attempt */
+  public readonly leadIntakeLogsTable: Table;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -92,6 +95,16 @@ export class DataStack extends Stack {
     );
     this.auditLogsTable = auditLogsDataStack.table;
     this.auditLogsBucket = auditLogsDataStack.bucket;
+
+    const leadIntakeLogsDataStack = new LeadIntakeLogsDataStack(
+      this,
+      `${config.appPrefix}-LeadIntakeLogsData`,
+      {
+        tableConfig: dataConfig.tables.leadIntakeLogs,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.leadIntakeLogsTable = leadIntakeLogsDataStack.table;
 
     new CfnOutput(this, `${config.appPrefix}-TenantSettingsTableName`, {
       value: this.tenantSettingsTable.tableName,

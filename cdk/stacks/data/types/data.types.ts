@@ -44,6 +44,8 @@ export interface IDataStackConfig {
     tenantSettings: ITableConfig;
     /** Centralized audit log table — one item per mutation across all entity types */
     auditLogs: ITableConfig;
+    /** Raw HTTP intake log — one record per POST /leads submission attempt */
+    leadIntakeLogs: ITableConfig;
   };
   /** S3 bucket name for daily audit log NDJSON exports (Athena-queryable) */
   auditLogsBucketName: string;

@@ -33,7 +33,9 @@ export type AuditAction =
   | "credential_enabled"
   | "plugin_setting_disabled"
   | "plugin_setting_enabled"
-  | "password_reset";
+  | "password_reset"
+  | "posting_instructions_generated"
+  | "value_mapped";
 
 export interface AuditChange {
   field: string;

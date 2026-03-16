@@ -10,33 +10,17 @@ export interface IEditHistoryEntry {
   changed_by?: RequestActor;
 }
 
-export type ParticipantHistoryEvent =
-  | "linked"
-  | "status_changed"
-  | "key_rotated";
-
-export interface IParticipantHistoryEntry {
-  event: ParticipantHistoryEvent;
-  field?: string;
-  from?: string;
-  to?: string;
-  changed_at: string;
-  changed_by?: RequestActor;
-}
-
 export interface ICampaignAffiliate {
   affiliate_id: string;
   campaign_key: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
-  history?: IParticipantHistoryEntry[];
 }
 
 export interface ICampaignClient {
   client_id: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
-  history?: IParticipantHistoryEntry[];
 }
 
 export interface IRemovedAffiliate {
@@ -54,12 +38,6 @@ export interface IRemovedClient {
   status_at_removal?: CampaignParticipantStatus;
   removed_at: string;
   removed_by?: RequestActor;
-}
-
-export interface ICampaignStatusChange {
-  from: CampaignStatus | null;
-  to: CampaignStatus;
-  changed_at: string;
 }
 
 export type DuplicateCheckCriteriaField = "phone" | "email";
@@ -309,7 +287,6 @@ export interface ICampaign {
   removed_clients?: IRemovedClient[];
   removed_affiliates?: IRemovedAffiliate[];
   plugins: ICampaignPlugins;
-  status_history: ICampaignStatusChange[];
   ever_linked_participants?: boolean;
   has_received_leads?: boolean;
   /** Base criteria fields that every lead must satisfy for this campaign */

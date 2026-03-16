@@ -1,22 +1,18 @@
-/** Slim response returned to affiliates on lead submission (POST /leads and POST /leads/test) */
-export type LeadSubmissionResponse = {
-  id: string;
-  test: boolean;
-  duplicate: boolean;
-  rejected: boolean;
-  rejection_reason: string | null;
-  /** Per-field errors explaining why the lead was rejected (present only when rejected=true) */
+/** Unified response returned to affiliates on every lead submission attempt */
+export type LeadIntakeResponse = {
+  result: "passed" | "failed";
+  message: string;
+  /** Present on pre-validation failures — explains why the request was rejected before a lead was stored */
+  error?: string;
+  /** Present when a lead was stored (soft-rejected or accepted) */
+  lead_id?: string;
+  /** Per-field/reason errors when the lead was soft-rejected */
   errors?: string[];
-  /** Present only when the lead is accepted — contains an affiliate-friendly acceptance message */
-  message?: string;
-};
-
-/** Response shape returned when a lead is rejected (logic rules or criteria validation) */
-export type LeadRejectionResponse = {
-  result: "failed";
-  lead_id: string;
-  msg: string;
-  errors: string[];
+  /** Present only when the lead is accepted */
+  data?: {
+    lead_id: string;
+    message: string;
+  };
 };
 
 export type ServiceResult<T = any> = {
