@@ -86,6 +86,8 @@ export const servicesConfig: IServicesStackConfig = {
           "qa-criteria-validation",
         ),
         LOGIC_RULES_LAMBDA_NAME: nameBuilder.lambda("qa-logic-rules"),
+        TRUSTED_FORM_LAMBDA_NAME: nameBuilder.lambda("qa-trusted-form"),
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
         EXTERNAL_LEADS_API_URL: process.env.EXTERNAL_LEADS_API_URL ?? "",
         EXTERNAL_LEADS_API_NAME: nameBuilder.api("external-leads"),
         EXTERNAL_LEADS_API_STAGE: baseConfig.environment,

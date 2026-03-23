@@ -242,7 +242,6 @@ Rules:
     "enabled": true,
     "stage": 2,
     "gate": true,
-    "claim": false,
     "vendor": "SummitEdgeLegal"
   },
   "ipqs": {
@@ -259,9 +258,9 @@ Rules:
 
 - `duplicate_check.enabled=true` requires at least one active criterion (`phone` or `email`).
 - `trusted_form.stage` and `ipqs.stage` must be **≥ 2** — stage 1 is reserved for `duplicate_check` (returns 400 if violated).
-- `gate` and `claim` must be booleans (returns 400 otherwise).
-- `trusted_form.claim=false` → certificate is validated only; the certificate is **not** claimed/retained. Set to `true` to also claim the certificate on successful validation.
+- `gate` must be a boolean (returns 400 otherwise).
 - `trusted_form.vendor` is optional; forwarded to TrustedForm during validation.
+- Certificate claiming is configured at the delivery layer. `claim_trusted_form` is server-managed and always `true` in stored delivery config — not set via the plugins endpoint.
 - When `duplicate_check.enabled=true`, duplicate matches are stored with `duplicate=true` and the lead is saved as `rejected=true`.
 - When `duplicate_check.enabled=false`, duplicate-check does not reject leads.
 
@@ -416,6 +415,13 @@ Response shape (trimmed):
 ```
 
 Use `status` for badges (`accepted`, `rejected`, `test`), `raw_body`/`raw_headers` to inspect what was sent, and `response_status_code` + `response_body` to render exactly what the API returned.
+
+Delivery fields are also captured in each intake log record when available:
+
+- `sold`: boolean accepted/not-accepted outcome from buyer delivery
+- `sold_status`: one of `sold`, `not_sold`, `not_delivered`
+- `sold_to_client_id`: buyer client ID when sold
+- `delivery_result`: full webhook delivery attempt details (URL, method, status, body, acceptance match, error)
 
 **Campaign response** (includes `submit_url`)
 
@@ -1700,7 +1706,22 @@ interface AuditLogItem {
     | "plugin_setting_disabled"
     | "plugin_setting_enabled"
     | "password_reset"
-    | "posting_instructions_generated";
+    | "posting_instructions_generated"
+    // Delivery & routing
+    | "delivery_config_updated"
+    | "distribution_updated"
+    | "lead_cap_updated"
+    | "cert_claimed"
+    | "delivery_skipped"
+    | "lead_delivered"
+    // Participant lifecycle (stored on campaign entity)
+    | "client_linked"
+    | "client_status_updated"
+    | "client_deleted"
+    | "affiliate_linked"
+    | "affiliate_status_updated"
+    | "affiliate_deleted"
+    | "affiliate_key_rotated";
   changes: Array<{
     field: string;
     from: unknown; // Previous value (null for newly created fields)
@@ -1767,9 +1788,32 @@ Results are in DynamoDB scan order (not sorted by date). Iterate using `nextCurs
 | `limit`       | No (default 50)            | Max records to return (1–500)            |
 | `cursor`      | No                         | Pagination cursor from previous response |
 
-**GET `/audit/{entityId}`** — Query parameters: `limit` (default 50), `cursor`.
+**GET `/audit/{entityId}`** — Full change history for one entity, ordered newest-first.
 
-`entityId` is the raw entity ID value — for users it is their email address (URL-encoded). For other entities it is their `id` field.
+This is the primary endpoint for building a changelog or history panel in the frontend. Pass the entity's `id` field directly — for a campaign use `campaignId`, for a lead use `leadId`, for a client use `clientId`, etc.
+
+```typescript
+// Full history for a campaign (includes participant changes, delivery config, distribution, caps)
+const history = await api.get(`/audit/${campaignId}`, {
+  params: { limit: 50 },
+});
+
+// Full history for a specific lead (intake, delivery, cert claim)
+const leadHistory = await api.get(`/audit/${leadId}`, {
+  params: { limit: 50 },
+});
+
+// Full history for a client record
+const clientHistory = await api.get(`/audit/${clientId}`, {
+  params: { limit: 50 },
+});
+```
+
+Each item in `data.items` contains the `action`, the `actor`, `changed_at`, and a `changes[]` array with `{ field, from, to }` entries — everything you need to render a timeline or diff view.
+
+> **Participant events are on the campaign, not the participant.** When a client's status changes from TEST → LIVE, the audit event is stored under the campaign ID (not the client ID) with `action: "client_status_updated"`. To get the full participant history, query `GET /audit/{campaignId}`.
+
+Query parameters: `limit` (default 50, max 500), `cursor`.
 
 **POST `/audit/export`** — Body:
 
@@ -1792,17 +1836,22 @@ Response:
 ### Usage examples
 
 ```typescript
+// Change history for a single campaign (use this for a campaign changelog panel)
+const campaignHistory = await api.get(`/audit/${campaignId}`, {
+  params: { limit: 50 },
+});
+
+// Change history for a single lead (timeline panel)
+const leadHistory = await api.get(`/audit/${leadId}`, {
+  params: { limit: 50 },
+});
+
 // Activity feed — all changes to clients today
 const today = new Date().toISOString().slice(0, 10);
 const res = await api.get("/audit/activity", {
   params: { entity_type: "client", from: `${today}T00:00:00.000Z`, limit: 100 },
 });
 const { items, nextCursor } = res.data.data;
-
-// History for a single lead
-const leadHistory = await api.get(`/audit/${leadId}`, {
-  params: { limit: 50 },
-});
 
 // Activity for a specific admin user (use their Cognito sub)
 const adminActivity = await api.get("/audit/activity", {
@@ -1833,3 +1882,221 @@ Password reset events use `action: "password_reset"` with a redacted change reco
 ```json
 { "field": "password", "from": "[redacted]", "to": "[updated]" }
 ```
+
+---
+
+## Lead Delivery
+
+Campaigns can automatically deliver accepted leads to buyer clients via webhook. The flow has three configuration layers:
+
+1. **Per-client delivery config** — the webhook URL, HTTP method, field mappings, and acceptance rules.
+2. **Per-campaign distribution config** — whether delivery is enabled and which mode to use (round-robin or weighted).
+3. **Per-affiliate lead cap** — the maximum number of accepted leads an affiliate may send on a specific campaign.
+
+### Set client delivery config
+
+Before a client can be set to `LIVE`, a complete delivery config must be saved.
+
+```
+PUT /campaigns/{id}/clients/{clientId}/delivery
+```
+
+```typescript
+await api.put(`/campaigns/${campaignId}/clients/${clientId}/delivery`, {
+  url: "https://buyer.example.com/leads",
+  method: "POST",
+  // Optional: extra headers sent with every request
+  headers: {
+    "X-Api-Key": "secret123",
+  },
+  // Each entry maps one outbound payload key to a lead field or static value
+  payload_mapping: [
+    { key: "first_name", value_source: "field", field_name: "first_name" },
+    { key: "phone", value_source: "field", field_name: "phone" },
+    { key: "email", value_source: "field", field_name: "email" },
+    // Static value — always sent as-is regardless of lead data
+    { key: "source", value_source: "static", static_value: "smash-orbit" },
+  ],
+  // Rules are evaluated in order against the response body (case-insensitive substring match).
+  // The first matching rule wins. If no rule matches, the lead is NOT sold.
+  acceptance_rules: [
+    { match_value: "accepted", action: "passed" },
+    { match_value: "rejected", action: "failed" },
+    { match_value: "duplicate", action: "failed" },
+  ],
+  // Optional: when true, a failed TrustedForm claim blocks delivery entirely for this client.
+  // Default: false (claim failure is logged but delivery proceeds).
+  // require_successful_claim: true,
+
+  // Optional: relative weight for weighted distribution mode (positive integer, default 1).
+  // Higher values = proportionally more leads routed to this client.
+  // Only used when campaign distribution mode is "weighted".
+  // weight: 3,
+});
+```
+
+**Validation rules:**
+
+- `url` must be a valid URL.
+- `method` must be one of `POST`, `GET`, `PUT`, `PATCH`.
+- `payload_mapping` must have at least one entry. Entries with `value_source: "field"` must include a `field_name`.
+- `acceptance_rules` must have at least one entry. Each rule needs a `match_value` and `action` of `passed` or `failed`.
+- `claim_trusted_form` is not request input. Backend always persists it as `true`.
+- `require_successful_claim` is optional (boolean). When `true`, a failed TrustedForm claim blocks delivery to this client. Defaults to non-blocking — delivery proceeds even if the claim fails.
+- `weight` is optional (positive integer, default `1`). Sets this client's relative share of leads in `weighted` distribution mode. `weight: 3` on one client and `weight: 1` on another means the first receives 75% of leads. Ignored in `round_robin` mode.
+
+Once a complete delivery config is saved, the client can be promoted to `LIVE` via `PUT /campaigns/{id}/clients/{clientId}`.
+
+> **LIVE guard**: Attempting to set a client to `LIVE` without a complete delivery config returns a `400`-equivalent error explaining what is missing.
+
+### Set distribution config
+
+Enable (or disable) automatic lead distribution for the campaign entirely, and choose the distribution algorithm.
+
+```
+PUT /campaigns/{id}/distribution
+```
+
+```typescript
+// Enable round-robin (each new lead goes to the next LIVE client in rotation)
+await api.put(`/campaigns/${campaignId}/distribution`, {
+  mode: "round_robin",
+  enabled: true,
+});
+
+// Enable weighted (leads are distributed proportionally to each client's weight)
+await api.put(`/campaigns/${campaignId}/distribution`, {
+  mode: "weighted",
+  enabled: true,
+});
+
+// Disable delivery entirely (leads are still accepted but not forwarded)
+await api.put(`/campaigns/${campaignId}/distribution`, {
+  mode: "round_robin",
+  enabled: false,
+});
+```
+
+| Mode          | Behaviour                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| `round_robin` | Cycles through LIVE clients in order. Uses `rr_last_client_id` to track the cursor.              |
+| `weighted`    | Selects the client that is furthest below its target share. Configure share via `client.weight`. |
+
+### Set affiliate lead cap
+
+Limit how many accepted leads an affiliate may send on a specific campaign.
+
+```
+PUT /campaigns/{id}/affiliates/{affiliateId}/cap
+```
+
+```typescript
+// Set a cap of 500 leads
+await api.put(`/campaigns/${campaignId}/affiliates/${affiliateId}/cap`, {
+  lead_cap: 500,
+});
+
+// Remove the cap (no limit)
+await api.put(`/campaigns/${campaignId}/affiliates/${affiliateId}/cap`, {
+  lead_cap: null,
+});
+```
+
+Once `leads_sent >= lead_cap`, subsequent live lead submissions from that affiliate are rejected with a `"Affiliate lead cap reached"` error. Test leads are never blocked by the cap.
+
+Campaign responses now include backend-computed quota helpers per affiliate so frontend does not need to recalculate:
+
+- `leads_sent`: running count of accepted live leads from this affiliate (defaults to `0`)
+- `leads_remaining`: `lead_cap - leads_sent` (clamped to `0`), or `null` when uncapped
+- `quota_completion_percent`: percent of cap used (`0..100`, 2 decimals), or `null` when uncapped
+
+These fields are present on `GET /campaigns/{id}`, `GET /campaigns`, and campaign mutation responses that return campaign objects.
+
+### Delivery outcome on the lead record
+
+After delivery the lead record is updated with the following fields:
+
+```typescript
+interface LeadDeliveryResult {
+  client_id: string; // ID of the client the lead was delivered to
+  delivered_at: string; // ISO timestamp of the delivery attempt
+  webhook_url: string; // Exact URL called
+  webhook_method: string; // HTTP method (POST | GET | PUT | PATCH)
+  webhook_response_status?: number; // HTTP status returned by the buyer
+  webhook_response_body?: string; // First 4 KB of the response body
+  accepted: boolean; // true if an acceptance_rule matched with action "passed"
+  acceptance_match?: string; // The match_value that triggered the rule
+  error?: string; // Set on network error or timeout (15 s)
+  distribution_mode: "round_robin" | "weighted"; // Mode active when the lead was routed
+  client_weight_at_delivery: number; // Client's weight at time of delivery (default 1)
+}
+```
+
+On the lead object:
+
+| Field               | Type                                      | Description                              |
+| ------------------- | ----------------------------------------- | ---------------------------------------- |
+| `sold`              | `boolean`                                 | `true` if the buyer accepted the lead    |
+| `sold_status`       | `"sold" \| "not_sold" \| "not_delivered"` | Derived delivery status for UI rendering |
+| `sold_to_client_id` | `string \| undefined`                     | ID of the client that purchased the lead |
+| `delivery_result`   | `LeadDeliveryResult \| undefined`         | Full delivery attempt details            |
+
+`delivery_result.distribution_mode` and `delivery_result.client_weight_at_delivery` are always present on any delivery attempt. This allows historical fairness auditing even when weights or modes are later changed — the values at the time of routing are frozen into the lead record.
+
+### Routing mode changes
+
+When you switch distribution mode (e.g. `round_robin` → `weighted`) via `PUT /campaigns/{id}/distribution`, the change takes effect immediately on the next lead that arrives. All previously delivered leads retain their original `distribution_mode` in `delivery_result`. The `leads_delivered_count` counters on each client carry across mode changes, so the weighted algorithm starts from the accumulated real-world totals rather than resetting to zero.
+
+### Audit events
+
+Complete reference of all audit events written by the system. Every event is stored with `entity_id`, `entity_type`, `action`, `changes[]` (each entry `{ field, from, to }`), `actor`, and `changed_at`.
+
+#### Campaign events
+
+| `action`                         | When                                                       | `changes[]` fields tracked                                          |
+| -------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| `created`                        | New campaign created                                       | _(empty — no prior state)_                                          |
+| `updated`                        | Campaign name changed                                      | `name`                                                              |
+| `plugins_updated`                | QA plugin settings changed                                 | Every mutated plugin field (e.g. `duplicate_check.enabled`)         |
+| `distribution_updated`           | Distribution mode/enabled changed via `PUT …/distribution` | `distribution` (full object from → to)                              |
+| `delivery_config_updated`        | Delivery config saved via `PUT …/delivery`                 | `clients.{id}.delivery_config`, `clients.{id}.weight` (if provided) |
+| `lead_cap_updated`               | Affiliate cap set or removed via `PUT …/cap`               | `affiliates.{id}.lead_cap`                                          |
+| `criteria_field_added`           | Criteria field(s) created                                  | `field_name`, `field_label`, `data_type` from null                  |
+| `criteria_field_updated`         | Criteria field property changed                            | Changed properties only (e.g. `required`, `options`)                |
+| `criteria_field_deleted`         | Criteria field removed                                     | `field_name` to null                                                |
+| `criteria_fields_reordered`      | Criteria field order changed                               | `order` for each moved field                                        |
+| `logic_rule_added`               | Logic rule created                                         | `name`, `action`, `enabled`, `groups`                               |
+| `logic_rule_updated`             | Logic rule mutated                                         | Changed scalar fields + condition diffs                             |
+| `logic_rule_deleted`             | Logic rule removed                                         | `rule_id` to null                                                   |
+| `posting_instructions_generated` | Posting instructions document generated                    | _(empty)_                                                           |
+| `client_linked`                  | Client added to campaign                                   | `clients.{id}.client_id`, `clients.{id}.status` from null           |
+| `client_status_updated`          | Client status changed (e.g. TEST → LIVE)                   | `clients.{id}.status` from → to                                     |
+| `client_deleted`                 | Client removed from campaign                               | `clients.{id}.client_id`, `clients.{id}.status` to null             |
+| `affiliate_linked`               | Affiliate added to campaign                                | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` from null  |
+| `affiliate_status_updated`       | Affiliate status changed (e.g. TEST → LIVE)                | `affiliates.{id}.status` from → to                                  |
+| `affiliate_deleted`              | Affiliate removed from campaign                            | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` to null    |
+| `affiliate_key_rotated`          | Affiliate campaign_key rotated                             | `affiliates.{id}.campaign_key` old → new value                      |
+
+#### Lead events
+
+| `action`           | When                                                                                  | `changes[]` fields tracked                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `value_mapped`     | During intake — a field value was transformed via a criteria mapping                  | `payload.{field}` from → to                                                                                              |
+| `updated`          | Manual lead payload edit via `PATCH /leads/{id}`                                      | Each `payload.*` key that differed                                                                                       |
+| `cert_claimed`     | TrustedForm cert successfully claimed before delivery                                 | `trusted_form_result.cert_id`, `.success`, `.previously_retained`                                                        |
+| `delivery_skipped` | Delivery skipped because TrustedForm claim failed and `require_successful_claim` gate | `delivery_skipped_reason`, `rejected`, `rejection_reason`                                                                |
+| `lead_delivered`   | After every delivery attempt (accepted or declined)                                   | `sold`, `sold_to_client_id`, `cert_id`, `delivery_result` (includes `distribution_mode` and `client_weight_at_delivery`) |
+
+#### Client / Affiliate / User events
+
+| `action`                   | `entity_type` | When                             | `changes[]` fields tracked |
+| -------------------------- | ------------- | -------------------------------- | -------------------------- |
+| `created`                  | client        | Client record created            | _(empty)_                  |
+| `updated`                  | client        | Client profile fields changed    | Changed profile fields     |
+| `deleted` / `soft_deleted` | client        | Client deleted                   | _(tombstone)_              |
+| `created`                  | affiliate     | Affiliate record created         | _(empty)_                  |
+| `updated`                  | affiliate     | Affiliate profile fields changed | Changed profile fields     |
+| `created` / `updated`      | user          | User created or profile changed  | Changed user fields        |
+| `password_reset`           | user          | Password reset triggered         | _(empty)_                  |
+
+> **Note on participant status:** `client_linked`, `client_status_updated`, `affiliate_linked`, and `affiliate_status_updated` actions are all stored on the **campaign** entity (not the client/affiliate entity). Use `GET /audit/{campaignId}` to see the full lifecycle of participants within a campaign.

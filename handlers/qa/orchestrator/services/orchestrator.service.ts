@@ -66,6 +66,7 @@ export class OrchestratorService {
             functionName: this.constants.DUPLICATE_CHECK_LAMBDA_NAME,
             payload: {
               campaign_id: event.campaign_id,
+              test: event.test ?? false,
               payload: event.payload ?? {},
               criteria: duplicatePlugin?.criteria ?? ["phone", "email"],
             },
@@ -287,7 +288,7 @@ export class OrchestratorService {
             cert_id: event.cert_id,
             phone: event.phone,
             vendor: plugin.vendor,
-            claim: plugin.claim ?? false,
+            claim: false,
           },
         });
 

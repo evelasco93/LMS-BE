@@ -1,6 +1,7 @@
 export interface LeadRecord {
   id: string;
   campaign_id: string;
+  test?: boolean;
   payload?: Record<string, unknown>;
 }
 

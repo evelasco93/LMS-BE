@@ -2,6 +2,7 @@ export type CreateLeadRequest = {
   campaign_id: string;
   campaign_key: string;
   payload?: Record<string, unknown>;
+  test?: boolean;
 };
 
 export type UpdateLeadRequest = {

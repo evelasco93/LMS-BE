@@ -538,6 +538,16 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
+    // PUT /v2/campaigns/{id}/clients/{clientId}/delivery - update client delivery config
+    const campaignClientDeliveryResource =
+      campaignClientResource.addResource("delivery");
+    addProtectedMethod(
+      campaignClientDeliveryResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     // affiliates under campaign
     const campaignAffiliatesResource =
       campaignResource.addResource("affiliates");
@@ -574,6 +584,16 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
+    // PUT /v2/campaigns/{id}/affiliates/{affiliateId}/cap - update affiliate lead cap
+    const campaignAffiliateCapResource =
+      campaignAffiliateResource.addResource("cap");
+    addProtectedMethod(
+      campaignAffiliateCapResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     // update campaign status
     campaignResource.addResource("status").addMethod(
       "PUT",
@@ -604,6 +624,16 @@ export class InternalApiStack extends NestedStack {
             authorizationType: AuthorizationType.COGNITO,
             authorizer: this.cognitoAuthorizer,
           },
+    );
+
+    // PUT /v2/campaigns/{id}/distribution - update campaign distribution config
+    const campaignDistributionResource =
+      campaignResource.addResource("distribution");
+    addProtectedMethod(
+      campaignDistributionResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
     );
 
     // ── Base Criteria routes ──────────────────────────────────────────────────

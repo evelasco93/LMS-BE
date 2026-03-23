@@ -11,6 +11,7 @@ import { AuditChange } from "@shared/interfaces";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { LeadsConstants } from "../constants/leads.constants";
+import { LeadDeliveryService } from "./lead-delivery.service";
 import {
   CreateLeadRequest,
   ListLeadsQuery,
@@ -25,13 +26,12 @@ import {
 } from "../interfaces/ILeadIntakeLog.interface";
 import {
   BaseCriteriaField,
-  CampaignAffiliate,
-  CampaignRecord,
   CriteriaValidationResponse,
   LogicRulesResponse,
   QaOrchestratorResult,
   ValueMappingResult,
 } from "../interfaces/leads-internal.interface";
+import { ICampaign } from "../../campaigns/interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
@@ -60,6 +60,8 @@ export class LeadsService {
     @inject("LeadsConstants") private readonly constants: LeadsConstants,
     @inject("AuditWriterService")
     private readonly auditWriterService: AuditWriterService,
+    @inject("LeadDeliveryService")
+    private readonly leadDeliveryService: LeadDeliveryService,
   ) {}
 
   async createLead(
@@ -189,6 +191,20 @@ export class LeadsService {
       }
 
       const now = new Date().toISOString();
+
+      // ── Affiliate lead cap check (live leads only) ────────────────────────
+      // Cap is tracked per-affiliate per-campaign on the campaign record.
+      // Test submissions skip the cap so QA traffic is never blocked.
+      if (!isTest && affiliate.lead_cap != null) {
+        const sent = affiliate.leads_sent ?? 0;
+        if (sent >= affiliate.lead_cap) {
+          return {
+            result: "failed",
+            message: "Lead rejected",
+            error: `Affiliate lead cap of ${affiliate.lead_cap} reached for this campaign`,
+          };
+        }
+      }
 
       // ── Stage 0a: Apply value mappings so canonical values flow into all downstream checks ─
       const {
@@ -322,8 +338,12 @@ export class LeadsService {
               return `${fieldLabel} contains a disallowed value`;
             case "starts_with":
               return `${fieldLabel} must start with ${expected}`;
+            case "does_not_start_with":
+              return `${fieldLabel} must not start with ${expected}`;
             case "ends_with":
               return `${fieldLabel} must end with ${expected}`;
+            case "does_not_end_with":
+              return `${fieldLabel} must not end with ${expected}`;
             case "greater_than":
               return `${fieldLabel} must be greater than ${expected}`;
             case "less_than":
@@ -397,9 +417,10 @@ export class LeadsService {
           result: "failed",
           lead_id: logicRejectLead.id,
           message: "Lead Rejected",
-          ...(logicRejectionErrors.length > 0
-            ? { errors: logicRejectionErrors }
-            : {}),
+          errors:
+            logicRejectionErrors.length > 0
+              ? logicRejectionErrors
+              : [rejectionReason],
         };
 
         this.writeIntakeLog(
@@ -418,6 +439,7 @@ export class LeadsService {
         campaign_id: campaignId,
         campaign_key: campaignKey,
         payload: mappedPayload,
+        test: isTest,
       });
 
       const duplicateMatchIds = Array.isArray(
@@ -527,6 +549,47 @@ export class LeadsService {
         test: isTest,
       });
 
+      // ── Increment affiliate leads_sent (live, accepted leads only) ─────────
+      // Uses DynamoDB UpdateItem against the affiliate's entry in the campaign
+      // record.  The affiliate's position in the list is resolved by index so
+      // the expression can use a numeric path like affiliates[2].leads_sent.
+      if (!isTest && !rejected) {
+        const affiliateIndex = (campaign.affiliates ?? []).findIndex(
+          (a) => a.campaign_key === campaignKey,
+        );
+        if (affiliateIndex >= 0) {
+          await this.dynamoDBUtil
+            .update({
+              TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+              Key: { id: campaignId },
+              UpdateExpression: `ADD affiliates[${affiliateIndex}].leads_sent :one SET updated_at = :now`,
+              ExpressionAttributeValues: {
+                ":one": 1,
+                ":now": now,
+              },
+            })
+            .catch((err: any) =>
+              this.logger.error("Failed to increment affiliate leads_sent", {
+                campaignId,
+                affiliateIndex,
+                error: err?.message,
+              }),
+            );
+        }
+      }
+
+      // ── Synchronous webhook delivery (live, accepted leads only) ──────────
+      if (!isTest && !rejected) {
+        await this.leadDeliveryService
+          .deliverLead(lead, campaign, isTest)
+          .catch((err: any) =>
+            this.logger.error("Lead delivery error (non-fatal)", {
+              leadId: lead.id,
+              error: err?.message,
+            }),
+          );
+      }
+
       const leadResponse: LeadIntakeResponse = lead.rejected
         ? {
             result: "failed",
@@ -634,7 +697,9 @@ export class LeadsService {
       return {
         result: true,
         data: {
-          items: scanResult.items,
+          items: scanResult.items.map((lead) =>
+            this.enrichLeadForResponse(lead),
+          ),
           count: scanResult.items.length,
           lastEvaluatedKey: scanResult.lastEvaluatedKey
             ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
@@ -663,7 +728,7 @@ export class LeadsService {
         return { result: false, error: `Lead ${id} not found` };
       }
 
-      return { result: true, data: lead };
+      return { result: true, data: this.enrichLeadForResponse(lead) };
     } catch (error: any) {
       this.logger.error("Failed to get lead", error);
       return { result: false, error: error.message || "Failed to get lead" };
@@ -912,6 +977,14 @@ export class LeadsService {
       ...(rawHeaders ? { raw_headers: rawHeaders } : {}),
       response_status_code: 200,
       response_body: responseBody as unknown as Record<string, unknown>,
+      ...(lead.sold !== undefined ? { sold: lead.sold } : {}),
+      sold_status: this.resolveSoldStatus(lead),
+      ...(lead.sold_to_client_id
+        ? { sold_to_client_id: lead.sold_to_client_id }
+        : {}),
+      ...(lead.delivery_result
+        ? { delivery_result: lead.delivery_result }
+        : {}),
       ...(lead.rejection_reason
         ? { rejection_reason: lead.rejection_reason }
         : {}),
@@ -1146,8 +1219,27 @@ export class LeadsService {
     return this.externalLeadsBaseUrlCache;
   }
 
-  private async getCampaign(id: string): Promise<CampaignRecord | null> {
-    const campaign = await this.dynamoDBUtil.get<CampaignRecord>({
+  private resolveSoldStatus(
+    lead: ILead,
+  ): "sold" | "not_sold" | "not_delivered" {
+    if (lead.sold === true || Boolean(lead.sold_to_client_id)) {
+      return "sold";
+    }
+    if (lead.sold === false || lead.delivery_result !== undefined) {
+      return "not_sold";
+    }
+    return "not_delivered";
+  }
+
+  private enrichLeadForResponse(lead: ILead): ILead {
+    return {
+      ...lead,
+      sold_status: this.resolveSoldStatus(lead),
+    };
+  }
+
+  private async getCampaign(id: string): Promise<ICampaign | null> {
+    const campaign = await this.dynamoDBUtil.get<ICampaign>({
       TableName: this.constants.CAMPAIGNS_TABLE_NAME,
       Key: { id },
     });
@@ -1205,7 +1297,7 @@ export class LeadsService {
   }
 
   private async runQaPlugins(
-    campaign: CampaignRecord,
+    campaign: ICampaign,
     request: CreateLeadRequest,
   ): Promise<QaOrchestratorResult> {
     if (!this.constants.QA_ORCHESTRATOR_LAMBDA_NAME) {
@@ -1238,6 +1330,7 @@ export class LeadsService {
         functionName: this.constants.QA_ORCHESTRATOR_LAMBDA_NAME,
         payload: {
           campaign_id: request.campaign_id,
+          test: request.test ?? false,
           payload: leadPayload,
           plugins: campaign.plugins,
           ...(certId ? { cert_id: certId } : {}),

@@ -145,7 +145,13 @@ export class TrustedFormService {
       });
 
       const claimOutcome = (claimResponse?.outcome as string) ?? "failure";
-      const isSuccess = claimOutcome === "success";
+      const phoneMatched = phoneMatch !== false;
+      const isSuccess = claimOutcome === "success" && phoneMatched;
+      const claimError = !isSuccess
+        ? !phoneMatched
+          ? "TrustedForm phone did not match"
+          : (claimResponse?.reason ?? "TrustedForm claim failed")
+        : undefined;
 
       return {
         result: true,
@@ -153,6 +159,7 @@ export class TrustedFormService {
           success: isSuccess,
           cert_id: cleanCertId,
           outcome: claimOutcome,
+          ...(claimError ? { error: claimError } : {}),
           phone: cleanPhone,
           phone_match: phoneMatch,
           vendor: retainVendor ?? effectiveVendor,

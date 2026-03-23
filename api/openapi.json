@@ -1358,6 +1358,187 @@
         }
       }
     },
+    "/campaigns/{id}/clients/{clientId}/delivery": {
+      "put": {
+        "summary": "Set webhook delivery config for a linked client",
+        "description": "Configures the buyer webhook URL, HTTP method, payload field mappings, and acceptance rules. A client must have a complete delivery config before it can be set to LIVE.",
+        "tags": ["campaigns"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "name": "clientId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetClientDeliveryRequest"
+              },
+              "examples": {
+                "basic": {
+                  "value": {
+                    "url": "https://buyer.example.com/leads",
+                    "method": "POST",
+                    "payload_mapping": [
+                      {
+                        "key": "first_name",
+                        "value_source": "field",
+                        "field_name": "first_name"
+                      },
+                      {
+                        "key": "phone",
+                        "value_source": "field",
+                        "field_name": "phone"
+                      },
+                      {
+                        "key": "source",
+                        "value_source": "static",
+                        "static_value": "smash-orbit"
+                      }
+                    ],
+                    "acceptance_rules": [
+                      { "match_value": "accepted", "action": "passed" },
+                      { "match_value": "rejected", "action": "failed" }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Delivery config updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign or client not found"
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/distribution": {
+      "put": {
+        "summary": "Set lead distribution config for a campaign",
+        "description": "Enables or disables automatic lead distribution and selects the distribution mode (round_robin or weighted).",
+        "tags": ["campaigns"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDistributionRequest"
+              },
+              "examples": {
+                "roundRobin": {
+                  "value": { "mode": "round_robin", "enabled": true }
+                },
+                "weighted": {
+                  "value": { "mode": "weighted", "enabled": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Distribution config updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign not found"
+          }
+        }
+      }
+    },
+    "/campaigns/{id}/affiliates/{affiliateId}/cap": {
+      "put": {
+        "summary": "Set or remove lead cap for a linked affiliate",
+        "description": "Sets the maximum number of accepted leads this affiliate may send on this campaign. Set lead_cap to null to remove the cap entirely.",
+        "tags": ["campaigns"],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CampaignId"
+          },
+          {
+            "name": "affiliateId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAffiliateCapRequest"
+              },
+              "examples": {
+                "setCap": {
+                  "value": { "lead_cap": 500 }
+                },
+                "removeCap": {
+                  "value": { "lead_cap": null }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lead cap updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "404": {
+            "description": "Campaign or affiliate not found"
+          }
+        }
+      }
+    },
     "/campaigns/{id}/affiliates/{affiliateId}/rotate-key": {
       "post": {
         "summary": "Rotate linked affiliate campaign_key",
@@ -2554,6 +2735,22 @@
                             "type": "object",
                             "additionalProperties": true,
                             "description": "Exact API response payload returned to the caller"
+                          },
+                          "sold": {
+                            "type": "boolean",
+                            "description": "True when this lead was delivered to a buyer and accepted"
+                          },
+                          "sold_status": {
+                            "type": "string",
+                            "enum": ["sold", "not_sold", "not_delivered"],
+                            "description": "Derived delivery status for intake troubleshooting"
+                          },
+                          "sold_to_client_id": {
+                            "type": "string",
+                            "description": "Client ID that purchased this lead when sold=true"
+                          },
+                          "delivery_result": {
+                            "$ref": "#/components/schemas/LeadDeliveryResult"
                           }
                         }
                       }
@@ -4320,6 +4517,132 @@
           }
         }
       },
+      "WebhookFieldMapping": {
+        "type": "object",
+        "required": ["key", "value_source"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The outbound payload key sent to the client webhook"
+          },
+          "value_source": {
+            "type": "string",
+            "enum": ["field", "static"],
+            "description": "field = look up lead.payload[field_name]; static = use static_value"
+          },
+          "field_name": {
+            "type": "string",
+            "description": "Required when value_source=field. The lead payload field name to read from."
+          },
+          "static_value": {
+            "description": "Required when value_source=static. The literal value to send."
+          }
+        }
+      },
+      "WebhookAcceptanceRule": {
+        "type": "object",
+        "required": ["match_value", "action"],
+        "properties": {
+          "match_value": {
+            "type": "string",
+            "description": "Case-insensitive substring to search for in the webhook response body"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["passed", "failed"],
+            "description": "passed = lead is sold, failed = lead is not sold"
+          }
+        }
+      },
+      "SetClientDeliveryRequest": {
+        "type": "object",
+        "required": ["url", "method", "payload_mapping", "acceptance_rules"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The buyer's webhook URL"
+          },
+          "method": {
+            "type": "string",
+            "enum": ["POST", "GET", "PUT", "PATCH"]
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional extra HTTP headers to include in the webhook request"
+          },
+          "payload_mapping": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WebhookFieldMapping"
+            }
+          },
+          "acceptance_rules": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/WebhookAcceptanceRule"
+            }
+          },
+          "require_successful_claim": {
+            "type": "boolean",
+            "description": "When true, a failed TrustedForm certificate claim will block delivery to this client. When false (or absent), claim failures are logged but delivery proceeds regardless."
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Relative weight for weighted distribution mode (positive integer, default 1). Higher values route proportionally more leads to this client. Only used when the campaign distribution mode is 'weighted'."
+          }
+        }
+      },
+      "ClientDeliveryConfig": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SetClientDeliveryRequest"
+          },
+          {
+            "type": "object",
+            "required": ["claim_trusted_form"],
+            "properties": {
+              "claim_trusted_form": {
+                "type": "boolean",
+                "enum": [true],
+                "readOnly": true,
+                "description": "Server-managed flag. Always true in persisted client delivery config and responses."
+              }
+            }
+          }
+        ]
+      },
+      "SetDistributionRequest": {
+        "type": "object",
+        "required": ["mode", "enabled"],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["round_robin", "weighted"]
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetAffiliateCapRequest": {
+        "type": "object",
+        "required": ["lead_cap"],
+        "properties": {
+          "lead_cap": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 1,
+            "description": "Maximum number of accepted leads this affiliate may send. Set to null to remove the cap."
+          }
+        }
+      },
       "CampaignAffiliate": {
         "type": "object",
         "properties": {
@@ -4335,6 +4658,25 @@
           },
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
+          },
+          "lead_cap": {
+            "type": "integer",
+            "description": "Maximum accepted leads this affiliate may send on this campaign"
+          },
+          "leads_sent": {
+            "type": "integer",
+            "description": "Running count of accepted leads sent by this affiliate on this campaign"
+          },
+          "leads_remaining": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Derived on response. Remaining live leads before cap is reached. Null means uncapped."
+          },
+          "quota_completion_percent": {
+            "type": "number",
+            "format": "float",
+            "nullable": true,
+            "description": "Derived on response. Percent of lead cap used (0-100). Null means uncapped."
           }
         }
       },
@@ -4350,6 +4692,17 @@
           },
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
+          },
+          "delivery_config": {
+            "$ref": "#/components/schemas/ClientDeliveryConfig"
+          },
+          "weight": {
+            "type": "integer",
+            "description": "Relative weight used by the weighted distribution mode"
+          },
+          "leads_delivered_count": {
+            "type": "integer",
+            "description": "Running count of leads delivered to this client"
           }
         }
       },
@@ -4616,6 +4969,84 @@
           "halt_reason": {
             "type": "string",
             "description": "Human-readable affiliate-facing rejection message produced by the halting plugin. Populated only when pipeline_halted=true."
+          },
+          "sold": {
+            "type": "boolean",
+            "description": "True when the lead was delivered to a client and accepted."
+          },
+          "sold_status": {
+            "type": "string",
+            "enum": ["sold", "not_sold", "not_delivered"],
+            "description": "Derived lead delivery status for UI use. sold=accepted by buyer, not_sold=delivery attempted but not accepted, not_delivered=no delivery attempt was made."
+          },
+          "sold_to_client_id": {
+            "type": "string",
+            "description": "Client ID that purchased the lead when sold=true."
+          },
+          "delivery_result": {
+            "$ref": "#/components/schemas/LeadDeliveryResult"
+          }
+        }
+      },
+      "LeadDeliveryResult": {
+        "type": "object",
+        "required": [
+          "client_id",
+          "delivered_at",
+          "webhook_url",
+          "webhook_method",
+          "accepted",
+          "distribution_mode",
+          "client_weight_at_delivery"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "description": "ID of the client the lead was delivered to"
+          },
+          "delivered_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO timestamp of when the delivery was attempted"
+          },
+          "webhook_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The exact URL called"
+          },
+          "webhook_method": {
+            "type": "string",
+            "enum": ["POST", "GET", "PUT", "PATCH"],
+            "description": "HTTP method used for the webhook request"
+          },
+          "webhook_response_status": {
+            "type": "integer",
+            "description": "HTTP status code returned by the buyer webhook (absent on network/timeout error)"
+          },
+          "webhook_response_body": {
+            "type": "string",
+            "description": "First 4 KB of buyer webhook response body"
+          },
+          "accepted": {
+            "type": "boolean",
+            "description": "true if an acceptance_rule matched with action 'passed'"
+          },
+          "acceptance_match": {
+            "type": "string",
+            "description": "The match_value string of the acceptance rule that triggered the result"
+          },
+          "error": {
+            "type": "string",
+            "description": "Network or timeout error message (absent on successful HTTP exchange)"
+          },
+          "distribution_mode": {
+            "type": "string",
+            "enum": ["round_robin", "weighted"],
+            "description": "The distribution mode that was active when this lead was routed"
+          },
+          "client_weight_at_delivery": {
+            "type": "integer",
+            "description": "The client's weight value at the moment of delivery. Defaults to 1 when no weight was set. Relevant for auditing weighted distribution fairness over time."
           }
         }
       },
@@ -4802,7 +5233,7 @@
       },
       "TrustedFormPluginConfig": {
         "type": "object",
-        "description": "TrustedForm plugin configuration. When enabled=true the cert_id submitted with each lead will be validated against the TrustedForm API. Use claim=true to also retain (claim) the certificate on successful validation.",
+        "description": "TrustedForm plugin configuration. When enabled=true the cert_id submitted with each lead will be validated against the TrustedForm API. Certificate claiming is configured per-client via the delivery config (claim_trusted_form).",
         "properties": {
           "enabled": {
             "type": "boolean",
@@ -4819,11 +5250,6 @@
             "type": "boolean",
             "default": true,
             "description": "When true, a TrustedForm failure halts the pipeline and the lead is saved as rejected. When false, failure is recorded but the pipeline continues."
-          },
-          "claim": {
-            "type": "boolean",
-            "default": false,
-            "description": "When true, a successful validation is immediately followed by a claim (retain) call to TrustedForm. Set to false if you only need to validate without consuming the certificate."
           },
           "vendor": {
             "type": "string",
@@ -6556,7 +6982,20 @@
               "plugin_setting_disabled",
               "plugin_setting_enabled",
               "password_reset",
-              "posting_instructions_generated"
+              "posting_instructions_generated",
+              "lead_delivered",
+              "delivery_config_updated",
+              "lead_cap_updated",
+              "delivery_skipped",
+              "cert_claimed",
+              "distribution_updated",
+              "client_linked",
+              "client_status_updated",
+              "client_deleted",
+              "affiliate_linked",
+              "affiliate_status_updated",
+              "affiliate_deleted",
+              "affiliate_key_rotated"
             ],
             "example": "updated"
           },

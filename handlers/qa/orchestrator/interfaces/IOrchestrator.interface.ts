@@ -7,7 +7,6 @@ export interface TrustedFormPluginConfig {
   enabled: boolean;
   stage?: number;
   gate?: boolean;
-  claim?: boolean;
   vendor?: string;
 }
 

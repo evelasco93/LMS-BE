@@ -6,6 +6,7 @@ import { LambdaInvokeUtil } from "@shared/services/lambda-invoke.util";
 import { AuditWriterService } from "@shared/services";
 import { LeadsConstants } from "../constants/leads.constants";
 import { LeadsService } from "../services/leads.service";
+import { LeadDeliveryService } from "../services/lead-delivery.service";
 import { LeadsController } from "../controllers/leads.controller";
 
 const container = new Container();
@@ -33,6 +34,10 @@ container
       ),
   );
 container.bind<LeadsService>("LeadsService").to(LeadsService);
+container
+  .bind<LeadDeliveryService>("LeadDeliveryService")
+  .to(LeadDeliveryService)
+  .inSingletonScope();
 container.bind<LeadsController>(LeadsController).toSelf();
 
 export { container };

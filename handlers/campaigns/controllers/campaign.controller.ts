@@ -29,6 +29,9 @@ import {
   CreateLogicRuleRequest,
   UpdateLogicRuleRequest,
   GeneratePostingInstructionsRequest,
+  SetClientDeliveryRequest,
+  SetDistributionRequest,
+  SetAffiliateCapRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -191,6 +194,35 @@ export class CampaignController extends Controller {
     };
   }
 
+  @PUT("/:id/clients/:clientId/delivery")
+  @produces("application/json")
+  async setClientDelivery(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @body payload: SetClientDeliveryRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setClientDelivery(
+      id,
+      clientId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to set client delivery config",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Client delivery config updated",
+      data: result.data,
+    };
+  }
+
   @DELETE("/:id/clients/:clientId")
   @produces("application/json")
   async deleteClient(
@@ -276,6 +308,35 @@ export class CampaignController extends Controller {
     };
   }
 
+  @PUT("/:id/affiliates/:affiliateId/cap")
+  @produces("application/json")
+  async setAffiliateCap(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: SetAffiliateCapRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setAffiliateCap(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to set affiliate lead cap",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Affiliate lead cap updated",
+      data: result.data,
+    };
+  }
+
   @POST("/:id/affiliates/:affiliateId/rotate-key")
   @produces("application/json")
   async rotateAffiliateKey(
@@ -326,6 +387,33 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Affiliate removed from campaign",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/distribution")
+  @produces("application/json")
+  async setDistribution(
+    @pathParam("id") id: string,
+    @body payload: SetDistributionRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setDistribution(
+      id,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to set distribution config",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Distribution config updated",
       data: result.data,
     };
   }

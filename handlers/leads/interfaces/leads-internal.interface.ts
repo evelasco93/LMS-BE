@@ -1,13 +1,5 @@
-import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
-import { CampaignStatus } from "../enums/campaign-status.enum";
 import { IMappedFieldEntry } from "./ILead.interface";
 import { IEditHistoryEntry } from "@shared/utils/request-audit.util";
-
-export interface CampaignAffiliate {
-  affiliate_id: string;
-  campaign_key: string;
-  status?: CampaignParticipantStatus;
-}
 
 export interface BaseCriteriaField {
   id: string;
@@ -22,27 +14,6 @@ export interface ValueMappingResult {
   mappedFields: IMappedFieldEntry[];
   editHistory: IEditHistoryEntry[];
   editedFields: string[];
-}
-
-export interface CampaignRecord {
-  id: string;
-  status: CampaignStatus;
-  affiliates: CampaignAffiliate[];
-  has_received_leads?: boolean;
-  base_criteria?: BaseCriteriaField[];
-  plugins?: {
-    duplicate_check?: {
-      enabled?: boolean;
-      criteria?: string[];
-    };
-    trusted_form?: {
-      enabled?: boolean;
-      credentials_id?: string;
-    };
-    ipqs?: {
-      enabled?: boolean;
-    };
-  };
 }
 
 export interface CriteriaValidationResponse {

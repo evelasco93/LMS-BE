@@ -1,6 +1,10 @@
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
+import {
+  IClientDeliveryConfig,
+  ILeadDistributionConfig,
+} from "./IClientDelivery.interface";
 
 export interface IEditHistoryEntry {
   field: string;
@@ -15,12 +19,26 @@ export interface ICampaignAffiliate {
   campaign_key: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
+  /** Maximum number of live leads this affiliate may send to this campaign. Absent = uncapped */
+  lead_cap?: number;
+  /** Running count of non-test, non-rejected leads sent by this affiliate. Incremented atomically */
+  leads_sent?: number;
+  /** Derived on read: remaining live leads before cap is reached. null means uncapped */
+  leads_remaining?: number | null;
+  /** Derived on read: completion percentage (0-100) of configured lead_cap. null means uncapped */
+  quota_completion_percent?: number | null;
 }
 
 export interface ICampaignClient {
   client_id: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
+  /** Webhook delivery configuration. Required before status can be set to LIVE */
+  delivery_config?: IClientDeliveryConfig;
+  /** Weight used for weighted distribution (higher = more leads). Default: 1 */
+  weight?: number;
+  /** Running count of leads successfully delivered to this client. Used for weighted distribution */
+  leads_delivered_count?: number;
 }
 
 export interface IRemovedAffiliate {
@@ -53,8 +71,6 @@ export interface ITrustedFormPluginConfig {
   stage: number;
   /** When true, a failure at this plugin halts the pipeline and rejects the lead. Default: true */
   gate: boolean;
-  /** When true, the TrustedForm certificate will be claimed after successful validation. Default: false */
-  claim: boolean;
   /** Optional vendor name passed to TrustedForm during certificate claim */
   vendor?: string;
 }
@@ -135,8 +151,6 @@ export interface ICampaignPlugins {
   duplicate_check: IDuplicateCheckPluginConfig;
   trusted_form: ITrustedFormPluginConfig;
   ipqs: IIpqsPluginConfig;
-  /** Audit trail of every plugin configuration change */
-  plugin_history?: IEditHistoryEntry[];
 }
 
 // ── Base Criteria ─────────────────────────────────────────────────────────────
@@ -200,24 +214,6 @@ export interface IBaseCriteriaField {
   updated_at: string;
   created_by?: RequestActor;
   updated_by?: RequestActor;
-}
-
-export type BaseCriteriaHistoryEvent =
-  | "field_added"
-  | "field_updated"
-  | "field_removed"
-  | "fields_reordered";
-
-export interface IBaseCriteriaHistoryEntry {
-  event: BaseCriteriaHistoryEvent;
-  /** ID of the field that was added/updated/removed (absent for reorder) */
-  field_id?: string;
-  /** Key of the field at time of event */
-  field_name?: string;
-  /** Per-field diffs recorded for field_updated events */
-  changes?: IEditHistoryEntry[];
-  changed_at: string;
-  changed_by?: RequestActor;
 }
 
 // ── Logic rule types ─────────────────────────────────────────────────────────
@@ -291,10 +287,12 @@ export interface ICampaign {
   has_received_leads?: boolean;
   /** Base criteria fields that every lead must satisfy for this campaign */
   base_criteria?: IBaseCriteriaField[];
-  /** Full audit trail of all base criteria changes */
-  base_criteria_history?: IBaseCriteriaHistoryEntry[];
   /** Logic rules applied after criteria validation — first matching rule determines pass/fail */
   logic_rules?: ILogicRule[];
+  /** Lead distribution configuration (round_robin or weighted across LIVE clients) */
+  distribution?: ILeadDistributionConfig;
+  /** Tracks the last client that received a lead for round-robin cycling */
+  rr_last_client_id?: string;
   created_at: string;
   updated_at: string;
   created_by?: RequestActor;

@@ -13,6 +13,8 @@ export class LeadsConstants {
   public readonly AWS_REGION: string;
   public readonly AUDIT_LOGS_TABLE_NAME: string;
   public readonly LEAD_INTAKE_LOGS_TABLE_NAME: string;
+  public readonly TRUSTED_FORM_LAMBDA_NAME: string;
+  public readonly TENANT_SETTINGS_TABLE_NAME: string;
 
   constructor() {
     this.LEADS_TABLE_NAME = process.env.LEADS_TABLE_NAME ?? "";
@@ -33,6 +35,9 @@ export class LeadsConstants {
     this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
     this.LEAD_INTAKE_LOGS_TABLE_NAME =
       process.env.LEAD_INTAKE_LOGS_TABLE_NAME ?? "";
+    this.TRUSTED_FORM_LAMBDA_NAME = process.env.TRUSTED_FORM_LAMBDA_NAME ?? "";
+    this.TENANT_SETTINGS_TABLE_NAME =
+      process.env.TENANT_SETTINGS_TABLE_NAME ?? "";
 
     if (!this.LEADS_TABLE_NAME) {
       throw new Error("LEADS_TABLE_NAME env var is required");

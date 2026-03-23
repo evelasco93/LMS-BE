@@ -25,7 +25,6 @@ export const mockCampaign: ICampaign = {
       enabled: true,
       stage: 2,
       gate: true,
-      claim: false,
     },
     ipqs: {
       enabled: true,
@@ -76,7 +75,6 @@ export const emptyCampaign: ICampaign = {
       enabled: true,
       stage: 2,
       gate: true,
-      claim: false,
     },
     ipqs: {
       enabled: false,
@@ -133,7 +131,6 @@ export const campaignWithAffiliate: ICampaign = {
       enabled: true,
       stage: 2,
       gate: true,
-      claim: false,
     },
     ipqs: {
       enabled: true,

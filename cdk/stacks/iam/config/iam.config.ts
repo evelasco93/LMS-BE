@@ -200,6 +200,15 @@ export const iamConfig: IIamStackConfig = {
             qaOrchestratorArn,
             qaCriteriaValidationArn,
             qaLogicRulesArn,
+            qaTrustedFormArn,
+          ],
+        },
+        {
+          name: "TenantSettingsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:Query"],
+          resources: [
+            tenantSettingsTableArn,
+            `${tenantSettingsTableArn}/index/*`,
           ],
         },
         {

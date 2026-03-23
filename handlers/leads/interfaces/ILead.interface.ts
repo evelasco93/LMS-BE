@@ -1,4 +1,7 @@
 import type { RequestActor } from "@shared/utils/request-audit.util";
+import type { ILeadDeliveryResult } from "../../campaigns/interfaces/IClientDelivery.interface";
+
+export type LeadSoldStatus = "sold" | "not_sold" | "not_delivered";
 
 export interface ITrustedFormResult {
   success: boolean;
@@ -87,6 +90,14 @@ export interface ILead {
   halt_plugin?: string;
   /** Affiliate-readable reason for the halt */
   halt_reason?: string;
+  /** Whether the lead was sold (delivered and accepted) by a client. Absent until delivery is attempted */
+  sold?: boolean;
+  /** ID of the client the lead was delivered to */
+  sold_to_client_id?: string;
+  /** Full result of the webhook delivery attempt */
+  delivery_result?: ILeadDeliveryResult;
+  /** Derived on read for UI convenience */
+  sold_status?: LeadSoldStatus;
   created_by?: RequestActor;
   updated_at?: string;
   updated_by?: RequestActor;

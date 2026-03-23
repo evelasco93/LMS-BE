@@ -53,14 +53,17 @@ export class DuplicateCheckService {
         return { result: true, data: this.defaultResponse() };
       }
 
+      const isTest = event.test ?? false;
       const leads = await this.dynamoDBUtil.scanAll<LeadRecord>({
         TableName: this.constants.LEADS_TABLE_NAME,
-        FilterExpression: "#campaign_id = :campaign_id",
+        FilterExpression: "#campaign_id = :campaign_id AND #test = :test",
         ExpressionAttributeNames: {
           "#campaign_id": "campaign_id",
+          "#test": "test",
         },
         ExpressionAttributeValues: {
           ":campaign_id": event.campaign_id,
+          ":test": isTest,
         },
       });
 

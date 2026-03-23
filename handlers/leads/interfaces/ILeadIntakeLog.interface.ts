@@ -1,4 +1,6 @@
 export type LeadIntakeStatus = "accepted" | "rejected" | "test";
+import type { ILeadDeliveryResult } from "../../campaigns/interfaces/IClientDelivery.interface";
+import type { LeadSoldStatus } from "./ILead.interface";
 
 /**
  * Raw intake log written for every lead submission attempt.
@@ -39,6 +41,15 @@ export interface ILeadIntakeLog {
   response_status_code?: number;
   /** Exact API response payload returned to the caller */
   response_body?: Record<string, unknown>;
+
+  /** Whether buyer delivery accepted this lead */
+  sold?: boolean;
+  /** Derived delivery status for UI convenience */
+  sold_status?: LeadSoldStatus;
+  /** Client that accepted the lead when sold=true */
+  sold_to_client_id?: string;
+  /** Full webhook delivery attempt details captured on the lead */
+  delivery_result?: ILeadDeliveryResult;
 
   rejection_reason?: string;
   rejection_errors?: string[];

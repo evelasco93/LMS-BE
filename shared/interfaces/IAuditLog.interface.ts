@@ -35,7 +35,20 @@ export type AuditAction =
   | "plugin_setting_enabled"
   | "password_reset"
   | "posting_instructions_generated"
-  | "value_mapped";
+  | "value_mapped"
+  | "lead_delivered"
+  | "delivery_config_updated"
+  | "lead_cap_updated"
+  | "delivery_skipped"
+  | "cert_claimed"
+  | "distribution_updated"
+  | "client_linked"
+  | "client_status_updated"
+  | "client_deleted"
+  | "affiliate_linked"
+  | "affiliate_status_updated"
+  | "affiliate_deleted"
+  | "affiliate_key_rotated";
 
 export interface AuditChange {
   field: string;

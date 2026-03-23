@@ -6,7 +6,7 @@ import {
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { AuditWriterService } from "@shared/services";
-import { AuditChange } from "@shared/interfaces";
+import { AuditAction, AuditChange, AuditLogItem } from "@shared/interfaces";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 import {
@@ -17,7 +17,6 @@ import {
 import {
   BaseCriteriaDataType,
   IBaseCriteriaField,
-  IBaseCriteriaHistoryEntry,
   ICampaign,
   ICampaignAffiliate,
   ICampaignClient,
@@ -33,6 +32,10 @@ import {
   ILogicRuleGroup,
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
+import {
+  IClientDeliveryConfig,
+  ILeadDistributionConfig,
+} from "../interfaces/IClientDelivery.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
 import {
@@ -45,6 +48,9 @@ import {
   ListCampaignsQuery,
   PostingInstructionsResult,
   ReorderCriteriaRequest,
+  SetAffiliateCapRequest,
+  SetClientDeliveryRequest,
+  SetDistributionRequest,
   SetValueMappingsRequest,
   UpdateCampaignPluginsRequest,
   UpdateCampaignRequest,
@@ -117,7 +123,7 @@ export class CampaignService {
       });
 
       this.logger.info("Campaign created", { campaignId: campaign.id });
-      return { result: true, data: campaign };
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to create campaign", error);
       return {
@@ -182,7 +188,9 @@ export class CampaignService {
       return {
         result: true,
         data: {
-          items: scanResult.items,
+          items: scanResult.items.map((item) =>
+            this.enrichCampaignForResponse(item),
+          ),
           count: scanResult.items.length,
           lastEvaluatedKey: scanResult.lastEvaluatedKey
             ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
@@ -254,7 +262,7 @@ export class CampaignService {
 
       this.logger.info("Campaign updated", { campaignId: campaign.id, actor });
 
-      return { result: true, data: campaign };
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to update campaign", error);
       return {
@@ -326,7 +334,27 @@ export class CampaignService {
         Item: campaign,
       });
 
-      return { result: true, data: campaign };
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "client_linked",
+        changes: [
+          {
+            field: `clients.${clientId}.client_id`,
+            from: null,
+            to: clientId,
+          },
+          {
+            field: `clients.${clientId}.status`,
+            from: null,
+            to: campaignStatus,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to link client to campaign", error);
       return {
@@ -407,11 +435,31 @@ export class CampaignService {
         Item: campaign,
       });
 
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_linked",
+        changes: [
+          {
+            field: `affiliates.${affiliateId}.affiliate_id`,
+            from: null,
+            to: affiliateId,
+          },
+          {
+            field: `affiliates.${affiliateId}.status`,
+            from: null,
+            to: campaignStatus,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
       const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
-          campaign,
+          campaign: this.enrichCampaignForResponse(campaign),
           campaign_key,
           submit_url: leadsBase,
           submit_url_test: `${leadsBase}/test`,
@@ -556,7 +604,7 @@ export class CampaignService {
         Item: campaign,
       });
 
-      return { result: true, data: campaign };
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to update campaign status", error);
       return {
@@ -663,7 +711,7 @@ export class CampaignService {
       if (trustedFormRequest) {
         const tfFields = Object.keys(trustedFormRequest);
         const invalidTfFields = tfFields.filter(
-          (f) => !["enabled", "stage", "gate", "claim", "vendor"].includes(f),
+          (f) => !["enabled", "stage", "gate", "vendor"].includes(f),
         );
         if (invalidTfFields.length > 0) {
           return {
@@ -697,15 +745,6 @@ export class CampaignService {
           return {
             result: false,
             error: "trusted_form.gate must be a boolean",
-          };
-        }
-        if (
-          trustedFormRequest.claim !== undefined &&
-          typeof trustedFormRequest.claim !== "boolean"
-        ) {
-          return {
-            result: false,
-            error: "trusted_form.claim must be a boolean",
           };
         }
       }
@@ -791,10 +830,6 @@ export class CampaignService {
             trustedFormRequest?.gate !== undefined
               ? (trustedFormRequest.gate as boolean)
               : currentPlugins.trusted_form.gate,
-          claim:
-            trustedFormRequest?.claim !== undefined
-              ? (trustedFormRequest.claim as boolean)
-              : currentPlugins.trusted_form.claim,
           ...(trustedFormRequest?.vendor !== undefined
             ? { vendor: trustedFormRequest.vendor as string }
             : currentPlugins.trusted_form.vendor !== undefined
@@ -919,7 +954,7 @@ export class CampaignService {
         "trusted_form",
         currentPlugins.trusted_form,
         nextPlugins.trusted_form,
-        ["enabled", "stage", "gate", "claim", "vendor"],
+        ["enabled", "stage", "gate", "vendor"],
       );
       diffFields("ipqs", currentPlugins.ipqs, nextPlugins.ipqs, [
         "enabled",
@@ -977,13 +1012,6 @@ export class CampaignService {
         }
       }
 
-      if (pluginHistoryEntries.length > 0) {
-        campaign.plugins.plugin_history = [
-          ...(campaign.plugins.plugin_history ?? []),
-          ...pluginHistoryEntries,
-        ];
-      }
-
       await this.dynamoDBUtil.put({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Item: campaign,
@@ -1009,7 +1037,7 @@ export class CampaignService {
         plugins: nextPlugins,
       });
 
-      return { result: true, data: campaign };
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to update campaign plugins", error);
       return {
@@ -1063,6 +1091,21 @@ export class CampaignService {
         Item: campaign,
       });
 
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_key_rotated",
+        changes: [
+          {
+            field: `affiliates.${affiliateId}.campaign_key`,
+            from: oldKey,
+            to: campaign_key,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
       this.logger.info("Affiliate campaign_key rotated", {
         campaignId,
         affiliateId,
@@ -1072,7 +1115,7 @@ export class CampaignService {
       return {
         result: true,
         data: {
-          campaign,
+          campaign: this.enrichCampaignForResponse(campaign),
           campaign_key,
           submit_url: leadsBase,
           submit_url_test: `${leadsBase}/test`,
@@ -1107,13 +1150,23 @@ export class CampaignService {
       },
       actor,
       { recordRemoval: false },
+      {
+        action: "affiliate_status_updated",
+        changes: (before) => [
+          {
+            field: `affiliates.${affiliateId}.status`,
+            from: before.status ?? null,
+            to: request.status,
+          },
+        ],
+      },
     );
     if (!result.result) return { result: false, error: result.error };
     const leadsBase = await this.resolveLeadsBaseUrl();
     return {
       result: true,
       data: {
-        campaign: result.data!,
+        campaign: this.enrichCampaignForResponse(result.data!),
         submit_url: leadsBase,
         submit_url_test: `${leadsBase}/test`,
       },
@@ -1135,6 +1188,21 @@ export class CampaignService {
       },
       actor,
       { recordRemoval: true },
+      {
+        action: "affiliate_deleted",
+        changes: (before) => [
+          {
+            field: `affiliates.${affiliateId}.status`,
+            from: before.status ?? null,
+            to: null,
+          },
+          {
+            field: `affiliates.${affiliateId}.affiliate_id`,
+            from: before.affiliate_id,
+            to: null,
+          },
+        ],
+      },
     );
   }
 
@@ -1144,6 +1212,42 @@ export class CampaignService {
     request: UpdateParticipantStatusRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
+    // Guard: a client may only be set to LIVE if delivery config is complete
+    if (request.status === CampaignParticipantStatus.LIVE) {
+      // We need to peek at the client's current delivery_config before mutating.
+      // Load campaign first, then validate, then delegate to mutateClient.
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+      const dc = client.delivery_config;
+      if (
+        !dc ||
+        !dc.url?.trim() ||
+        !dc.method ||
+        !dc.payload_mapping?.length ||
+        !dc.acceptance_rules?.length
+      ) {
+        return {
+          result: false,
+          error:
+            "Client cannot be set to LIVE without a complete delivery configuration. " +
+            "Configure a webhook URL, HTTP method, at least one payload mapping, " +
+            "and at least one acceptance rule " +
+            "via PUT /campaigns/{id}/clients/{clientId}/delivery first.",
+        };
+      }
+    }
+
     return this.mutateClient(
       campaignId,
       clientId,
@@ -1152,7 +1256,333 @@ export class CampaignService {
       },
       actor,
       { recordRemoval: false },
+      {
+        action: "client_status_updated",
+        changes: (before) => [
+          {
+            field: `clients.${clientId}.status`,
+            from: before.status ?? null,
+            to: request.status,
+          },
+        ],
+      },
     );
+  }
+
+  async setClientDelivery(
+    campaignId: string,
+    clientId: string,
+    request: SetClientDeliveryRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    // Validate
+    if (!request.url?.trim()) {
+      return { result: false, error: "delivery_config.url is required" };
+    }
+    try {
+      new URL(request.url);
+    } catch {
+      return {
+        result: false,
+        error: "delivery_config.url must be a valid URL",
+      };
+    }
+    const allowedMethods = ["POST", "GET", "PUT", "PATCH"] as const;
+    if (!allowedMethods.includes(request.method as any)) {
+      return {
+        result: false,
+        error: `delivery_config.method must be one of: ${allowedMethods.join(", ")}`,
+      };
+    }
+    if (
+      !Array.isArray(request.payload_mapping) ||
+      request.payload_mapping.length === 0
+    ) {
+      return {
+        result: false,
+        error: "delivery_config.payload_mapping must have at least one entry",
+      };
+    }
+    for (const mapping of request.payload_mapping) {
+      if (!mapping.key?.trim()) {
+        return {
+          result: false,
+          error: "Each payload_mapping entry must have a non-empty key",
+        };
+      }
+      if (mapping.value_source === "field" && !mapping.field_name?.trim()) {
+        return {
+          result: false,
+          error: `payload_mapping key "${mapping.key}": field_name is required when value_source is "field"`,
+        };
+      }
+      if (
+        mapping.value_source === "static" &&
+        mapping.static_value === undefined
+      ) {
+        return {
+          result: false,
+          error: `payload_mapping key "${mapping.key}": static_value is required when value_source is "static"`,
+        };
+      }
+    }
+    if (
+      !Array.isArray(request.acceptance_rules) ||
+      request.acceptance_rules.length === 0
+    ) {
+      return {
+        result: false,
+        error: "delivery_config.acceptance_rules must have at least one entry",
+      };
+    }
+    for (const rule of request.acceptance_rules) {
+      if (!rule.match_value?.trim()) {
+        return {
+          result: false,
+          error: "Each acceptance_rule must have a non-empty match_value",
+        };
+      }
+      if (rule.action !== "passed" && rule.action !== "failed") {
+        return {
+          result: false,
+          error: `acceptance_rule match_value "${rule.match_value}": action must be "passed" or "failed"`,
+        };
+      }
+    }
+
+    if (
+      request.require_successful_claim !== undefined &&
+      typeof request.require_successful_claim !== "boolean"
+    ) {
+      return {
+        result: false,
+        error: "delivery_config.require_successful_claim must be a boolean",
+      };
+    }
+
+    if (
+      request.weight !== undefined &&
+      (typeof request.weight !== "number" ||
+        !Number.isInteger(request.weight) ||
+        request.weight < 1)
+    ) {
+      return {
+        result: false,
+        error: "weight must be a positive integer",
+      };
+    }
+
+    const deliveryConfig: IClientDeliveryConfig = {
+      url: request.url.trim(),
+      method: request.method,
+      ...(request.headers && Object.keys(request.headers).length > 0
+        ? { headers: request.headers }
+        : {}),
+      payload_mapping: request.payload_mapping,
+      acceptance_rules: request.acceptance_rules,
+      claim_trusted_form: true,
+      ...(request.require_successful_claim !== undefined
+        ? { require_successful_claim: request.require_successful_claim }
+        : {}),
+    };
+
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+
+      const prev = client.delivery_config ?? null;
+      const prevWeight = client.weight;
+      client.delivery_config = deliveryConfig;
+      if (request.weight !== undefined) {
+        client.weight = request.weight;
+      }
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "delivery_config_updated",
+        changes: [
+          {
+            field: `clients.${clientId}.delivery_config`,
+            from: prev,
+            to: deliveryConfig,
+          },
+          ...(request.weight !== undefined
+            ? [
+                {
+                  field: `clients.${clientId}.weight`,
+                  from: prevWeight ?? null,
+                  to: request.weight,
+                },
+              ]
+            : []),
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to set client delivery config", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set client delivery config",
+      };
+    }
+  }
+
+  async setDistribution(
+    campaignId: string,
+    request: SetDistributionRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    const allowedModes = ["round_robin", "weighted"] as const;
+    if (!allowedModes.includes(request.mode as any)) {
+      return {
+        result: false,
+        error: `distribution.mode must be one of: ${allowedModes.join(", ")}`,
+      };
+    }
+    if (typeof request.enabled !== "boolean") {
+      return { result: false, error: "distribution.enabled must be a boolean" };
+    }
+
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const prev = campaign.distribution ?? null;
+      const next: ILeadDistributionConfig = {
+        mode: request.mode,
+        enabled: request.enabled,
+      };
+
+      campaign.distribution = next;
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "distribution_updated",
+        changes: [{ field: "distribution", from: prev, to: next }],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to set campaign distribution", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set distribution",
+      };
+    }
+  }
+
+  async setAffiliateCap(
+    campaignId: string,
+    affiliateId: string,
+    request: SetAffiliateCapRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    if (
+      request.lead_cap !== null &&
+      (typeof request.lead_cap !== "number" ||
+        !Number.isInteger(request.lead_cap) ||
+        request.lead_cap < 1)
+    ) {
+      return {
+        result: false,
+        error: "lead_cap must be a positive integer, or null to remove the cap",
+      };
+    }
+
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate) {
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not linked to campaign`,
+        };
+      }
+
+      const prev = affiliate.lead_cap ?? null;
+
+      if (request.lead_cap === null) {
+        delete affiliate.lead_cap;
+      } else {
+        affiliate.lead_cap = request.lead_cap;
+      }
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "lead_cap_updated",
+        changes: [
+          {
+            field: `affiliates.${affiliateId}.lead_cap`,
+            from: prev,
+            to: request.lead_cap ?? null,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to set affiliate lead cap", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set affiliate lead cap",
+      };
+    }
   }
 
   async deleteClient(
@@ -1170,6 +1600,21 @@ export class CampaignService {
       },
       actor,
       { recordRemoval: true },
+      {
+        action: "client_deleted",
+        changes: (before) => [
+          {
+            field: `clients.${clientId}.status`,
+            from: before.status ?? null,
+            to: null,
+          },
+          {
+            field: `clients.${clientId}.client_id`,
+            from: before.client_id,
+            to: null,
+          },
+        ],
+      },
     );
   }
 
@@ -1191,6 +1636,10 @@ export class CampaignService {
     mutate: (a: ICampaignAffiliate, campaign: ICampaign) => void,
     actor?: RequestActor,
     options: { recordRemoval?: boolean } = {},
+    audit?: {
+      action: AuditAction;
+      changes: (before: ICampaignAffiliate) => AuditChange[];
+    },
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const campaign = await this.getCampaignById(campaignId);
@@ -1220,6 +1669,7 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
+      const auditChanges = audit ? audit.changes({ ...affiliate }) : [];
 
       if (options.recordRemoval) {
         campaign.removed_affiliates = [
@@ -1245,6 +1695,17 @@ export class CampaignService {
         Item: campaign,
       });
 
+      if (audit) {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: campaignId,
+          entity_type: "campaign",
+          action: audit.action,
+          changes: auditChanges,
+          actor,
+          changed_at: now,
+        });
+      }
+
       this.logger.info("Campaign affiliate mutated", {
         campaignId,
         affiliateId,
@@ -1252,7 +1713,7 @@ export class CampaignService {
         addedAt: affiliate.added_at,
       });
 
-      return { result: true, data: campaign };
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to mutate affiliate", error);
       return {
@@ -1268,6 +1729,10 @@ export class CampaignService {
     mutate: (c: ICampaignClient, campaign: ICampaign) => void,
     actor?: RequestActor,
     options: { recordRemoval?: boolean } = {},
+    audit?: {
+      action: AuditAction;
+      changes: (before: ICampaignClient) => AuditChange[];
+    },
   ): Promise<ServiceResult<ICampaign>> {
     try {
       const campaign = await this.getCampaignById(campaignId);
@@ -1297,6 +1762,7 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
+      const auditChanges = audit ? audit.changes({ ...client }) : [];
 
       if (options.recordRemoval) {
         campaign.removed_clients = [
@@ -1321,6 +1787,17 @@ export class CampaignService {
         Item: campaign,
       });
 
+      if (audit) {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: campaignId,
+          entity_type: "campaign",
+          action: audit.action,
+          changes: auditChanges,
+          actor,
+          changed_at: now,
+        });
+      }
+
       this.logger.info("Campaign client mutated", {
         campaignId,
         clientId,
@@ -1328,7 +1805,7 @@ export class CampaignService {
         addedAt: client.added_at,
       });
 
-      return { result: true, data: campaign };
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
       this.logger.error("Failed to mutate client", error);
       return {
@@ -1363,7 +1840,7 @@ export class CampaignService {
       return {
         result: true,
         data: {
-          campaign: this.normalizeParticipants(campaign),
+          campaign: this.enrichCampaignForResponse(campaign),
           submit_url: leadsBase,
           submit_url_test: `${leadsBase}/test`,
         },
@@ -1570,21 +2047,8 @@ export class CampaignService {
       }));
 
       const updatedCriteria = [...existing, ...newFields];
-      const historyEntries: IBaseCriteriaHistoryEntry[] = newFields.map(
-        (f) => ({
-          event: "field_added" as const,
-          field_id: f.id,
-          field_name: f.field_name,
-          changed_at: now,
-          changed_by: actor,
-        }),
-      );
 
       campaign.base_criteria = updatedCriteria;
-      campaign.base_criteria_history = [
-        ...(campaign.base_criteria_history ?? []),
-        ...historyEntries,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -1701,19 +2165,8 @@ export class CampaignService {
       };
 
       const updatedCriteria = [...existing, newField];
-      const historyEntry: IBaseCriteriaHistoryEntry = {
-        event: "field_added",
-        field_id: newField.id,
-        field_name: newField.field_name,
-        changed_at: now,
-        changed_by: actor,
-      };
 
       campaign.base_criteria = updatedCriteria;
-      campaign.base_criteria_history = [
-        ...(campaign.base_criteria_history ?? []),
-        historyEntry,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -1963,20 +2416,7 @@ export class CampaignService {
       const updatedCriteria = [...existing];
       updatedCriteria[fieldIndex] = field;
 
-      const historyEntry: IBaseCriteriaHistoryEntry = {
-        event: "field_updated",
-        field_id: field.id,
-        field_name: field.field_name,
-        changes,
-        changed_at: now,
-        changed_by: actor,
-      };
-
       campaign.base_criteria = updatedCriteria;
-      campaign.base_criteria_history = [
-        ...(campaign.base_criteria_history ?? []),
-        historyEntry,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -2032,19 +2472,8 @@ export class CampaignService {
         .map((f, i) => ({ ...f, order: i + 1 }));
 
       const now = new Date().toISOString();
-      const historyEntry: IBaseCriteriaHistoryEntry = {
-        event: "field_removed",
-        field_id: removed.id,
-        field_name: removed.field_name,
-        changed_at: now,
-        changed_by: actor,
-      };
 
       campaign.base_criteria = updatedCriteria;
-      campaign.base_criteria_history = [
-        ...(campaign.base_criteria_history ?? []),
-        historyEntry,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -2114,17 +2543,8 @@ export class CampaignService {
       }));
 
       const now = new Date().toISOString();
-      const historyEntry: IBaseCriteriaHistoryEntry = {
-        event: "fields_reordered",
-        changed_at: now,
-        changed_by: actor,
-      };
 
       campaign.base_criteria = updatedCriteria;
-      campaign.base_criteria_history = [
-        ...(campaign.base_criteria_history ?? []),
-        historyEntry,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -2161,13 +2581,27 @@ export class CampaignService {
 
   async getCriteriaHistory(
     campaignId: string,
-  ): Promise<ServiceResult<IBaseCriteriaHistoryEntry[]>> {
+  ): Promise<ServiceResult<AuditLogItem[]>> {
     try {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      return { result: true, data: campaign.base_criteria_history ?? [] };
+      const items = await this.dynamoDBUtil.queryAll<AuditLogItem>({
+        TableName: this.constants.AUDIT_LOGS_TABLE_NAME,
+        KeyConditionExpression: "entity_id = :eid",
+        FilterExpression: "action IN (:a1, :a2, :a3, :a4, :a5)",
+        ExpressionAttributeValues: {
+          ":eid": campaignId,
+          ":a1": "criteria_field_added",
+          ":a2": "criteria_field_updated",
+          ":a3": "criteria_field_deleted",
+          ":a4": "criteria_fields_reordered",
+          ":a5": "mappings_updated",
+        },
+      });
+      items.sort((a, b) => a.changed_at.localeCompare(b.changed_at));
+      return { result: true, data: items };
     } catch (error: any) {
       this.logger.error("Failed to get criteria history", error);
       return {
@@ -2210,28 +2644,7 @@ export class CampaignService {
       const updatedCriteria = [...existing];
       updatedCriteria[fieldIndex] = field;
 
-      const historyEntry: IBaseCriteriaHistoryEntry = {
-        event: "field_updated",
-        field_id: field.id,
-        field_name: field.field_name,
-        changes: [
-          {
-            field: "value_mappings",
-            previous_value: previousMappings,
-            new_value: field.value_mappings,
-            changed_at: now,
-            changed_by: actor,
-          },
-        ],
-        changed_at: now,
-        changed_by: actor,
-      };
-
       campaign.base_criteria = updatedCriteria;
-      campaign.base_criteria_history = [
-        ...(campaign.base_criteria_history ?? []),
-        historyEntry,
-      ];
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -2710,6 +3123,7 @@ export class CampaignService {
               added_at: new Date().toISOString(),
             }
           : {
+              ...c,
               client_id: c.client_id,
               added_at: c.added_at ?? new Date().toISOString(),
               status: c.status ?? CampaignParticipantStatus.LIVE,
@@ -2731,6 +3145,10 @@ export class CampaignService {
             campaign_key: a.campaign_key,
             added_at: a.added_at ?? new Date().toISOString(),
             status: a.status ?? CampaignParticipantStatus.LIVE,
+            ...(typeof a.lead_cap === "number" ? { lead_cap: a.lead_cap } : {}),
+            ...(typeof a.leads_sent === "number"
+              ? { leads_sent: a.leads_sent }
+              : {}),
           },
     );
 
@@ -2749,6 +3167,50 @@ export class CampaignService {
         normalizeClients.length > 0 ||
         normalizeAffiliates.length > 0,
       has_received_leads: campaign.has_received_leads ?? false,
+    };
+  }
+
+  private enrichCampaignForResponse(campaign: ICampaign): ICampaign {
+    const normalized = this.normalizeParticipants(campaign);
+    return {
+      ...normalized,
+      affiliates: (normalized.affiliates ?? []).map((affiliate) =>
+        this.enrichAffiliateForResponse(affiliate),
+      ),
+    };
+  }
+
+  private enrichAffiliateForResponse(
+    affiliate: ICampaignAffiliate,
+  ): ICampaignAffiliate {
+    const sentRaw = affiliate.leads_sent;
+    const capRaw = affiliate.lead_cap;
+
+    const sent =
+      typeof sentRaw === "number" && Number.isFinite(sentRaw)
+        ? Math.max(0, sentRaw)
+        : 0;
+
+    if (typeof capRaw !== "number" || !Number.isFinite(capRaw) || capRaw <= 0) {
+      return {
+        ...affiliate,
+        leads_sent: sent,
+        leads_remaining: null,
+        quota_completion_percent: null,
+      };
+    }
+
+    const remaining = Math.max(0, capRaw - sent);
+    const completion = Math.min(
+      100,
+      Number(((sent / capRaw) * 100).toFixed(2)),
+    );
+
+    return {
+      ...affiliate,
+      leads_sent: sent,
+      leads_remaining: remaining,
+      quota_completion_percent: completion,
     };
   }
 
@@ -2793,10 +3255,6 @@ export class CampaignService {
           typeof plugins?.trusted_form?.gate === "boolean"
             ? plugins.trusted_form.gate
             : defaults.trusted_form.gate,
-        claim:
-          typeof plugins?.trusted_form?.claim === "boolean"
-            ? plugins.trusted_form.claim
-            : defaults.trusted_form.claim,
         ...(plugins?.trusted_form?.vendor !== undefined
           ? { vendor: plugins.trusted_form.vendor }
           : {}),
@@ -2886,15 +3344,13 @@ export class CampaignService {
   private getDefaultPlugins(): ICampaignPlugins {
     return {
       duplicate_check: {
-        // Always on by default — essential for every campaign
-        enabled: true,
+        enabled: false,
         criteria: ["phone", "email"],
       },
       trusted_form: {
         enabled: false,
         stage: 3,
         gate: true,
-        claim: false,
       },
       ipqs: {
         enabled: false,

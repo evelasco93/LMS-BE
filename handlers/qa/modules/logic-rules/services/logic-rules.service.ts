@@ -102,8 +102,9 @@ export class LogicRulesService {
               },
             };
           } else {
-            // Fail rule matched — collect condition details for the response
-            const failures = this.collectConditionFailures(rule, payload);
+            // Fail rule matched — collect the conditions that triggered it,
+            // with operators inverted so formatting reads "must not equal X"
+            const failures = this.collectMatchedConditions(rule, payload);
             const rejectionReason = this.buildRejectionMessage(
               failures,
               rule.name,
@@ -170,6 +171,59 @@ export class LogicRulesService {
    * Collects all conditions in a rule that the lead does NOT satisfy.
    * Used to build a detailed rejection message.
    */
+  /**
+   * For fail rules: collects conditions that evaluated to TRUE (triggered the
+   * rejection) with operators inverted so downstream formatting reads as
+   * "must not equal X" rather than "must equal X".
+   */
+  private collectMatchedConditions(
+    rule: ILogicRule,
+    payload: Record<string, unknown>,
+  ): LogicRuleConditionFailure[] {
+    const INVERT: Record<string, string> = {
+      is: "is_not",
+      is_not: "is",
+      contains: "does_not_contain",
+      does_not_contain: "contains",
+      starts_with: "does_not_start_with",
+      ends_with: "does_not_end_with",
+      greater_than: "less_than",
+      less_than: "greater_than",
+      is_empty: "is_not_empty",
+      is_not_empty: "is_empty",
+    };
+    const matches: LogicRuleConditionFailure[] = [];
+    for (const group of rule.groups ?? []) {
+      for (const condition of group.conditions ?? []) {
+        if (this.evaluateCondition(condition, payload)) {
+          const raw = payload[condition.field_name];
+          const received = raw === undefined || raw === null ? "" : String(raw);
+          const conditionValue = condition.value;
+          const rawValues: string[] = Array.isArray(conditionValue)
+            ? conditionValue.map((v) => String(v).trim())
+            : conditionValue !== undefined
+              ? [String(conditionValue).trim()]
+              : [];
+          const expected: string[] = rawValues.flatMap((v) =>
+            v.includes(",")
+              ? v
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+              : [v],
+          );
+          matches.push({
+            field: condition.field_name,
+            operator: INVERT[condition.operator] ?? condition.operator,
+            expected: expected.length === 1 ? expected[0] : expected,
+            received,
+          });
+        }
+      }
+    }
+    return matches;
+  }
+
   private collectConditionFailures(
     rule: ILogicRule,
     payload: Record<string, unknown>,
@@ -232,6 +286,10 @@ export class LogicRulesService {
           return `'${field}' must contain '${expected}' (received '${f.received}')`;
         case "does_not_contain":
           return `'${field}' must not contain '${expected}' (received '${f.received}')`;
+        case "does_not_start_with":
+          return `'${field}' must not start with '${expected}' (received '${f.received}')`;
+        case "does_not_end_with":
+          return `'${field}' must not end with '${expected}' (received '${f.received}')`;
         case "starts_with":
           return `'${field}' must start with '${expected}' (received '${f.received}')`;
         case "ends_with":

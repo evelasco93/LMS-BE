@@ -161,3 +161,37 @@ export type PostingInstructionsResult = {
   criteria_fields: PostingInstructionsCriteriaField[];
   generated_at: string;
 };
+
+// ── Delivery ──────────────────────────────────────────────────────────────────
+
+export {
+  IClientDeliveryConfig,
+  IWebhookFieldMapping,
+  IWebhookAcceptanceRule,
+  ILeadDistributionConfig,
+} from "../interfaces/IClientDelivery.interface";
+
+/** Body for PUT /campaigns/{id}/clients/{clientId}/delivery */
+export type SetClientDeliveryRequest = Omit<
+  import("../interfaces/IClientDelivery.interface").IClientDeliveryConfig,
+  "claim_trusted_form"
+> & {
+  /**
+   * Relative weight for weighted distribution mode (positive integer, default 1).
+   * Higher values = proportionally more leads routed to this client.
+   * Only meaningful when the campaign distribution mode is "weighted".
+   */
+  weight?: number;
+};
+
+/** Body for PUT /campaigns/{id}/distribution */
+export type SetDistributionRequest = {
+  mode: "round_robin" | "weighted";
+  enabled: boolean;
+};
+
+/** Body for PUT /campaigns/{id}/affiliates/{affiliateId}/cap */
+export type SetAffiliateCapRequest = {
+  /** Positive integer to cap this affiliate's live lead submissions. null removes the cap */
+  lead_cap: number | null;
+};
