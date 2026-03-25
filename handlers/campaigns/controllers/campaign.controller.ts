@@ -32,6 +32,9 @@ import {
   SetClientDeliveryRequest,
   SetDistributionRequest,
   SetAffiliateCapRequest,
+  CreateCriteriaCatalogRequest,
+  UpdateCriteriaCatalogRequest,
+  ApplyCriteriaCatalogRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -935,6 +938,212 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Posting instructions generated successfully",
+      data: result.data,
+    };
+  }
+
+  // ── Criteria Catalog ────────────────────────────────────────────────────
+
+  /**
+   * POST /:id/criteria/apply-catalog
+   * Apply a specific criteria catalog version to this campaign.
+   */
+  @POST("/:id/criteria/apply-catalog")
+  @produces("application/json")
+  async applyCriteriaCatalog(
+    @pathParam("id") id: string,
+    @body payload: ApplyCriteriaCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.applyCriteriaCatalogToCampaign(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to apply criteria catalog",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog applied",
+      data: result.data,
+    };
+  }
+
+  /**
+   * GET /criteria-catalog
+   * List all active criteria catalog sets.
+   */
+  @GET("/criteria-catalog")
+  @produces("application/json")
+  async listCriteriaCatalog(): Promise<RestApiResponse> {
+    const result = await this.campaignService.listCriteriaCatalog();
+    if (!result.result) {
+      this.response.status(500);
+      return {
+        success: false,
+        message: "Failed to list criteria catalog",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog sets retrieved",
+      data: result.data,
+    };
+  }
+
+  /**
+   * POST /criteria-catalog
+   * Create a new criteria catalog set.
+   */
+  @POST("/criteria-catalog")
+  @produces("application/json")
+  async createCriteriaCatalogSet(
+    @body payload: CreateCriteriaCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createCriteriaCatalogSet(
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      this.response.status(400);
+      return {
+        success: false,
+        message: "Failed to create criteria catalog set",
+        error: result.error,
+      };
+    }
+    this.response.status(201);
+    return {
+      success: true,
+      message: "Criteria catalog set created",
+      data: result.data,
+    };
+  }
+
+  /**
+   * GET /criteria-catalog/:setId
+   * Get a criteria catalog set with all versions.
+   */
+  @GET("/criteria-catalog/:setId")
+  @produces("application/json")
+  async getCriteriaCatalogSet(
+    @pathParam("setId") setId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getCriteriaCatalogSet(setId);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Criteria catalog set not found",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog set retrieved",
+      data: result.data,
+    };
+  }
+
+  /**
+   * GET /criteria-catalog/:setId/versions/:version
+   * Get a specific version of a criteria catalog set.
+   */
+  @GET("/criteria-catalog/:setId/versions/:version")
+  @produces("application/json")
+  async getCriteriaCatalogVersion(
+    @pathParam("setId") setId: string,
+    @pathParam("version") version: string,
+  ): Promise<RestApiResponse> {
+    const versionNum = parseInt(version, 10);
+    if (isNaN(versionNum) || versionNum < 1) {
+      this.response.status(400);
+      return { success: false, message: "version must be a positive integer" };
+    }
+    const result = await this.campaignService.getCriteriaCatalogVersion(
+      setId,
+      versionNum,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Criteria catalog version not found",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog version retrieved",
+      data: result.data,
+    };
+  }
+
+  /**
+   * PUT /criteria-catalog/:setId
+   * Update a criteria catalog set — creates a new version.
+   */
+  @PUT("/criteria-catalog/:setId")
+  @produces("application/json")
+  async updateCriteriaCatalogSet(
+    @pathParam("setId") setId: string,
+    @body payload: UpdateCriteriaCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateCriteriaCatalogSet(
+      setId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update criteria catalog set",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog set updated",
+      data: result.data,
+    };
+  }
+
+  /**
+   * DELETE /criteria-catalog/:setId
+   * Deactivate a criteria catalog set.
+   */
+  @DELETE("/criteria-catalog/:setId")
+  @produces("application/json")
+  async deactivateCriteriaCatalogSet(
+    @pathParam("setId") setId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deactivateCriteriaCatalogSet(
+      setId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to deactivate criteria catalog set",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog set deactivated",
       data: result.data,
     };
   }

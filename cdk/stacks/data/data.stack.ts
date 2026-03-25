@@ -10,6 +10,8 @@ import { LeadsDataStack } from "./leads-data.stack";
 import { TenantSettingsDataStack } from "./tenant-settings-data.stack";
 import { AuditLogsDataStack } from "./audit-logs-data.stack";
 import { LeadIntakeLogsDataStack } from "./lead-intake-logs-data.stack";
+import { CriteriaCatalogDataStack } from "./criteria-catalog-data.stack";
+import { UserTablePreferencesDataStack } from "./user-table-preferences-data.stack";
 
 /**
  * Main Data Stack
@@ -27,6 +29,10 @@ export class DataStack extends Stack {
   public readonly auditLogsBucket: Bucket;
   /** Raw HTTP intake log — one record per POST /leads submission attempt */
   public readonly leadIntakeLogsTable: Table;
+  /** Versioned criteria catalog sets */
+  public readonly criteriaCatalogTable: Table;
+  /** Per-user, per-table UI configuration */
+  public readonly userTablePreferencesTable: Table;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -105,6 +111,26 @@ export class DataStack extends Stack {
       },
     );
     this.leadIntakeLogsTable = leadIntakeLogsDataStack.table;
+
+    const criteriaCatalogDataStack = new CriteriaCatalogDataStack(
+      this,
+      `${config.appPrefix}-CriteriaCatalogData`,
+      {
+        tableConfig: dataConfig.tables.criteriaCatalog,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.criteriaCatalogTable = criteriaCatalogDataStack.table;
+
+    const userTablePreferencesDataStack = new UserTablePreferencesDataStack(
+      this,
+      `${config.appPrefix}-UserTablePreferencesData`,
+      {
+        tableConfig: dataConfig.tables.userTablePreferences,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.userTablePreferencesTable = userTablePreferencesDataStack.table;
 
     new CfnOutput(this, `${config.appPrefix}-TenantSettingsTableName`, {
       value: this.tenantSettingsTable.tableName,

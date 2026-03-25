@@ -19,6 +19,12 @@ const auditLogsTableArn = arnBuilder.dynamoTable(
 const leadIntakeLogsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("lead-intake-logs"),
 );
+const criteriaCatalogTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("criteria-catalog"),
+);
+const userTablePreferencesTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("user-table-preferences"),
+);
 
 // ── Lambda ARNs ───────────────────────────────────────────────────────────────
 const qaOrchestratorArn = arnBuilder.lambda(
@@ -167,6 +173,21 @@ export const iamConfig: IIamStackConfig = {
           name: "ApiGatewayRead",
           actions: ["apigateway:GET"],
           resources: ["*"],
+        },
+        {
+          name: "CriteriaCatalogTableCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:Query",
+            "dynamodb:Scan",
+          ],
+          resources: [
+            criteriaCatalogTableArn,
+            `${criteriaCatalogTableArn}/index/*`,
+          ],
         },
       ],
     },
@@ -367,6 +388,15 @@ export const iamConfig: IIamStackConfig = {
           name: "AuditLogsWrite",
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
+        },
+        {
+          name: "UserTablePreferencesCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:DeleteItem",
+          ],
+          resources: [userTablePreferencesTableArn],
         },
       ],
     },

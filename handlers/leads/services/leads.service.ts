@@ -113,6 +113,27 @@ export class LeadsService {
         Object.entries(leadPayload).map(([k, v]) => [k.toLowerCase(), v]),
       );
 
+      // ── Capture original_source (immutable after this point) ──────────────
+      // Read the raw `source` field (or an already-named `original_source` field)
+      // from the incoming payload before any transformations.
+      const originalSource =
+        (normalizedLeadPayload.source as string | undefined) ??
+        (normalizedLeadPayload.original_source as string | undefined);
+
+      // ── Normalize order_number → always an integer >= 1 ───────────────────
+      const rawOrderNumber = normalizedLeadPayload.order_number;
+      const parsedOrderNumber =
+        typeof rawOrderNumber === "number"
+          ? rawOrderNumber
+          : typeof rawOrderNumber === "string" && rawOrderNumber.trim() !== ""
+            ? parseInt(rawOrderNumber, 10)
+            : null;
+      const orderNumberWasNormalized =
+        parsedOrderNumber === null ||
+        parsedOrderNumber < 1 ||
+        !Number.isFinite(parsedOrderNumber);
+      const orderNumber = orderNumberWasNormalized ? 1 : parsedOrderNumber!;
+
       const campaign = await this.getCampaign(campaignId);
       if (!campaign) {
         return {
@@ -238,6 +259,10 @@ export class LeadsService {
           campaign_id: campaignId,
           campaign_key: campaignKey,
           test: isTest,
+          ...(originalSource !== undefined
+            ? { original_source: originalSource }
+            : {}),
+          order_number: orderNumber,
           payload: mappedPayload,
           ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
           duplicate: false,
@@ -260,6 +285,15 @@ export class LeadsService {
           TableName: this.constants.LEADS_TABLE_NAME,
           Item: lead,
         });
+
+        await this.writeLeadIntakeAuditEvents(
+          lead.id,
+          originalSource,
+          rawOrderNumber,
+          orderNumberWasNormalized,
+          orderNumber,
+          now,
+        );
 
         if (mappedFields.length > 0) {
           await this.auditWriterService.writeAuditEvent({
@@ -358,6 +392,10 @@ export class LeadsService {
           campaign_id: campaignId,
           campaign_key: campaignKey,
           test: isTest,
+          ...(originalSource !== undefined
+            ? { original_source: originalSource }
+            : {}),
+          order_number: orderNumber,
           payload: mappedPayload,
           ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
           duplicate: false,
@@ -386,6 +424,15 @@ export class LeadsService {
           TableName: this.constants.LEADS_TABLE_NAME,
           Item: logicRejectLead,
         });
+
+        await this.writeLeadIntakeAuditEvents(
+          logicRejectLead.id,
+          originalSource,
+          rawOrderNumber,
+          orderNumberWasNormalized,
+          orderNumber,
+          now,
+        );
 
         if (mappedFields.length > 0) {
           await this.auditWriterService.writeAuditEvent({
@@ -481,6 +528,10 @@ export class LeadsService {
         campaign_id: campaignId,
         campaign_key: campaignKey,
         test: isTest,
+        ...(originalSource !== undefined
+          ? { original_source: originalSource }
+          : {}),
+        order_number: orderNumber,
         payload: mappedPayload,
         ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
         duplicate: duplicateDetected,
@@ -514,6 +565,15 @@ export class LeadsService {
         TableName: this.constants.LEADS_TABLE_NAME,
         Item: lead,
       });
+
+      await this.writeLeadIntakeAuditEvents(
+        lead.id,
+        originalSource,
+        rawOrderNumber,
+        orderNumberWasNormalized,
+        orderNumber,
+        now,
+      );
 
       if (mappedFields.length > 0) {
         await this.auditWriterService.writeAuditEvent({
@@ -763,18 +823,44 @@ export class LeadsService {
 
       // Diff payload fields for audit
       const oldPayload = existing.payload ?? {};
-      const newPayload = sanitized.payload
+      const hasIncomingPayload = sanitized.payload !== undefined;
+      if (
+        hasIncomingPayload &&
+        (sanitized.payload === null ||
+          typeof sanitized.payload !== "object" ||
+          Array.isArray(sanitized.payload))
+      ) {
+        return { result: false, error: "payload must be an object" };
+      }
+      const incomingPayload = hasIncomingPayload
         ? (sanitized.payload as Record<string, unknown>)
+        : undefined;
+      const newPayload = incomingPayload
+        ? { ...oldPayload, ...incomingPayload }
         : oldPayload;
-      const allKeys = new Set([
-        ...Object.keys(oldPayload),
-        ...Object.keys(newPayload),
-      ]);
+      const changedKeys = incomingPayload ? Object.keys(incomingPayload) : [];
+      // Type-tolerant equality: treats number/string coercion as equal (e.g. 42 === "42")
+      // to avoid spurious audit entries when the frontend normalises numeric fields to strings.
+      const auditValuesEqual = (a: unknown, b: unknown): boolean => {
+        const p = a ?? null;
+        const n = b ?? null;
+        if (JSON.stringify(p) === JSON.stringify(n)) return true;
+        if (
+          p !== null &&
+          n !== null &&
+          (typeof p === "number" || typeof p === "string") &&
+          (typeof n === "number" || typeof n === "string") &&
+          String(p) === String(n)
+        ) {
+          return true;
+        }
+        return false;
+      };
       const changes: AuditChange[] = [];
-      for (const key of allKeys) {
+      for (const key of changedKeys) {
         const prev = oldPayload[key];
         const next = newPayload[key];
-        if (JSON.stringify(prev ?? null) !== JSON.stringify(next ?? null)) {
+        if (!auditValuesEqual(prev, next)) {
           changes.push({
             field: `payload.${key}`,
             from: prev ?? null,
@@ -785,7 +871,7 @@ export class LeadsService {
 
       const updated: ILead = {
         ...existing,
-        ...(sanitized.payload ? { payload: newPayload } : {}),
+        ...(hasIncomingPayload ? { payload: newPayload } : {}),
         updated_at: now,
         updated_by: actor,
       };
@@ -1348,6 +1434,44 @@ export class LeadsService {
           lead_ids: [],
         },
       };
+    }
+  }
+
+  /**
+   * Writes system audit events for `original_source` capture and
+   * `order_number` normalization.  Called immediately after every lead put,
+   * regardless of whether the lead was rejected or accepted.
+   */
+  private async writeLeadIntakeAuditEvents(
+    leadId: string,
+    originalSource: string | undefined,
+    rawOrderNumber: unknown,
+    orderNumberWasNormalized: boolean,
+    orderNumber: number,
+    now: string,
+  ): Promise<void> {
+    if (originalSource !== undefined) {
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: leadId,
+        entity_type: "lead",
+        action: "original_source_set",
+        changes: [{ field: "original_source", from: null, to: originalSource }],
+        actor: { username: "system:intake", full_name: "Lead Intake" },
+        changed_at: now,
+      });
+    }
+
+    if (orderNumberWasNormalized && rawOrderNumber != null) {
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: leadId,
+        entity_type: "lead",
+        action: "order_number_normalized",
+        changes: [
+          { field: "order_number", from: rawOrderNumber, to: orderNumber },
+        ],
+        actor: { username: "system:intake", full_name: "Lead Intake" },
+        changed_at: now,
+      });
     }
   }
 }

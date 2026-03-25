@@ -16,6 +16,7 @@ import {
   UserNotFoundException as CognitoUserNotFoundException,
   MessageActionType,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { UsersConstants } from "../constants/users.constants";
 import {
   CognitoUser,
@@ -24,6 +25,10 @@ import {
   UpdateUserRequest,
   UserRole,
 } from "../types/users-request.types";
+import {
+  IUserTablePreference,
+  UpsertTablePreferenceRequest,
+} from "../interfaces/IUserTablePreference.interface";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
 import { AuditWriterService } from "@shared/services";
@@ -39,6 +44,7 @@ export class UsersService {
     @inject("UsersConstants") private readonly constants: UsersConstants,
     @inject("AuditWriterService")
     private readonly auditWriterService: AuditWriterService,
+    @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
   ) {
     this.cognitoClient = new CognitoIdentityProviderClient({
       region: this.constants.REGION,
@@ -482,6 +488,100 @@ export class UsersService {
       const message =
         error instanceof Error ? error.message : "Failed to enable user";
       return { result: false, error: message };
+    }
+  }
+
+  // ── Table Preferences ─────────────────────────────────────────────────────
+
+  async getTablePreference(
+    userId: string,
+    tableId: string,
+  ): Promise<ServiceResult<IUserTablePreference>> {
+    try {
+      const item = await this.dynamoDBUtil.get<IUserTablePreference>({
+        TableName: this.constants.USER_TABLE_PREFERENCES_TABLE_NAME,
+        Key: { user_id: userId, table_id: tableId },
+      });
+      if (!item) {
+        return {
+          result: false,
+          error: `No preference found for table "${tableId}"`,
+        };
+      }
+      return { result: true, data: item };
+    } catch (error: any) {
+      return {
+        result: false,
+        error: error.message || "Failed to get table preference",
+      };
+    }
+  }
+
+  async upsertTablePreference(
+    userId: string,
+    tableId: string,
+    request: UpsertTablePreferenceRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IUserTablePreference>> {
+    try {
+      const now = new Date().toISOString();
+      const preference: IUserTablePreference = {
+        user_id: userId,
+        table_id: tableId,
+        config: request.config,
+        updated_at: now,
+        updated_by: actor,
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.USER_TABLE_PREFERENCES_TABLE_NAME,
+        Item: preference,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: userId,
+        entity_type: "user_table_preference",
+        action: "table_preference_saved",
+        changes: [{ field: "config", from: null, to: request.config }],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: preference };
+    } catch (error: any) {
+      return {
+        result: false,
+        error: error.message || "Failed to save table preference",
+      };
+    }
+  }
+
+  async deleteTablePreference(
+    userId: string,
+    tableId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      await this.dynamoDBUtil.delete({
+        TableName: this.constants.USER_TABLE_PREFERENCES_TABLE_NAME,
+        Key: { user_id: userId, table_id: tableId },
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: userId,
+        entity_type: "user_table_preference",
+        action: "table_preference_deleted",
+        changes: [{ field: "table_id", from: tableId, to: null }],
+        actor,
+        changed_at: new Date().toISOString(),
+      });
+
+      return { result: true };
+    } catch (error: any) {
+      return {
+        result: false,
+        error: error.message || "Failed to delete table preference",
+      };
     }
   }
 }

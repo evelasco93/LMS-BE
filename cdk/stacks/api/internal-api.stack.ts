@@ -269,6 +269,9 @@ export class InternalApiStack extends NestedStack {
         environment: {
           COGNITO_USER_POOL_ID: this.userPool.userPoolId,
           AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
+          USER_TABLE_PREFERENCES_TABLE_NAME: nameBuilder.table(
+            "user-table-preferences",
+          ),
           NODE_ENV: "production",
         },
         bundling: {
@@ -398,6 +401,30 @@ export class InternalApiStack extends NestedStack {
     addProtectedMethod(userEnableResource, "PUT", usersLambdaIntegration, [
       writeScope,
     ]);
+
+    // ── User Table Preferences routes ─────────────────────────────────────────
+    // /v2/users/preferences/{tableId} — caller identity from JWT, no {id} param
+    const userPreferencesResource = usersResource.addResource("preferences");
+    const userPreferenceByTableResource =
+      userPreferencesResource.addResource("{tableId}");
+    addProtectedMethod(
+      userPreferenceByTableResource,
+      "GET",
+      usersLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      userPreferenceByTableResource,
+      "PUT",
+      usersLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      userPreferenceByTableResource,
+      "DELETE",
+      usersLambdaIntegration,
+      [writeScope],
+    );
 
     // ============================================================================
     // CLIENTS INTEGRATION
@@ -679,6 +706,16 @@ export class InternalApiStack extends NestedStack {
       [readScope],
     );
 
+    // POST /v2/campaigns/{id}/criteria/apply-catalog
+    const campaignApplyCatalogResource =
+      campaignCriteriaResource.addResource("apply-catalog");
+    addProtectedMethod(
+      campaignApplyCatalogResource,
+      "POST",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
     const campaignCriteriaFieldResource =
       campaignCriteriaResource.addResource("{fieldId}");
     addProtectedMethod(
@@ -755,6 +792,56 @@ export class InternalApiStack extends NestedStack {
       "POST",
       campaignsLambdaIntegration,
       [writeScope],
+    );
+
+    // ── Criteria Catalog routes ───────────────────────────────────────────────
+    // Mounted at /v2/campaigns/criteria-catalog (no {id} prefix — catalog is
+    // a shared resource, not campaign-scoped until apply-catalog is called)
+    const criteriaCatalogResource =
+      campaignsResource.addResource("criteria-catalog");
+    addProtectedMethod(
+      criteriaCatalogResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      criteriaCatalogResource,
+      "POST",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    const criteriaCatalogBySetIdResource =
+      criteriaCatalogResource.addResource("{setId}");
+    addProtectedMethod(
+      criteriaCatalogBySetIdResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
+    );
+    addProtectedMethod(
+      criteriaCatalogBySetIdResource,
+      "PUT",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      criteriaCatalogBySetIdResource,
+      "DELETE",
+      campaignsLambdaIntegration,
+      [writeScope],
+    );
+
+    const criteriaCatalogVersionsResource =
+      criteriaCatalogBySetIdResource.addResource("versions");
+    const criteriaCatalogVersionResource =
+      criteriaCatalogVersionsResource.addResource("{version}");
+    addProtectedMethod(
+      criteriaCatalogVersionResource,
+      "GET",
+      campaignsLambdaIntegration,
+      [readScope],
     );
 
     // ============================================================================

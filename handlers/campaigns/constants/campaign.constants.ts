@@ -96,6 +96,7 @@ export class CampaignConstants {
   /** AWS region used for runtime endpoint discovery */
   public readonly AWS_REGION: string;
   public readonly AUDIT_LOGS_TABLE_NAME: string;
+  public readonly CRITERIA_CATALOG_TABLE_NAME: string;
 
   constructor() {
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
@@ -113,6 +114,8 @@ export class CampaignConstants {
       process.env.CDK_DEFAULT_REGION ??
       "us-east-1";
     this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
+    this.CRITERIA_CATALOG_TABLE_NAME =
+      process.env.CRITERIA_CATALOG_TABLE_NAME ?? "";
 
     if (!this.CAMPAIGNS_TABLE_NAME) {
       throw new Error("CAMPAIGNS_TABLE_NAME env var is required");

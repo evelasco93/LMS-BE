@@ -18,6 +18,7 @@ import {
   ResetPasswordRequest,
   UpdateUserRequest,
 } from "../types/users-request.types";
+import { UpsertTablePreferenceRequest } from "../interfaces/IUserTablePreference.interface";
 import { RestApiResponse } from "../types/common.types";
 import { isAdmin } from "../guards/admin.guard";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
@@ -304,5 +305,100 @@ export class UsersController extends Controller {
           ? "User permanently deleted"
           : "User disabled successfully",
     };
+  }
+
+  // ── Table Preferences ───────────────────────────────────────────
+
+  /**
+   * GET /preferences/:tableId
+   * Get the calling user's UI configuration for a specific table.
+   * The user identity is taken from the JWT `sub` claim — no separate :id param.
+   */
+  @GET("/preferences/:tableId")
+  @produces("application/json")
+  async getTablePreference(
+    @pathParam("tableId") tableId: string,
+  ): Promise<RestApiResponse> {
+    const actor = this.getActor();
+    if (!actor?.sub) {
+      this.response.status(401);
+      return { success: false, message: "Unauthorized" };
+    }
+    const result = await this.usersService.getTablePreference(
+      actor.sub,
+      tableId,
+    );
+    if (!result.result) {
+      this.response.status(404);
+      return {
+        success: false,
+        message: result.error ?? "Preference not found",
+      };
+    }
+    return {
+      success: true,
+      message: "Preference retrieved",
+      data: result.data,
+    };
+  }
+
+  /**
+   * PUT /preferences/:tableId
+   * Create or replace the calling user's UI configuration for a specific table.
+   */
+  @PUT("/preferences/:tableId")
+  @produces("application/json")
+  async upsertTablePreference(
+    @pathParam("tableId") tableId: string,
+    @body payload: UpsertTablePreferenceRequest,
+  ): Promise<RestApiResponse> {
+    const actor = this.getActor();
+    if (!actor?.sub) {
+      this.response.status(401);
+      return { success: false, message: "Unauthorized" };
+    }
+    const result = await this.usersService.upsertTablePreference(
+      actor.sub,
+      tableId,
+      payload,
+      actor,
+    );
+    if (!result.result) {
+      this.response.status(400);
+      return {
+        success: false,
+        message: result.error ?? "Failed to save preference",
+      };
+    }
+    return { success: true, message: "Preference saved", data: result.data };
+  }
+
+  /**
+   * DELETE /preferences/:tableId
+   * Delete the calling user's UI configuration for a specific table.
+   */
+  @DELETE("/preferences/:tableId")
+  @produces("application/json")
+  async deleteTablePreference(
+    @pathParam("tableId") tableId: string,
+  ): Promise<RestApiResponse> {
+    const actor = this.getActor();
+    if (!actor?.sub) {
+      this.response.status(401);
+      return { success: false, message: "Unauthorized" };
+    }
+    const result = await this.usersService.deleteTablePreference(
+      actor.sub,
+      tableId,
+      actor,
+    );
+    if (!result.result) {
+      this.response.status(400);
+      return {
+        success: false,
+        message: result.error ?? "Failed to delete preference",
+      };
+    }
+    return { success: true, message: "Preference deleted" };
   }
 }

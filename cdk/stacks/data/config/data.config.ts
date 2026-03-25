@@ -153,6 +153,35 @@ export const dataConfig: IDataStackConfig = {
       pointInTimeRecovery: false,
       deletionProtection: false,
     },
+    /**
+     * Criteria Catalog table.
+     * PK: id (catalog_set: CCS-prefixed; catalog_version: "{setId}#v{n}")
+     * GSI: criteria_set_id-index — list all versions for a given catalog set
+     */
+    criteriaCatalog: {
+      tableName: nameBuilder.table("criteria-catalog"),
+      partitionKey: { name: "id", type: "S" },
+      gsi: [
+        {
+          indexName: "criteria_set_id-index",
+          partitionKey: { name: "criteria_set_id", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: true,
+      deletionProtection: false,
+    },
+    /**
+     * User Table Preferences table.
+     * PK: user_id (Cognito sub), SK: table_id
+     */
+    userTablePreferences: {
+      tableName: nameBuilder.table("user-table-preferences"),
+      partitionKey: { name: "user_id", type: "S" },
+      sortKey: { name: "table_id", type: "S" },
+      pointInTimeRecovery: false,
+      deletionProtection: false,
+    },
   },
   auditLogsBucketName:
     `${nameBuilder.table("audit-logs-bucket")}`.toLowerCase(),

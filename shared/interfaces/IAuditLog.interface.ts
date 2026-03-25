@@ -48,7 +48,14 @@ export type AuditAction =
   | "affiliate_linked"
   | "affiliate_status_updated"
   | "affiliate_deleted"
-  | "affiliate_key_rotated";
+  | "affiliate_key_rotated"
+  | "original_source_set"
+  | "order_number_normalized"
+  | "criteria_catalog_created"
+  | "criteria_catalog_updated"
+  | "criteria_catalog_assigned"
+  | "table_preference_saved"
+  | "table_preference_deleted";
 
 export interface AuditChange {
   field: string;

@@ -58,7 +58,14 @@ import {
   UpdateCriteriaFieldRequest,
   UpdateLogicRuleRequest,
   UpdateParticipantStatusRequest,
+  CreateCriteriaCatalogRequest,
+  UpdateCriteriaCatalogRequest,
+  ApplyCriteriaCatalogRequest,
 } from "../types/campaign-request.types";
+import {
+  ICriteriaCatalogSet,
+  ICriteriaCatalogVersion,
+} from "../interfaces/ICriteriaCatalog.interface";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
 
@@ -3529,5 +3536,411 @@ export class CampaignService {
     );
     this.leadsBaseUrlCache = "/leads";
     return this.leadsBaseUrlCache;
+  }
+
+  // ── Criteria Catalog ──────────────────────────────────────────────────────
+
+  async listCriteriaCatalog(): Promise<
+    ServiceResult<{ items: ICriteriaCatalogSet[] }>
+  > {
+    try {
+      const scanResult = await this.dynamoDBUtil.scanAll<ICriteriaCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        FilterExpression: "record_type = :rt",
+        ExpressionAttributeValues: { ":rt": "catalog_set" },
+      });
+      return { result: true, data: { items: scanResult } };
+    } catch (error: any) {
+      this.logger.error("Failed to list criteria catalog", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list criteria catalog",
+      };
+    }
+  }
+
+  async getCriteriaCatalogSet(
+    id: string,
+  ): Promise<
+    ServiceResult<{
+      set: ICriteriaCatalogSet;
+      versions: ICriteriaCatalogVersion[];
+    }>
+  > {
+    try {
+      const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id },
+      });
+      if (!set || set.record_type !== "catalog_set") {
+        return { result: false, error: `Criteria catalog set ${id} not found` };
+      }
+
+      const versions =
+        await this.dynamoDBUtil.queryAll<ICriteriaCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          IndexName: "criteria_set_id-index",
+          KeyConditionExpression: "criteria_set_id = :sid",
+          ExpressionAttributeValues: { ":sid": id },
+        });
+
+      return { result: true, data: { set, versions } };
+    } catch (error: any) {
+      this.logger.error("Failed to get criteria catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get criteria catalog set",
+      };
+    }
+  }
+
+  async getCriteriaCatalogVersion(
+    criteriaSetId: string,
+    version: number,
+  ): Promise<ServiceResult<ICriteriaCatalogVersion>> {
+    try {
+      const versionId = `${criteriaSetId}#v${version}`;
+      const record = await this.dynamoDBUtil.get<ICriteriaCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id: versionId },
+      });
+      if (!record || record.record_type !== "catalog_version") {
+        return {
+          result: false,
+          error: `Criteria catalog version ${versionId} not found`,
+        };
+      }
+      return { result: true, data: record };
+    } catch (error: any) {
+      this.logger.error("Failed to get criteria catalog version", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get criteria catalog version",
+      };
+    }
+  }
+
+  async createCriteriaCatalogSet(
+    request: CreateCriteriaCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<
+    ServiceResult<{
+      set: ICriteriaCatalogSet;
+      version: ICriteriaCatalogVersion;
+    }>
+  > {
+    try {
+      if (!request.name?.trim()) {
+        return { result: false, error: "name is required" };
+      }
+
+      const now = new Date().toISOString();
+      const setId = IdGenerator.generateCriteriaCatalogSetId();
+      const versionId = `${setId}#v1`;
+
+      const set: ICriteriaCatalogSet = {
+        id: setId,
+        record_type: "catalog_set",
+        name: request.name.trim(),
+        description: request.description,
+        latest_version: 1,
+        active: true,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      const version: ICriteriaCatalogVersion = {
+        id: versionId,
+        record_type: "catalog_version",
+        criteria_set_id: setId,
+        version: 1,
+        name: set.name,
+        fields: (request.fields ?? []).map((f) => ({
+          ...f,
+          id: IdGenerator.generateCriteriaFieldId(),
+          order: 0,
+          active: true,
+          created_at: now,
+          updated_at: now,
+          created_by: actor,
+          updated_by: actor,
+        })),
+        campaigns_using: [],
+        created_at: now,
+        created_by: actor,
+      };
+
+      await Promise.all([
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: set,
+        }),
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: version,
+        }),
+      ]);
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: setId,
+        entity_type: "criteria_catalog",
+        action: "criteria_catalog_created",
+        changes: [],
+        actor,
+        changed_at: now,
+      });
+
+      this.logger.info("Criteria catalog set created", { setId });
+      return { result: true, data: { set, version } };
+    } catch (error: any) {
+      this.logger.error("Failed to create criteria catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create criteria catalog set",
+      };
+    }
+  }
+
+  async updateCriteriaCatalogSet(
+    id: string,
+    request: UpdateCriteriaCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<
+    ServiceResult<{
+      set: ICriteriaCatalogSet;
+      version: ICriteriaCatalogVersion;
+    }>
+  > {
+    try {
+      const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id },
+      });
+      if (!set || set.record_type !== "catalog_set") {
+        return { result: false, error: `Criteria catalog set ${id} not found` };
+      }
+      if (!set.active) {
+        return {
+          result: false,
+          error: `Criteria catalog set ${id} is deactivated and cannot be updated`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const newVersionNumber = set.latest_version + 1;
+      const versionId = `${id}#v${newVersionNumber}`;
+
+      const changes: AuditChange[] = [];
+      if (request.name && request.name !== set.name) {
+        changes.push({ field: "name", from: set.name, to: request.name });
+        set.name = request.name;
+      }
+      if (
+        request.description !== undefined &&
+        request.description !== set.description
+      ) {
+        changes.push({
+          field: "description",
+          from: set.description,
+          to: request.description,
+        });
+        set.description = request.description;
+      }
+
+      set.latest_version = newVersionNumber;
+      set.updated_at = now;
+      set.updated_by = actor;
+
+      const newVersion: ICriteriaCatalogVersion = {
+        id: versionId,
+        record_type: "catalog_version",
+        criteria_set_id: id,
+        version: newVersionNumber,
+        name: set.name,
+        fields: request.fields.map((f, idx) => ({
+          ...f,
+          id: IdGenerator.generateCriteriaFieldId(),
+          order: idx,
+          active: true,
+          created_at: now,
+          updated_at: now,
+          created_by: actor,
+          updated_by: actor,
+        })),
+        campaigns_using: [],
+        created_at: now,
+        created_by: actor,
+      };
+
+      await Promise.all([
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: set,
+        }),
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: newVersion,
+        }),
+      ]);
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "criteria_catalog",
+        action: "criteria_catalog_updated",
+        changes,
+        actor,
+        changed_at: now,
+      });
+
+      this.logger.info("Criteria catalog set updated", {
+        setId: id,
+        newVersion: newVersionNumber,
+      });
+      return { result: true, data: { set, version: newVersion } };
+    } catch (error: any) {
+      this.logger.error("Failed to update criteria catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update criteria catalog set",
+      };
+    }
+  }
+
+  async deactivateCriteriaCatalogSet(
+    id: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICriteriaCatalogSet>> {
+    try {
+      const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id },
+      });
+      if (!set || set.record_type !== "catalog_set") {
+        return { result: false, error: `Criteria catalog set ${id} not found` };
+      }
+      if (!set.active) {
+        return { result: true, data: set };
+      }
+
+      const now = new Date().toISOString();
+      set.active = false;
+      set.updated_at = now;
+      set.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Item: set,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "criteria_catalog",
+        action: "criteria_catalog_updated",
+        changes: [{ field: "active", from: true, to: false }],
+        actor,
+        changed_at: now,
+      });
+
+      this.logger.info("Criteria catalog set deactivated", { setId: id });
+      return { result: true, data: set };
+    } catch (error: any) {
+      this.logger.error("Failed to deactivate criteria catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to deactivate criteria catalog set",
+      };
+    }
+  }
+
+  async applyCriteriaCatalogToCampaign(
+    campaignId: string,
+    request: ApplyCriteriaCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    try {
+      const { criteria_set_id, version } = request;
+
+      const versionId = `${criteria_set_id}#v${version}`;
+      const [campaign, catalogVersion] = await Promise.all([
+        this.getCampaignById(campaignId),
+        this.dynamoDBUtil.get<ICriteriaCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id: versionId },
+        }),
+      ]);
+
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      if (!catalogVersion || catalogVersion.record_type !== "catalog_version") {
+        return {
+          result: false,
+          error: `Criteria catalog version ${versionId} not found`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [
+        {
+          field: "criteria_set_id",
+          from: campaign.criteria_set_id,
+          to: criteria_set_id,
+        },
+        {
+          field: "criteria_set_version",
+          from: campaign.criteria_set_version,
+          to: version,
+        },
+      ];
+
+      campaign.base_criteria = [...catalogVersion.fields];
+      campaign.criteria_set_id = criteria_set_id;
+      campaign.criteria_set_version = version;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      // Track which campaigns are using this catalog version
+      if (!catalogVersion.campaigns_using.includes(campaignId)) {
+        catalogVersion.campaigns_using.push(campaignId);
+      }
+
+      const normalized = this.normalizeParticipants(campaign);
+      Object.assign(campaign, normalized);
+
+      await Promise.all([
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+          Item: campaign,
+        }),
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: catalogVersion,
+        }),
+      ]);
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "criteria_catalog_assigned",
+        changes,
+        actor,
+        changed_at: now,
+      });
+
+      this.logger.info("Criteria catalog applied to campaign", {
+        campaignId,
+        criteria_set_id,
+        version,
+      });
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to apply criteria catalog to campaign", error);
+      return {
+        result: false,
+        error: error.message || "Failed to apply criteria catalog to campaign",
+      };
+    }
   }
 }

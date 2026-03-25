@@ -65,6 +65,10 @@ export interface ILead {
   campaign_id: string;
   campaign_key: string;
   test: boolean;
+  /** Immutable copy of the raw `source` field from the intake payload, captured at ingestion time. */
+  original_source?: string;
+  /** Normalized order number: always >= 1. Null/0/invalid inputs are coerced to 1. */
+  order_number?: number;
   payload?: Record<string, unknown>;
   /** Fields that were normalised by a value_mapping rule at intake time */
   mapped_fields?: IMappedFieldEntry[];

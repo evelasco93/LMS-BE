@@ -2100,3 +2100,322 @@ Complete reference of all audit events written by the system. Every event is sto
 | `password_reset`           | user          | Password reset triggered         | _(empty)_                  |
 
 > **Note on participant status:** `client_linked`, `client_status_updated`, `affiliate_linked`, and `affiliate_status_updated` actions are all stored on the **campaign** entity (not the client/affiliate entity). Use `GET /audit/{campaignId}` to see the full lifecycle of participants within a campaign.
+
+---
+
+## Lead fields: `original_source` and `order_number`
+
+Two new fields are now returned on every `Lead` object.
+
+### `original_source` (string | null, immutable)
+
+A verbatim copy of the raw `source` field captured at the moment the lead was ingested.
+
+- Set once at intake from the incoming `source` form field.
+- **Never overwritten** — even if the lead is edited later.
+- `null` if the lead was created before this feature was shipped or if no `source` was provided.
+- Useful for auditing the channel/traffic source regardless of downstream payload changes.
+
+```json
+{
+  "id": "LD...",
+  "original_source": "facebook_ads",
+  "payload": {
+    "source": "facebook_ads"
+  }
+}
+```
+
+### `order_number` (integer ≥ 1)
+
+A normalized order-number field.
+
+- Always an integer **≥ 1**. Null, 0, or non-numeric inputs from the inbound payload are coerced to `1` at ingestion.
+- Reliable for display — never `null` or `0`.
+
+---
+
+## Criteria Catalog
+
+The Criteria Catalog is a versioned library of **named criteria sets**. Instead of defining base criteria directly on each campaign, you can:
+
+1. Create a named set in the catalog with a list of criteria fields.
+2. Apply a specific version of that set to one or more campaigns.
+3. Any update to the catalog set creates a new **immutable version** — existing campaign assignments are unaffected until you explicitly re-apply.
+
+> All criteria-catalog endpoints are protected by Cognito authentication.
+> Tags: **Criteria Catalog**
+
+### Data model
+
+**CriteriaCatalogSet** (the "parent" record)
+
+| Field            | Type      | Notes                                              |
+| ---------------- | --------- | -------------------------------------------------- |
+| `id`             | `string`  | CCS-prefixed ID (e.g. `CCSA1B2C3D4`)              |
+| `record_type`    | `string`  | Always `"catalog_set"`                             |
+| `name`           | `string`  | Human-readable name                                |
+| `description`    | `string?` |                                                    |
+| `latest_version` | `integer` | Auto-incremented; starts at 1                      |
+| `active`         | `boolean` | `false` after deactivation                         |
+| `created_at`     | ISO 8601  |                                                    |
+| `updated_at`     | ISO 8601  |                                                    |
+| `created_by`     | Actor     |                                                    |
+| `updated_by`     | Actor     |                                                    |
+
+**CriteriaCatalogVersion** (immutable snapshot)
+
+| Field            | Type       | Notes                                                |
+| ---------------- | ---------- | ---------------------------------------------------- |
+| `id`             | `string`   | `{setId}#v{version}` (e.g. `CCSA1B2C3D4#v2`)       |
+| `record_type`    | `string`   | Always `"catalog_version"`                           |
+| `criteria_set_id`| `string`   | Parent set ID                                        |
+| `version`        | `integer`  | Version number within the parent set                 |
+| `name`           | `string`   | Denormalised from parent set at creation time        |
+| `fields`         | `array`    | Full snapshot of criteria fields for this version    |
+| `campaigns_using`| `string[]` | Campaign IDs that have applied this version          |
+| `created_at`     | ISO 8601   |                                                      |
+| `created_by`     | Actor      |                                                      |
+
+### Endpoints
+
+#### List all catalog sets
+
+```
+GET /v2/campaigns/criteria-catalog
+Authorization: Bearer <token>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ /* CriteriaCatalogSet[] */ ]
+  }
+}
+```
+
+#### Create a catalog set
+
+```
+POST /v2/campaigns/criteria-catalog
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Standard residential criteria",
+  "description": "Used for all residential lead campaigns",
+  "fields": [ /* optional initial field list — same shape as AddCriteriaFieldRequest */ ]
+}
+```
+
+Creates both the set record and version 1 atomically. Returns the set + the initial version.
+
+#### Get a catalog set with all versions
+
+```
+GET /v2/campaigns/criteria-catalog/{setId}
+Authorization: Bearer <token>
+```
+
+Returns `{ set: CriteriaCatalogSet, versions: CriteriaCatalogVersion[] }`.
+
+#### Get a specific version
+
+```
+GET /v2/campaigns/criteria-catalog/{setId}/versions/{version}
+Authorization: Bearer <token>
+```
+
+Returns the `CriteriaCatalogVersion` object.
+
+#### Update a catalog set (creates a new version)
+
+```
+PUT /v2/campaigns/criteria-catalog/{setId}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Updated name",          // optional
+  "description": "New description", // optional
+  "fields": [ /* full replacement field array — required */ ]
+}
+```
+
+> `fields` is a **full replacement**. The existing `latest_version` is incremented and a new immutable `CriteriaCatalogVersion` is written. Campaigns that had previously applied an earlier version are **not** automatically updated.
+
+#### Deactivate a catalog set
+
+```
+DELETE /v2/campaigns/criteria-catalog/{setId}
+Authorization: Bearer <token>
+```
+
+Sets `active = false`. Does not delete data or affect existing campaign assignments.
+
+#### Apply a catalog version to a campaign
+
+```
+POST /v2/campaigns/{campaignId}/criteria/apply-catalog
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "criteria_set_id": "CCSA1B2C3D4",
+  "version": 2
+}
+```
+
+Copies all fields from the specified version snapshot into `campaign.base_criteria`. Sets `campaign.criteria_set_id` and `campaign.criteria_set_version` for traceability. The campaign ID is appended to `CriteriaCatalogVersion.campaigns_using`.
+
+Response: the updated `Campaign` object.
+
+### Audit trail
+
+| `action`                   | `entity_type`      | When                                           |
+| -------------------------- | ------------------ | ---------------------------------------------- |
+| `criteria_catalog_created` | `criteria_catalog` | New catalog set (+ v1) created                 |
+| `criteria_catalog_updated` | `criteria_catalog` | Set fields or metadata updated (new version)   |
+| `criteria_catalog_updated` | `criteria_catalog` | Set deactivated                                |
+| `criteria_catalog_assigned`| `criteria_catalog` | A catalog version applied to a campaign        |
+
+---
+
+## User Table Preferences
+
+Per-user, per-table UI configuration. Lets each user persist their own column visibility, column ordering, sort preferences, and active filters for any data table in the frontend.
+
+> All endpoints are protected by Cognito authentication.
+> The user is identified from the JWT `sub` claim — no separate user ID is needed in the path.
+> Tags: **User Preferences**
+
+### Data model
+
+**`TableConfig`** — the configuration object stored per table:
+
+```ts
+{
+  columns?: TableColumnConfig[];  // column visibility + order
+  sort?: TableSortConfig[];       // active sort state
+  filters?: TableFilterConfig[];  // active filter state
+}
+```
+
+**`TableColumnConfig`**:
+
+| Field    | Type       | Notes                            |
+| -------- | ---------- | -------------------------------- |
+| `key`    | `string`   | Column identifier (e.g. `email`) |
+| `visible`| `boolean`  |                                  |
+| `order`  | `integer`  | 0-based render position          |
+| `width`  | `integer?` | Width in pixels (optional)       |
+
+**`TableSortConfig`**:
+
+| Field       | Type              | Notes            |
+| ----------- | ----------------- | ---------------- |
+| `field`     | `string`          | Column key       |
+| `direction` | `"asc" \| "desc"` |                  |
+
+**`TableFilterConfig`**:
+
+| Field      | Type     | Notes                         |
+| ---------- | -------- | ----------------------------- |
+| `field`    | `string` | Column key                    |
+| `value`    | any      | Filter value                  |
+| `operator` | `string?`| E.g. `"contains"`, `"equals"` |
+
+**`UserTablePreference`** — the stored record:
+
+| Field        | Type         | Notes                              |
+| ------------ | ------------ | ---------------------------------- |
+| `user_id`    | `string`     | Cognito `sub` of the owning user   |
+| `table_id`   | `string`     | Table identifier (e.g. `leads_view`) |
+| `config`     | `TableConfig`|                                    |
+| `updated_at` | ISO 8601     |                                    |
+| `updated_by` | Actor        |                                    |
+
+### `tableId` naming convention
+
+Use a consistent identifier for each distinct UI table, e.g.:
+
+| Table        | `tableId`          |
+| ------------ | ------------------ |
+| Leads list   | `leads_view`       |
+| Campaigns    | `campaigns_view`   |
+| Clients      | `clients_view`     |
+| Affiliates   | `affiliates_view`  |
+
+You can use any string — the backend treats it as an opaque key.
+
+### Endpoints
+
+#### Get table preference
+
+```
+GET /v2/users/preferences/{tableId}
+Authorization: Bearer <token>
+```
+
+Returns the `UserTablePreference` for the calling user and the given `tableId`. Returns `404` if no preference has been saved yet (treat as "use defaults").
+
+#### Save / update table preference
+
+```
+PUT /v2/users/preferences/{tableId}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "config": {
+    "columns": [
+      { "key": "email",      "visible": true,  "order": 0 },
+      { "key": "first_name", "visible": true,  "order": 1 },
+      { "key": "phone",      "visible": false, "order": 2 }
+    ],
+    "sort": [
+      { "field": "created_at", "direction": "desc" }
+    ],
+    "filters": []
+  }
+}
+```
+
+Upsert — creates a new record or fully replaces the existing one. Returns the saved `UserTablePreference`.
+
+#### Delete table preference
+
+```
+DELETE /v2/users/preferences/{tableId}
+Authorization: Bearer <token>
+```
+
+Removes the stored preference. The frontend should fall back to default column config after this.
+
+### Audit trail
+
+| `action`                   | `entity_type`          | When                             |
+| -------------------------- | ---------------------- | -------------------------------- |
+| `table_preference_saved`   | `user_table_preference`| Preference created or updated    |
+| `table_preference_deleted` | `user_table_preference`| Preference deleted               |
+
+### Recommended frontend pattern
+
+```ts
+// On table mount
+async function loadPreferences(tableId: string) {
+  try {
+    const res = await api.get(`/v2/users/preferences/${tableId}`);
+    applyConfig(res.data.config);
+  } catch (e) {
+    if (e.status === 404) applyDefaults(); // no preference saved yet
+  }
+}
+
+// On column/sort/filter change (debounced)
+async function savePreferences(tableId: string, config: TableConfig) {
+  await api.put(`/v2/users/preferences/${tableId}`, { config });
+}
+```

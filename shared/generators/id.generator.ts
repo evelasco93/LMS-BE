@@ -129,4 +129,16 @@ export class IdGenerator {
   ): string {
     return IdGenerator.generate(EntityPrefix.PLUGIN_SETTING, length);
   }
+
+  static generateCriteriaCatalogSetId(
+    length: number = IdGenerator.DEFAULT_LENGTH,
+  ): string {
+    return IdGenerator.generate(EntityPrefix.CRITERIA_CATALOG, length);
+  }
+
+  static generateCriteriaFieldId(
+    length: number = IdGenerator.DEFAULT_LENGTH,
+  ): string {
+    return IdGenerator.generate(EntityPrefix.CRITERIA_FIELD, length);
+  }
 }

@@ -59,6 +59,7 @@ export const servicesConfig: IServicesStackConfig = {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
+        CRITERIA_CATALOG_TABLE_NAME: nameBuilder.table("criteria-catalog"),
         LEADS_BASE_URL: process.env.LEADS_BASE_URL ?? "",
         EXTERNAL_LEADS_API_NAME: nameBuilder.api("external-leads"),
         EXTERNAL_LEADS_API_STAGE: baseConfig.environment,

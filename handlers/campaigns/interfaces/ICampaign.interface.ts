@@ -287,6 +287,10 @@ export interface ICampaign {
   has_received_leads?: boolean;
   /** Base criteria fields that every lead must satisfy for this campaign */
   base_criteria?: IBaseCriteriaField[];
+  /** ID of the criteria catalog set this campaign's base_criteria was last sourced from */
+  criteria_set_id?: string;
+  /** The catalog version whose fields are reflected in base_criteria */
+  criteria_set_version?: number;
   /** Logic rules applied after criteria validation — first matching rule determines pass/fail */
   logic_rules?: ILogicRule[];
   /** Lead distribution configuration (round_robin or weighted across LIVE clients) */

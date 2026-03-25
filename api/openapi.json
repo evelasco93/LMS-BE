@@ -54,7 +54,9 @@
       "post": {
         "summary": "Login \u2014 exchange email + password for tokens",
         "description": "Wraps Cognito USER_PASSWORD_AUTH. Returns id_token, access_token, and refresh_token. Use the id_token as the Bearer token on all internal API calls \u2014 the API Gateway Cognito authorizer validates ID tokens.",
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -93,7 +95,9 @@
     "/auth/refresh": {
       "post": {
         "summary": "Refresh \u2014 exchange refresh_token for new access/id tokens",
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -132,7 +136,9 @@
       "post": {
         "summary": "Create user (admin only)",
         "description": "Creates a new Cognito user with a permanent password. Assigns the user to the specified role group (admin or staff). Requires an admin Bearer token.",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -183,7 +189,9 @@
       },
       "get": {
         "summary": "List users (admin only)",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -212,7 +220,9 @@
     "/users/{id}": {
       "get": {
         "summary": "Get user by username/email (admin only)",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -247,7 +257,9 @@
       },
       "put": {
         "summary": "Update user role (admin only)",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -321,7 +333,9 @@
       "delete": {
         "summary": "Disable user (soft-delete \u2014 admin only)",
         "description": "Disables the Cognito user account (AdminDisableUser). The user can no longer log in but the account is preserved. Use `PUT /users/{id}/enable` to re-enable.",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -359,7 +373,9 @@
       "put": {
         "summary": "Re-enable a disabled user (admin only)",
         "description": "Re-enables a previously disabled Cognito user account (AdminEnableUser). The user can log in again immediately.",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -397,7 +413,9 @@
       "put": {
         "summary": "Reset user password (admin only)",
         "description": "Sets a new permanent password for the specified user. Does not require the user's current password.",
-        "tags": ["users"],
+        "tags": [
+          "users"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -447,7 +465,9 @@
     "/clients": {
       "post": {
         "summary": "Create client",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -486,7 +506,9 @@
       },
       "get": {
         "summary": "List clients",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "parameters": [
           {
             "name": "status",
@@ -565,7 +587,9 @@
     "/clients/{id}": {
       "get": {
         "summary": "Get client by id",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/ClientId"
@@ -589,7 +613,9 @@
       },
       "put": {
         "summary": "Update client",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/ClientId"
@@ -635,7 +661,9 @@
       "delete": {
         "summary": "Delete client (soft by default; ?permanent=true for hard delete)",
         "description": "Soft delete requires the client to be disabled in all campaigns. Hard delete is allowed only when the client is not linked to any campaign and has no campaign leads. Without `?permanent=true`: sets `is_deleted=true`, `active=false`, `deleted_by`, and `deleted_at`. With `?permanent=true`: permanently removes the record from DynamoDB.",
-        "tags": ["clients"],
+        "tags": [
+          "clients"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -678,7 +706,9 @@
     "/affiliates": {
       "post": {
         "summary": "Create affiliate",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -717,7 +747,9 @@
       },
       "get": {
         "summary": "List affiliates",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "parameters": [
           {
             "name": "status",
@@ -771,7 +803,9 @@
     "/affiliates/{id}": {
       "get": {
         "summary": "Get affiliate by id",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/AffiliateId"
@@ -795,7 +829,9 @@
       },
       "put": {
         "summary": "Update affiliate",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/AffiliateId"
@@ -841,7 +877,9 @@
       "delete": {
         "summary": "Delete affiliate (soft by default; ?permanent=true for hard delete)",
         "description": "Soft delete requires the affiliate to be disabled in all campaigns. Hard delete is allowed only when the affiliate is not linked to any campaign and has no campaign leads. Without `?permanent=true`: soft-deletes the record (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`). With `?permanent=true`: permanently removes the record.",
-        "tags": ["affiliates"],
+        "tags": [
+          "affiliates"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -884,7 +922,9 @@
     "/campaigns": {
       "post": {
         "summary": "Create campaign (starts as DRAFT)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -920,7 +960,9 @@
       },
       "get": {
         "summary": "List campaigns",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "name": "status",
@@ -974,7 +1016,9 @@
     "/campaigns/{id}": {
       "get": {
         "summary": "Get campaign by id",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1006,7 +1050,9 @@
       },
       "put": {
         "summary": "Update campaign (name only)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1059,7 +1105,9 @@
       "delete": {
         "summary": "Delete campaign (soft by default; ?permanent=true for hard delete)",
         "description": "Deletion allowed only when status is DRAFT or TEST, with no linked clients, affiliates, or leads. Hard delete is allowed only if the campaign has never had participants or leads. Without `?permanent=true`: soft-deletes the campaign (sets `is_deleted=true`, `active=false`, `deleted_by`, `deleted_at`).",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1102,7 +1150,9 @@
     "/campaigns/{id}/clients": {
       "post": {
         "summary": "Link client to campaign (always linked as TEST; update status via participant endpoint)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1145,7 +1195,9 @@
     "/campaigns/{id}/clients/{clientId}": {
       "put": {
         "summary": "Update linked client campaign_status (TEST/LIVE/DISABLED)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1188,7 +1240,9 @@
       "delete": {
         "summary": "Remove linked client from campaign",
         "description": "Removal is blocked if the campaign has leads; disable the client instead.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1222,7 +1276,9 @@
     "/campaigns/{id}/affiliates": {
       "post": {
         "summary": "Link affiliate to campaign (always linked as TEST; update status via participant endpoint; returns campaign_key)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1284,7 +1340,9 @@
     "/campaigns/{id}/affiliates/{affiliateId}": {
       "put": {
         "summary": "Update linked affiliate campaign_status (TEST/LIVE/DISABLED)",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1327,7 +1385,9 @@
       "delete": {
         "summary": "Remove linked affiliate from campaign",
         "description": "Removal is blocked if the campaign has leads; disable the affiliate instead.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1362,7 +1422,9 @@
       "put": {
         "summary": "Set webhook delivery config for a linked client",
         "description": "Configures the buyer webhook URL, HTTP method, payload field mappings, and acceptance rules. A client must have a complete delivery config before it can be set to LIVE.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1406,8 +1468,14 @@
                       }
                     ],
                     "acceptance_rules": [
-                      { "match_value": "accepted", "action": "passed" },
-                      { "match_value": "rejected", "action": "failed" }
+                      {
+                        "match_value": "accepted",
+                        "action": "passed"
+                      },
+                      {
+                        "match_value": "rejected",
+                        "action": "failed"
+                      }
                     ]
                   }
                 }
@@ -1439,7 +1507,9 @@
       "put": {
         "summary": "Set lead distribution config for a campaign",
         "description": "Enables or disables automatic lead distribution and selects the distribution mode (round_robin or weighted).",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1454,10 +1524,16 @@
               },
               "examples": {
                 "roundRobin": {
-                  "value": { "mode": "round_robin", "enabled": true }
+                  "value": {
+                    "mode": "round_robin",
+                    "enabled": true
+                  }
                 },
                 "weighted": {
-                  "value": { "mode": "weighted", "enabled": true }
+                  "value": {
+                    "mode": "weighted",
+                    "enabled": true
+                  }
                 }
               }
             }
@@ -1487,7 +1563,9 @@
       "put": {
         "summary": "Set or remove lead cap for a linked affiliate",
         "description": "Sets the maximum number of accepted leads this affiliate may send on this campaign. Set lead_cap to null to remove the cap entirely.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1510,10 +1588,14 @@
               },
               "examples": {
                 "setCap": {
-                  "value": { "lead_cap": 500 }
+                  "value": {
+                    "lead_cap": 500
+                  }
                 },
                 "removeCap": {
-                  "value": { "lead_cap": null }
+                  "value": {
+                    "lead_cap": null
+                  }
                 }
               }
             }
@@ -1542,7 +1624,9 @@
     "/campaigns/{id}/affiliates/{affiliateId}/rotate-key": {
       "post": {
         "summary": "Rotate linked affiliate campaign_key",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1604,7 +1688,9 @@
       "put": {
         "summary": "Update campaign status (DRAFT -> TEST -> ACTIVE)",
         "description": "Requires at least one client and one affiliate before moving to TEST. ACTIVE requires current TEST and all linked clients/affiliates set to LIVE.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1656,7 +1742,9 @@
       "put": {
         "summary": "Update campaign plugins configuration",
         "description": "Updates QA plugin settings for a campaign. Supports duplicate_check, trusted_form, and ipqs plugins. Supply only the plugin blocks you want to change \u2014 omitted blocks are left untouched. All changes are recorded in the audit log with action: plugins_updated (one changes[] entry per mutated field). Nothing is written if no fields changed. Fields are compared using deep structural equality \u2014 only fields whose value genuinely differs are included in changes[].",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "parameters": [
           {
             "$ref": "#/components/parameters/CampaignId"
@@ -1683,7 +1771,9 @@
                   "value": {
                     "duplicate_check": {
                       "enabled": true,
-                      "criteria": ["email"]
+                      "criteria": [
+                        "email"
+                      ]
                     }
                   }
                 },
@@ -1720,7 +1810,9 @@
                           },
                           "country": {
                             "enabled": true,
-                            "allowed": ["US"]
+                            "allowed": [
+                              "US"
+                            ]
                           }
                         }
                       },
@@ -1773,7 +1865,9 @@
       "get": {
         "summary": "List base criteria fields for a campaign",
         "description": "Returns all criteria fields defined on the campaign in their configured order.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1803,7 +1897,9 @@
       "post": {
         "summary": "Add a criteria field to a campaign",
         "description": "Appends a new field to the campaign's base_criteria array. Required fields gate lead intake \u2014 leads missing a required field are saved as rejected.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1861,11 +1957,19 @@
                     "required": false,
                     "value_mappings": [
                       {
-                        "from": ["M", "male", "m"],
+                        "from": [
+                          "M",
+                          "male",
+                          "m"
+                        ],
                         "to": "Male"
                       },
                       {
-                        "from": ["F", "female", "f"],
+                        "from": [
+                          "F",
+                          "female",
+                          "f"
+                        ],
                         "to": "Female"
                       }
                     ]
@@ -1899,7 +2003,9 @@
       "post": {
         "summary": "Seed campaign with standard base criteria fields",
         "description": "Appends the platform-standard base criteria fields (first_name, last_name, phone, state, email, ip_address, marketing_source, pub_id, campaign_id, campaign_key) to the campaign. Fields that already exist by field_name are silently skipped \u2014 safe to call multiple times (idempotent).",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1934,7 +2040,9 @@
       "put": {
         "summary": "Reorder criteria fields",
         "description": "Replaces the order of all criteria fields on a campaign. Supply the complete ordered list of field IDs \u2014 all existing field IDs must be present.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -1951,7 +2059,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["field_ids"],
+                "required": [
+                  "field_ids"
+                ],
                 "properties": {
                   "field_ids": {
                     "type": "array",
@@ -1959,7 +2069,11 @@
                       "type": "string"
                     },
                     "description": "Complete ordered list of criteria field IDs (CF-prefixed). Must include every existing field ID.",
-                    "example": ["CF000002", "CF000001", "CF000003"]
+                    "example": [
+                      "CF000002",
+                      "CF000001",
+                      "CF000003"
+                    ]
                   }
                 }
               }
@@ -1989,7 +2103,9 @@
     "/campaigns/{id}/criteria/{fieldId}": {
       "get": {
         "summary": "Get a single criteria field",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2022,7 +2138,9 @@
       "put": {
         "summary": "Update a criteria field",
         "description": "Partially updates a criteria field. All fields are optional \u2014 only supplied fields are changed. To remove state_mapping, send `\"state_mapping\": null`.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2080,7 +2198,9 @@
       },
       "delete": {
         "summary": "Remove a criteria field from a campaign",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2108,7 +2228,9 @@
       "put": {
         "summary": "Set (replace) value mappings on a criteria field",
         "description": "Fully replaces the value_mappings array on the specified field. Send an empty array to clear all mappings. Each mapping maps one or more raw input values (`from`) to a canonical stored value (`to`). Matching is case-insensitive.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2134,15 +2256,27 @@
                   "value": {
                     "value_mappings": [
                       {
-                        "from": ["CA", "ca", "calif"],
+                        "from": [
+                          "CA",
+                          "ca",
+                          "calif"
+                        ],
                         "to": "California"
                       },
                       {
-                        "from": ["TX", "tx", "tex"],
+                        "from": [
+                          "TX",
+                          "tx",
+                          "tex"
+                        ],
                         "to": "Texas"
                       },
                       {
-                        "from": ["NY", "ny", "new york"],
+                        "from": [
+                          "NY",
+                          "ny",
+                          "new york"
+                        ],
                         "to": "New York"
                       }
                     ]
@@ -2152,11 +2286,19 @@
                   "value": {
                     "value_mappings": [
                       {
-                        "from": ["M", "male", "m"],
+                        "from": [
+                          "M",
+                          "male",
+                          "m"
+                        ],
                         "to": "Male"
                       },
                       {
-                        "from": ["F", "female", "f"],
+                        "from": [
+                          "F",
+                          "female",
+                          "f"
+                        ],
                         "to": "Female"
                       }
                     ]
@@ -2196,7 +2338,9 @@
       "get": {
         "summary": "List logic rules for a campaign",
         "description": "Returns all logic rules attached to the campaign. Logic rules are evaluated after criteria validation to apply pass/fail decisions on incoming leads.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2237,7 +2381,9 @@
       "post": {
         "summary": "Create a logic rule for a campaign",
         "description": "Appends a new logic rule to the campaign. Rules are evaluated in order \u2014 the first matching rule's action (pass or fail) is applied. If no rules match the lead passes by default.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2329,7 +2475,9 @@
     "/campaigns/{id}/logic-rules/{ruleId}": {
       "get": {
         "summary": "Get a single logic rule",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2370,7 +2518,9 @@
       "put": {
         "summary": "Update a logic rule",
         "description": "Partially updates a logic rule. Supply only the fields you want to change. All changes are recorded in the audit log with action: logic_rule_updated. Scalar changes (name, action, enabled) each produce one entry. Groups changes use content-based diffing (matched by field_name + operator + value, not by condition ID): condition.added and condition.removed entries are emitted only for genuinely new or deleted conditions. If only grouping/ordering changed, a groups.structure entry is recorded instead.",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2423,7 +2573,9 @@
       },
       "delete": {
         "summary": "Delete a logic rule",
-        "tags": ["campaigns"],
+        "tags": [
+          "campaigns"
+        ],
         "security": [
           {
             "BearerAuth": []
@@ -2465,7 +2617,9 @@
     "/leads": {
       "post": {
         "summary": "Submit live lead (EXTERNAL API; campaign must be ACTIVE; affiliate campaign_status must be LIVE)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2515,7 +2669,9 @@
       },
       "get": {
         "summary": "List leads (INTERNAL API)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2588,7 +2744,9 @@
       "get": {
         "summary": "List lead intake logs (INTERNAL API)",
         "description": "Returns raw intake records captured for all inbound lead submissions (live and test). Supports optional campaign/status/date filters and cursor pagination.",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2613,7 +2771,11 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["accepted", "rejected", "test"]
+              "enum": [
+                "accepted",
+                "rejected",
+                "test"
+              ]
             }
           },
           {
@@ -2690,7 +2852,11 @@
                           },
                           "status": {
                             "type": "string",
-                            "enum": ["accepted", "rejected", "test"]
+                            "enum": [
+                              "accepted",
+                              "rejected",
+                              "test"
+                            ]
                           },
                           "is_test": {
                             "type": "boolean"
@@ -2742,7 +2908,11 @@
                           },
                           "sold_status": {
                             "type": "string",
-                            "enum": ["sold", "not_sold", "not_delivered"],
+                            "enum": [
+                              "sold",
+                              "not_sold",
+                              "not_delivered"
+                            ],
                             "description": "Derived delivery status for intake troubleshooting"
                           },
                           "sold_to_client_id": {
@@ -2769,7 +2939,9 @@
     "/leads/{id}": {
       "get": {
         "summary": "Get lead by id (INTERNAL API)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2809,7 +2981,9 @@
       },
       "put": {
         "summary": "Update lead payload (INTERNAL API)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2872,7 +3046,9 @@
       "delete": {
         "summary": "Delete lead (INTERNAL API \u2014 soft by default; ?permanent=true for hard delete)",
         "description": "Without `?permanent=true`: soft-deletes the lead. With `?permanent=true`: permanently removes the record.",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2926,7 +3102,9 @@
     "/leads/test": {
       "post": {
         "summary": "Submit test lead (EXTERNAL API; affiliate campaign_status must be TEST; campaign must be TEST or ACTIVE)",
-        "tags": ["leads"],
+        "tags": [
+          "leads"
+        ],
         "servers": [
           {
             "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
@@ -2977,7 +3155,9 @@
     },
     "/tenant-config/credentials": {
       "post": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Create a credential",
         "security": [
           {
@@ -3016,7 +3196,9 @@
         }
       },
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "List credentials",
         "security": [
           {
@@ -3061,7 +3243,9 @@
     },
     "/tenant-config/credentials/{id}": {
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Get a credential by ID",
         "security": [
           {
@@ -3100,7 +3284,9 @@
         }
       },
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Update a credential",
         "security": [
           {
@@ -3149,7 +3335,9 @@
         }
       },
       "delete": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Delete a credential",
         "security": [
           {
@@ -3190,7 +3378,9 @@
     },
     "/tenant-config/credentials/{id}/disable": {
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Disable a credential (soft-disable, does not delete)",
         "security": [
           {
@@ -3229,7 +3419,9 @@
     },
     "/tenant-config/credentials/{id}/enable": {
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Re-enable a previously disabled credential",
         "security": [
           {
@@ -3268,7 +3460,9 @@
     },
     "/tenant-config/credentials/{id}/restore": {
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Restore a soft-deleted credential",
         "security": [
           {
@@ -3307,7 +3501,9 @@
     },
     "/tenant-config/plugins": {
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "List all available plugins (registry)",
         "description": "Returns the canonical AVAILABLE_PLUGINS registry \u2014 the fixed list of all plugins the platform supports. No database call; safe to cache. Use this to populate a plugin selection list, know each plugin's credential_type, and show plugin descriptions. This list is independent of whether plugins have been configured or enabled.",
         "security": [
@@ -3345,7 +3541,9 @@
     },
     "/tenant-config/credential-schemas": {
       "post": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Create a credential schema definition",
         "description": "Defines the credential fields a plugin integration requires. The frontend reads these to dynamically render credential creation forms.",
         "security": [
@@ -3377,7 +3575,9 @@
         }
       },
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "List all credential schema definitions",
         "description": "Returns all stored credential schema records. Frontend uses this list to render dynamic credential forms per plugin. Pass `?includeDeleted=true` to include soft-deleted records.",
         "security": [
@@ -3412,7 +3612,9 @@
     },
     "/tenant-config/credential-schemas/{id}": {
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Get a credential schema by ID",
         "security": [
           {
@@ -3444,7 +3646,9 @@
         }
       },
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Update a credential schema",
         "security": [
           {
@@ -3486,7 +3690,9 @@
         }
       },
       "delete": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Delete a credential schema",
         "description": "Soft-deletes the schema by default. Pass `?permanent=true` to hard-delete (only allowed when no credentials reference this schema). Hard-delete is blocked if any credentials are linked.",
         "security": [
@@ -3526,7 +3732,9 @@
     },
     "/tenant-config/credential-schemas/{id}/restore": {
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Restore a soft-deleted credential schema",
         "security": [
           {
@@ -3560,7 +3768,9 @@
     },
     "/tenant-config/plugin-settings": {
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "List all global plugin settings",
         "description": "Returns exactly one entry per canonical plugin in the AVAILABLE_PLUGINS registry (currently: trusted_form, ipqs). Each entry merges the registry metadata (name, credential_type, description) with the current setting state (credentials_id, enabled). Unconfigured plugins are included with enabled=false and credentials_id=null \u2014 the list size is always fixed regardless of how many credential schemas exist. Pass `?includeDeleted=true` to include soft-deleted records.",
         "security": [
@@ -3595,7 +3805,9 @@
     },
     "/tenant-config/plugin-settings/{provider}": {
       "get": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Get the global plugin setting for a provider",
         "description": "Returns the global default plugin setting for the given provider identifier (e.g. trusted_form, ipqs).",
         "security": [
@@ -3610,7 +3822,10 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["trusted_form", "ipqs"]
+              "enum": [
+                "trusted_form",
+                "ipqs"
+              ]
             },
             "example": "trusted_form",
             "description": "Canonical plugin provider identifier"
@@ -3633,7 +3848,9 @@
         }
       },
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Set (upsert) the global default plugin setting for a provider",
         "description": "Creates or replaces the global default plugin setting for the given provider. Validates that the provider exists in the canonical AVAILABLE_PLUGINS registry. `credentials_id` is optional \u2014 omit it to register/enable the plugin without assigning a credential yet.",
         "security": [
@@ -3648,7 +3865,10 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["trusted_form", "ipqs"]
+              "enum": [
+                "trusted_form",
+                "ipqs"
+              ]
             },
             "example": "trusted_form",
             "description": "Canonical plugin provider identifier"
@@ -3678,7 +3898,9 @@
         }
       },
       "delete": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Delete a plugin setting",
         "description": "Soft-deletes the setting by default. Pass `?permanent=true` to hard-delete.",
         "security": [
@@ -3693,7 +3915,10 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["trusted_form", "ipqs"]
+              "enum": [
+                "trusted_form",
+                "ipqs"
+              ]
             },
             "example": "trusted_form"
           },
@@ -3716,7 +3941,9 @@
     },
     "/tenant-config/plugin-settings/{provider}/restore": {
       "put": {
-        "tags": ["tenant-config"],
+        "tags": [
+          "tenant-config"
+        ],
         "summary": "Restore a soft-deleted plugin setting",
         "security": [
           {
@@ -3730,7 +3957,10 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["trusted_form", "ipqs"]
+              "enum": [
+                "trusted_form",
+                "ipqs"
+              ]
             },
             "example": "trusted_form"
           }
@@ -3751,7 +3981,9 @@
     },
     "/qa/trusted-form/validate": {
       "post": {
-        "tags": ["qa"],
+        "tags": [
+          "qa"
+        ],
         "summary": "Validate a TrustedForm certificate",
         "description": "Proxies a validation request directly to the TrustedForm API (`GET https://cert.trustedform.com/{cert_id}/validate`). If `credentials_id` is omitted the endpoint auto-resolves the active TrustedForm credential configured in the tenant plugin settings. Passing `credentials_id` performs an ad-hoc validation using that specific credential \u2014 useful for testing before committing a plugin setting.",
         "security": [
@@ -3765,7 +3997,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["cert_id"],
+                "required": [
+                  "cert_id"
+                ],
                 "properties": {
                   "cert_id": {
                     "type": "string",
@@ -3797,7 +4031,11 @@
                       "properties": {
                         "outcome": {
                           "type": "string",
-                          "enum": ["success", "failure", "error"],
+                          "enum": [
+                            "success",
+                            "failure",
+                            "error"
+                          ],
                           "description": "success = cert valid; failure = cert invalid/expired; error = API/network error"
                         },
                         "reason": {
@@ -3817,7 +4055,9 @@
     },
     "/qa/ipqs/check": {
       "post": {
-        "tags": ["qa"],
+        "tags": [
+          "qa"
+        ],
         "summary": "Run an IPQS check directly",
         "description": "Proxy endpoint for running an IPQualityScore (IPQS) fraud-score check directly \u2014 without going through a full lead submission. Credentials are auto-resolved from the active 'ipqs' plugin setting in the tenant configuration. At least one of `phone`, `email`, or `ip_address` must be provided.",
         "security": [
@@ -3879,7 +4119,9 @@
     },
     "/campaigns/{id}/posting-instructions/generate": {
       "post": {
-        "tags": ["Campaigns"],
+        "tags": [
+          "Campaigns"
+        ],
         "summary": "Generate posting instructions",
         "description": "Generates a structured posting instructions document for a specific affiliate linked to a campaign. Includes campaign details, affiliate link info, and the sorted list of submission criteria fields. Writes a `posting_instructions_generated` audit event.",
         "security": [
@@ -3904,7 +4146,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["affiliate_id"],
+                "required": [
+                  "affiliate_id"
+                ],
                 "properties": {
                   "affiliate_id": {
                     "type": "string",
@@ -4006,7 +4250,10 @@
                               },
                               "state_mapping": {
                                 "type": "string",
-                                "enum": ["abbr_to_name", "name_to_abbr"]
+                                "enum": [
+                                  "abbr_to_name",
+                                  "name_to_abbr"
+                                ]
                               },
                               "order": {
                                 "type": "integer"
@@ -4036,13 +4283,415 @@
           }
         }
       }
+    },
+    "/campaigns/{id}/criteria/apply-catalog": {
+      "post": {
+        "summary": "Apply a criteria catalog version to a campaign",
+        "description": "Copies all fields from the specified catalog version into campaign.base_criteria and records the criteria_set_id / version for traceability.",
+        "operationId": "applyCriteriaCatalog",
+        "tags": [
+          "Campaigns",
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyCriteriaCatalogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Criteria catalog applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Campaign or catalog version not found"
+          }
+        }
+      }
+    },
+    "/campaigns/criteria-catalog": {
+      "get": {
+        "summary": "List all criteria catalog sets",
+        "operationId": "listCriteriaCatalog",
+        "tags": [
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of criteria catalog sets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/CriteriaCatalogSet"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new criteria catalog set",
+        "operationId": "createCriteriaCatalogSet",
+        "tags": [
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCriteriaCatalogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Criteria catalog set created"
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        }
+      }
+    },
+    "/campaigns/criteria-catalog/{setId}": {
+      "get": {
+        "summary": "Get a criteria catalog set with all versions",
+        "operationId": "getCriteriaCatalogSet",
+        "tags": [
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Criteria catalog set with versions"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update a criteria catalog set \u2014 creates a new version",
+        "operationId": "updateCriteriaCatalogSet",
+        "tags": [
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCriteriaCatalogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated \u2014 new version created"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Deactivate a criteria catalog set",
+        "operationId": "deactivateCriteriaCatalogSet",
+        "tags": [
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deactivated"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/campaigns/criteria-catalog/{setId}/versions/{version}": {
+      "get": {
+        "summary": "Get a specific version of a criteria catalog set",
+        "operationId": "getCriteriaCatalogVersion",
+        "tags": [
+          "Criteria Catalog"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Criteria catalog version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CriteriaCatalogVersion"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/users/preferences/{tableId}": {
+      "get": {
+        "summary": "Get calling user's UI configuration for a specific table",
+        "description": "The user is identified from the JWT `sub` claim \u2014 no separate user ID in the path.",
+        "operationId": "getTablePreference",
+        "tags": [
+          "User Preferences"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tableId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "leads_view"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table preference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserTablePreference"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "No preference found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Create or replace calling user's UI configuration for a specific table",
+        "operationId": "upsertTablePreference",
+        "tags": [
+          "User Preferences"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tableId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertTablePreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preference saved"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete calling user's UI configuration for a specific table",
+        "operationId": "deleteTablePreference",
+        "tags": [
+          "User Preferences"
+        ],
+        "security": [
+          {
+            "CognitoAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tableId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preference deleted"
+          },
+          "400": {
+            "description": "Failed"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
     }
   },
   "/audit": {
     "get": {
       "summary": "Full audit log scan",
       "description": "Returns all audit log entries with cursor-based pagination. No filter required \u2014 use this to page through the entire audit table. Results are in DynamoDB scan order (not sorted). Admin only.",
-      "tags": ["audit"],
+      "tags": [
+        "audit"
+      ],
       "security": [
         {
           "BearerAuth": []
@@ -4093,7 +4742,9 @@
     "get": {
       "summary": "Activity feed \u2014 cross-entity audit log query",
       "description": "Returns a paginated list of audit log entries across all entities. Requires either entity_type or actor_sub. Supports optional date range filtering. Results are ordered newest-first.",
-      "tags": ["audit"],
+      "tags": [
+        "audit"
+      ],
       "security": [
         {
           "BearerAuth": []
@@ -4191,7 +4842,9 @@
     "get": {
       "summary": "Entity audit history",
       "description": "Returns paginated audit log entries for a single entity (identified by its ID). Results are ordered newest-first.",
-      "tags": ["audit"],
+      "tags": [
+        "audit"
+      ],
       "security": [
         {
           "BearerAuth": []
@@ -4254,7 +4907,9 @@
     "post": {
       "summary": "Trigger S3 export for a calendar date",
       "description": "Exports all audit log entries for the specified date (YYYY-MM-DD) to S3 as NDJSON. Also triggered automatically by EventBridge Scheduler at midnight UTC. Admin only.",
-      "tags": ["audit"],
+      "tags": [
+        "audit"
+      ],
       "security": [
         {
           "BearerAuth": []
@@ -4312,7 +4967,10 @@
     "schemas": {
       "LoginRequest": {
         "type": "object",
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "properties": {
           "email": {
             "type": "string",
@@ -4327,7 +4985,9 @@
       },
       "RefreshRequest": {
         "type": "object",
-        "required": ["refresh_token"],
+        "required": [
+          "refresh_token"
+        ],
         "properties": {
           "refresh_token": {
             "type": "string",
@@ -4376,24 +5036,40 @@
       },
       "ClientStatus": {
         "type": "string",
-        "enum": ["ACTIVE", "INACTIVE", "SUSPENDED"],
+        "enum": [
+          "ACTIVE",
+          "INACTIVE",
+          "SUSPENDED"
+        ],
         "description": "INACTIVE is set automatically when a client is soft-deleted.",
         "example": "ACTIVE"
       },
       "AffiliateStatus": {
         "type": "string",
-        "enum": ["ACTIVE", "INACTIVE"],
+        "enum": [
+          "ACTIVE",
+          "INACTIVE"
+        ],
         "description": "INACTIVE is set automatically when an affiliate is soft-deleted.",
         "example": "ACTIVE"
       },
       "CampaignParticipantStatus": {
         "type": "string",
-        "enum": ["TEST", "LIVE", "DISABLED"],
+        "enum": [
+          "TEST",
+          "LIVE",
+          "DISABLED"
+        ],
         "example": "TEST"
       },
       "CampaignStatus": {
         "type": "string",
-        "enum": ["DRAFT", "TEST", "ACTIVE", "INACTIVE"],
+        "enum": [
+          "DRAFT",
+          "TEST",
+          "ACTIVE",
+          "INACTIVE"
+        ],
         "example": "TEST"
       },
       "Client": {
@@ -4519,7 +5195,10 @@
       },
       "WebhookFieldMapping": {
         "type": "object",
-        "required": ["key", "value_source"],
+        "required": [
+          "key",
+          "value_source"
+        ],
         "properties": {
           "key": {
             "type": "string",
@@ -4527,7 +5206,10 @@
           },
           "value_source": {
             "type": "string",
-            "enum": ["field", "static"],
+            "enum": [
+              "field",
+              "static"
+            ],
             "description": "field = look up lead.payload[field_name]; static = use static_value"
           },
           "field_name": {
@@ -4541,7 +5223,10 @@
       },
       "WebhookAcceptanceRule": {
         "type": "object",
-        "required": ["match_value", "action"],
+        "required": [
+          "match_value",
+          "action"
+        ],
         "properties": {
           "match_value": {
             "type": "string",
@@ -4549,14 +5234,22 @@
           },
           "action": {
             "type": "string",
-            "enum": ["passed", "failed"],
+            "enum": [
+              "passed",
+              "failed"
+            ],
             "description": "passed = lead is sold, failed = lead is not sold"
           }
         }
       },
       "SetClientDeliveryRequest": {
         "type": "object",
-        "required": ["url", "method", "payload_mapping", "acceptance_rules"],
+        "required": [
+          "url",
+          "method",
+          "payload_mapping",
+          "acceptance_rules"
+        ],
         "properties": {
           "url": {
             "type": "string",
@@ -4565,7 +5258,12 @@
           },
           "method": {
             "type": "string",
-            "enum": ["POST", "GET", "PUT", "PATCH"]
+            "enum": [
+              "POST",
+              "GET",
+              "PUT",
+              "PATCH"
+            ]
           },
           "headers": {
             "type": "object",
@@ -4606,11 +5304,15 @@
           },
           {
             "type": "object",
-            "required": ["claim_trusted_form"],
+            "required": [
+              "claim_trusted_form"
+            ],
             "properties": {
               "claim_trusted_form": {
                 "type": "boolean",
-                "enum": [true],
+                "enum": [
+                  true
+                ],
                 "readOnly": true,
                 "description": "Server-managed flag. Always true in persisted client delivery config and responses."
               }
@@ -4620,11 +5322,17 @@
       },
       "SetDistributionRequest": {
         "type": "object",
-        "required": ["mode", "enabled"],
+        "required": [
+          "mode",
+          "enabled"
+        ],
         "properties": {
           "mode": {
             "type": "string",
-            "enum": ["round_robin", "weighted"]
+            "enum": [
+              "round_robin",
+              "weighted"
+            ]
           },
           "enabled": {
             "type": "boolean"
@@ -4633,7 +5341,9 @@
       },
       "SetAffiliateCapRequest": {
         "type": "object",
-        "required": ["lead_cap"],
+        "required": [
+          "lead_cap"
+        ],
         "properties": {
           "lead_cap": {
             "type": "integer",
@@ -4843,6 +5553,18 @@
             "items": {
               "$ref": "#/components/schemas/BaseCriteriaField"
             }
+          },
+          "criteria_set_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "ID of the CriteriaCatalogSet currently applied to this campaign.",
+            "example": "CCSA1B2C3D4"
+          },
+          "criteria_set_version": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Version number of the CriteriaCatalogVersion currently applied to this campaign.",
+            "example": 2
           }
         }
       },
@@ -4976,7 +5698,11 @@
           },
           "sold_status": {
             "type": "string",
-            "enum": ["sold", "not_sold", "not_delivered"],
+            "enum": [
+              "sold",
+              "not_sold",
+              "not_delivered"
+            ],
             "description": "Derived lead delivery status for UI use. sold=accepted by buyer, not_sold=delivery attempted but not accepted, not_delivered=no delivery attempt was made."
           },
           "sold_to_client_id": {
@@ -4985,6 +5711,18 @@
           },
           "delivery_result": {
             "$ref": "#/components/schemas/LeadDeliveryResult"
+          },
+          "original_source": {
+            "type": "string",
+            "nullable": true,
+            "description": "Immutable copy of the raw `source` field captured at ingestion. Never overwritten after creation.",
+            "example": "facebook_ads"
+          },
+          "order_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Normalized order number \u2014 always >= 1. Null/0/invalid inputs are coerced to 1 at ingestion.",
+            "example": 1
           }
         }
       },
@@ -5016,7 +5754,12 @@
           },
           "webhook_method": {
             "type": "string",
-            "enum": ["POST", "GET", "PUT", "PATCH"],
+            "enum": [
+              "POST",
+              "GET",
+              "PUT",
+              "PATCH"
+            ],
             "description": "HTTP method used for the webhook request"
           },
           "webhook_response_status": {
@@ -5041,7 +5784,10 @@
           },
           "distribution_mode": {
             "type": "string",
-            "enum": ["round_robin", "weighted"],
+            "enum": [
+              "round_robin",
+              "weighted"
+            ],
             "description": "The distribution mode that was active when this lead was routed"
           },
           "client_weight_at_delivery": {
@@ -5061,10 +5807,16 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["phone", "email"]
+              "enum": [
+                "phone",
+                "email"
+              ]
             },
             "minItems": 1,
-            "default": ["phone", "email"]
+            "default": [
+              "phone",
+              "email"
+            ]
           }
         }
       },
@@ -5122,7 +5874,11 @@
           },
           "operator": {
             "type": "string",
-            "enum": ["lte", "gte", "eq"]
+            "enum": [
+              "lte",
+              "gte",
+              "eq"
+            ]
           },
           "value": {
             "type": "number"
@@ -5304,7 +6060,10 @@
       },
       "CreateClientRequest": {
         "type": "object",
-        "required": ["name", "email"],
+        "required": [
+          "name",
+          "email"
+        ],
         "properties": {
           "name": {
             "type": "string"
@@ -5345,7 +6104,11 @@
       },
       "CreateAffiliateRequest": {
         "type": "object",
-        "required": ["name", "email", "phone"],
+        "required": [
+          "name",
+          "email",
+          "phone"
+        ],
         "properties": {
           "name": {
             "type": "string"
@@ -5389,7 +6152,9 @@
       },
       "CreateCampaignRequest": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
             "type": "string"
@@ -5399,7 +6164,9 @@
       },
       "UpdateCampaignRequest": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
             "type": "string"
@@ -5409,7 +6176,9 @@
       },
       "UpdateCampaignStatusRequest": {
         "type": "object",
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "properties": {
           "status": {
             "$ref": "#/components/schemas/CampaignStatus"
@@ -5432,7 +6201,10 @@
                 "minItems": 1,
                 "items": {
                   "type": "string",
-                  "enum": ["phone", "email"]
+                  "enum": [
+                    "phone",
+                    "email"
+                  ]
                 }
               }
             }
@@ -5447,7 +6219,9 @@
       },
       "LinkClientRequest": {
         "type": "object",
-        "required": ["client_id"],
+        "required": [
+          "client_id"
+        ],
         "properties": {
           "client_id": {
             "type": "string"
@@ -5456,7 +6230,9 @@
       },
       "LinkAffiliateRequest": {
         "type": "object",
-        "required": ["affiliate_id"],
+        "required": [
+          "affiliate_id"
+        ],
         "properties": {
           "affiliate_id": {
             "type": "string"
@@ -5465,7 +6241,10 @@
       },
       "CreateLeadRequest": {
         "type": "object",
-        "required": ["campaign_id", "campaign_key"],
+        "required": [
+          "campaign_id",
+          "campaign_key"
+        ],
         "properties": {
           "campaign_id": {
             "type": "string"
@@ -5615,11 +6394,17 @@
       "LeadSubmissionResponse": {
         "type": "object",
         "description": "Unified response returned to affiliates on every lead submission attempt (POST /leads and POST /leads/test).",
-        "required": ["result", "message"],
+        "required": [
+          "result",
+          "message"
+        ],
         "properties": {
           "result": {
             "type": "string",
-            "enum": ["passed", "failed"],
+            "enum": [
+              "passed",
+              "failed"
+            ],
             "description": "'passed' when lead was accepted; 'failed' for any rejection (pre-validation or soft-reject)."
           },
           "message": {
@@ -5637,13 +6422,18 @@
           },
           "errors": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Per-field or per-rule rejection messages. Present only when the lead was soft-rejected."
           },
           "data": {
             "type": "object",
             "description": "Present only when the lead was accepted.",
-            "required": ["lead_id", "message"],
+            "required": [
+              "lead_id",
+              "message"
+            ],
             "properties": {
               "lead_id": {
                 "type": "string",
@@ -5694,7 +6484,11 @@
       },
       "CredentialType": {
         "type": "string",
-        "enum": ["api_key", "basic_auth", "bearer_token"],
+        "enum": [
+          "api_key",
+          "basic_auth",
+          "bearer_token"
+        ],
         "example": "api_key"
       },
       "TenantCredential": {
@@ -5719,7 +6513,11 @@
       },
       "UpsertTenantCredentialRequest": {
         "type": "object",
-        "required": ["provider", "type", "credentials"],
+        "required": [
+          "provider",
+          "type",
+          "credentials"
+        ],
         "properties": {
           "provider": {
             "type": "string",
@@ -5767,7 +6565,9 @@
       },
       "UpdateParticipantStatusRequest": {
         "type": "object",
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "properties": {
           "status": {
             "$ref": "#/components/schemas/CampaignParticipantStatus"
@@ -5802,7 +6602,10 @@
       },
       "UserRole": {
         "type": "string",
-        "enum": ["admin", "staff"],
+        "enum": [
+          "admin",
+          "staff"
+        ],
         "example": "staff"
       },
       "CognitoUser": {
@@ -5846,7 +6649,10 @@
       },
       "CreateUserRequest": {
         "type": "object",
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "properties": {
           "email": {
             "type": "string",
@@ -5890,7 +6696,9 @@
       },
       "ResetPasswordRequest": {
         "type": "object",
-        "required": ["password"],
+        "required": [
+          "password"
+        ],
         "properties": {
           "password": {
             "type": "string",
@@ -5931,7 +6739,12 @@
       },
       "CreateCredentialRequest": {
         "type": "object",
-        "required": ["provider", "name", "type", "credentials"],
+        "required": [
+          "provider",
+          "name",
+          "type",
+          "credentials"
+        ],
         "properties": {
           "provider": {
             "type": "string",
@@ -5948,7 +6761,11 @@
           },
           "type": {
             "type": "string",
-            "enum": ["api_key", "basic_auth", "bearer_token"],
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ],
             "example": "basic_auth"
           },
           "credentials": {
@@ -5975,7 +6792,11 @@
           },
           "type": {
             "type": "string",
-            "enum": ["api_key", "basic_auth", "bearer_token"]
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ]
           },
           "credentials": {
             "type": "object",
@@ -5990,12 +6811,21 @@
       },
       "PluginSchemaFieldType": {
         "type": "string",
-        "enum": ["text", "password", "select"],
+        "enum": [
+          "text",
+          "password",
+          "select"
+        ],
         "description": "HTML input type used to render the field in the frontend form"
       },
       "PluginSchemaField": {
         "type": "object",
-        "required": ["name", "label", "type", "required"],
+        "required": [
+          "name",
+          "label",
+          "type",
+          "required"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -6088,7 +6918,12 @@
       },
       "CreateCredentialSchemaRequest": {
         "type": "object",
-        "required": ["provider", "name", "credential_type", "fields"],
+        "required": [
+          "provider",
+          "name",
+          "credential_type",
+          "fields"
+        ],
         "properties": {
           "provider": {
             "type": "string",
@@ -6179,7 +7014,10 @@
             "type": "string",
             "description": "Canonical plugin provider identifier \u2014 the unique key for this plugin",
             "example": "trusted_form",
-            "enum": ["trusted_form", "ipqs"]
+            "enum": [
+              "trusted_form",
+              "ipqs"
+            ]
           },
           "credentials_id": {
             "type": "string",
@@ -6227,7 +7065,10 @@
             "type": "string",
             "description": "Canonical plugin identifier used as the URL param in all /plugin-settings routes",
             "example": "trusted_form",
-            "enum": ["trusted_form", "ipqs"]
+            "enum": [
+              "trusted_form",
+              "ipqs"
+            ]
           },
           "name": {
             "type": "string",
@@ -6236,7 +7077,11 @@
           },
           "credential_type": {
             "type": "string",
-            "enum": ["api_key", "basic_auth", "bearer_token"],
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ],
             "description": "The credential auth type this plugin requires",
             "example": "basic_auth"
           },
@@ -6328,7 +7173,11 @@
           },
           "credential_type": {
             "type": "string",
-            "enum": ["api_key", "basic_auth", "bearer_token"]
+            "enum": [
+              "api_key",
+              "basic_auth",
+              "bearer_token"
+            ]
           },
           "credentials": {
             "type": "object",
@@ -6375,13 +7224,22 @@
       },
       "BaseCriteriaDataType": {
         "type": "string",
-        "enum": ["Text", "Number", "Boolean", "Date", "List"],
+        "enum": [
+          "Text",
+          "Number",
+          "Boolean",
+          "Date",
+          "List"
+        ],
         "description": "Supported data types for a base criteria field"
       },
       "IFieldOption": {
         "type": "object",
         "description": "A selectable option for a List-type criteria field",
-        "required": ["label", "value"],
+        "required": [
+          "label",
+          "value"
+        ],
         "properties": {
           "label": {
             "type": "string",
@@ -6398,7 +7256,10 @@
       "IValueMapping": {
         "type": "object",
         "description": "Maps one or more raw input values to a single canonical stored value. Matching is case-insensitive.",
-        "required": ["from", "to"],
+        "required": [
+          "from",
+          "to"
+        ],
         "properties": {
           "from": {
             "type": "array",
@@ -6406,7 +7267,11 @@
               "type": "string"
             },
             "description": "List of raw input values that should be normalised to `to`",
-            "example": ["CA", "ca", "calif"]
+            "example": [
+              "CA",
+              "ca",
+              "calif"
+            ]
           },
           "to": {
             "type": "string",
@@ -6418,7 +7283,10 @@
       "LogicRuleCondition": {
         "type": "object",
         "description": "A single condition within a logic rule group.",
-        "required": ["field_name", "operator"],
+        "required": [
+          "field_name",
+          "operator"
+        ],
         "properties": {
           "id": {
             "type": "string",
@@ -6464,7 +7332,9 @@
       "LogicRuleGroup": {
         "type": "object",
         "description": "A group of conditions (AND). Groups are evaluated with OR logic between them.",
-        "required": ["conditions"],
+        "required": [
+          "conditions"
+        ],
         "properties": {
           "id": {
             "type": "string",
@@ -6483,7 +7353,13 @@
       "LogicRule": {
         "type": "object",
         "description": "A logic rule attached to a campaign. Evaluated after criteria validation \u2014 first matching rule wins.",
-        "required": ["id", "name", "action", "enabled", "groups"],
+        "required": [
+          "id",
+          "name",
+          "action",
+          "enabled",
+          "groups"
+        ],
         "properties": {
           "id": {
             "type": "string",
@@ -6497,7 +7373,10 @@
           },
           "action": {
             "type": "string",
-            "enum": ["pass", "fail"],
+            "enum": [
+              "pass",
+              "fail"
+            ],
             "description": "Action to apply when this rule matches"
           },
           "enabled": {
@@ -6530,7 +7409,10 @@
       },
       "CreateLogicRuleConditionRequest": {
         "type": "object",
-        "required": ["field_name", "operator"],
+        "required": [
+          "field_name",
+          "operator"
+        ],
         "properties": {
           "field_name": {
             "type": "string",
@@ -6568,7 +7450,9 @@
       },
       "CreateLogicRuleGroupRequest": {
         "type": "object",
-        "required": ["conditions"],
+        "required": [
+          "conditions"
+        ],
         "properties": {
           "conditions": {
             "type": "array",
@@ -6581,7 +7465,11 @@
       },
       "CreateLogicRuleRequest": {
         "type": "object",
-        "required": ["name", "action", "groups"],
+        "required": [
+          "name",
+          "action",
+          "groups"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -6589,7 +7477,10 @@
           },
           "action": {
             "type": "string",
-            "enum": ["pass", "fail"]
+            "enum": [
+              "pass",
+              "fail"
+            ]
           },
           "enabled": {
             "type": "boolean",
@@ -6613,7 +7504,10 @@
           },
           "action": {
             "type": "string",
-            "enum": ["pass", "fail"]
+            "enum": [
+              "pass",
+              "fail"
+            ]
           },
           "enabled": {
             "type": "boolean"
@@ -6680,7 +7574,10 @@
           },
           "state_mapping": {
             "type": "string",
-            "enum": ["abbr_to_name", "name_to_abbr"],
+            "enum": [
+              "abbr_to_name",
+              "name_to_abbr"
+            ],
             "nullable": true,
             "description": "Built-in US state normalisation preset. `abbr_to_name` converts \"CA\" \u2192 \"California\"; `name_to_abbr` converts \"California\" \u2192 \"CA\". Omit or set null to disable."
           },
@@ -6718,7 +7615,11 @@
       "AddCriteriaFieldRequest": {
         "type": "object",
         "description": "Request body for adding a criteria field to a campaign",
-        "required": ["field_label", "field_name", "data_type"],
+        "required": [
+          "field_label",
+          "field_name",
+          "data_type"
+        ],
         "properties": {
           "field_label": {
             "type": "string",
@@ -6754,7 +7655,10 @@
           },
           "state_mapping": {
             "type": "string",
-            "enum": ["abbr_to_name", "name_to_abbr"],
+            "enum": [
+              "abbr_to_name",
+              "name_to_abbr"
+            ],
             "description": "Built-in US state normalisation preset. Omit to disable."
           },
           "client_override": {
@@ -6800,7 +7704,10 @@
           },
           "state_mapping": {
             "type": "string",
-            "enum": ["abbr_to_name", "name_to_abbr"],
+            "enum": [
+              "abbr_to_name",
+              "name_to_abbr"
+            ],
             "nullable": true,
             "description": "Set to null to remove the existing state_mapping."
           },
@@ -6815,7 +7722,9 @@
       "SetValueMappingsRequest": {
         "type": "object",
         "description": "Fully replaces the value_mappings array on a criteria field. Send an empty array to clear all mappings.",
-        "required": ["value_mappings"],
+        "required": [
+          "value_mappings"
+        ],
         "properties": {
           "value_mappings": {
             "type": "array",
@@ -6825,11 +7734,19 @@
             "description": "New complete set of value mappings. Replaces any existing mappings.",
             "example": [
               {
-                "from": ["CA", "ca", "calif"],
+                "from": [
+                  "CA",
+                  "ca",
+                  "calif"
+                ],
                 "to": "California"
               },
               {
-                "from": ["TX", "tx", "tex"],
+                "from": [
+                  "TX",
+                  "tx",
+                  "tex"
+                ],
                 "to": "Texas"
               }
             ]
@@ -6866,7 +7783,11 @@
       "AuditChange": {
         "type": "object",
         "description": "A single field-level change recorded in an audit log entry",
-        "required": ["field", "from", "to"],
+        "required": [
+          "field",
+          "from",
+          "to"
+        ],
         "properties": {
           "field": {
             "type": "string",
@@ -6949,7 +7870,9 @@
               "credential",
               "credential_schema",
               "plugin_setting",
-              "user"
+              "user",
+              "criteria_catalog",
+              "user_table_preference"
             ],
             "example": "client"
           },
@@ -6995,7 +7918,14 @@
               "affiliate_linked",
               "affiliate_status_updated",
               "affiliate_deleted",
-              "affiliate_key_rotated"
+              "affiliate_key_rotated",
+              "original_source_set",
+              "order_number_normalized",
+              "criteria_catalog_created",
+              "criteria_catalog_updated",
+              "criteria_catalog_assigned",
+              "table_preference_saved",
+              "table_preference_deleted"
             ],
             "example": "updated"
           },
@@ -7057,7 +7987,9 @@
       },
       "AuditExportRequest": {
         "type": "object",
-        "required": ["date"],
+        "required": [
+          "date"
+        ],
         "properties": {
           "date": {
             "type": "string",
@@ -7092,6 +8024,317 @@
                 "example": 142
               }
             }
+          }
+        }
+      },
+      "CriteriaCatalogSet": {
+        "type": "object",
+        "description": "Metadata record for a named criteria catalog set. Versioned \u2014 any field update creates a new version.",
+        "required": [
+          "id",
+          "record_type",
+          "name",
+          "latest_version",
+          "active",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "CCS-prefixed ID",
+            "example": "CCSA1B2C3D4"
+          },
+          "record_type": {
+            "type": "string",
+            "enum": [
+              "catalog_set"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "example": "Standard residential criteria"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "latest_version": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 3
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          },
+          "updated_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          }
+        }
+      },
+      "CriteriaCatalogVersion": {
+        "type": "object",
+        "description": "Immutable snapshot of one criteria catalog version.",
+        "required": [
+          "id",
+          "record_type",
+          "criteria_set_id",
+          "version",
+          "name",
+          "fields",
+          "campaigns_using",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Composite key: {criteria_set_id}#v{version}",
+            "example": "CCSA1B2C3D4#v2"
+          },
+          "record_type": {
+            "type": "string",
+            "enum": [
+              "catalog_version"
+            ]
+          },
+          "criteria_set_id": {
+            "type": "string",
+            "example": "CCSA1B2C3D4"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 2
+          },
+          "name": {
+            "type": "string",
+            "description": "Denormalised name from the parent set"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BaseCriteriaField"
+            }
+          },
+          "campaigns_using": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Campaign IDs that have applied this version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          }
+        }
+      },
+      "CreateCriteriaCatalogRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Standard residential criteria"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddCriteriaFieldRequest"
+            },
+            "description": "Optional initial set of fields (can be added/updated later)"
+          }
+        }
+      },
+      "UpdateCriteriaCatalogRequest": {
+        "type": "object",
+        "required": [
+          "fields"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddCriteriaFieldRequest"
+            },
+            "description": "Full replacement field list \u2014 creates a new immutable version"
+          }
+        }
+      },
+      "ApplyCriteriaCatalogRequest": {
+        "type": "object",
+        "required": [
+          "criteria_set_id",
+          "version"
+        ],
+        "properties": {
+          "criteria_set_id": {
+            "type": "string",
+            "example": "CCSA1B2C3D4"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 2
+          }
+        }
+      },
+      "TableColumnConfig": {
+        "type": "object",
+        "required": [
+          "key",
+          "visible",
+          "order"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Column identifier",
+            "example": "email"
+          },
+          "visible": {
+            "type": "boolean"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Column width in pixels"
+          }
+        }
+      },
+      "TableSortConfig": {
+        "type": "object",
+        "required": [
+          "field",
+          "direction"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        }
+      },
+      "TableFilterConfig": {
+        "type": "object",
+        "required": [
+          "field",
+          "value"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "value": {},
+          "operator": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "TableConfig": {
+        "type": "object",
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableColumnConfig"
+            },
+            "nullable": true
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableSortConfig"
+            },
+            "nullable": true
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableFilterConfig"
+            },
+            "nullable": true
+          }
+        }
+      },
+      "UserTablePreference": {
+        "type": "object",
+        "description": "Per-user, per-table UI configuration (column visibility, sort, filters).",
+        "required": [
+          "user_id",
+          "table_id",
+          "config",
+          "updated_at"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Cognito sub of the owning user"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "Table identifier (e.g. leads_view)",
+            "example": "leads_view"
+          },
+          "config": {
+            "$ref": "#/components/schemas/TableConfig"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_by": {
+            "$ref": "#/components/schemas/RequestActor"
+          }
+        }
+      },
+      "UpsertTablePreferenceRequest": {
+        "type": "object",
+        "required": [
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/TableConfig"
           }
         }
       }

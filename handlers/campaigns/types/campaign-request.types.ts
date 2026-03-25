@@ -195,3 +195,11 @@ export type SetAffiliateCapRequest = {
   /** Positive integer to cap this affiliate's live lead submissions. null removes the cap */
   lead_cap: number | null;
 };
+
+// ── Criteria Catalog ─────────────────────────────────────────────────────────
+
+export type {
+  CreateCriteriaCatalogRequest,
+  UpdateCriteriaCatalogRequest,
+  ApplyCriteriaCatalogRequest,
+} from "../interfaces/ICriteriaCatalog.interface";
