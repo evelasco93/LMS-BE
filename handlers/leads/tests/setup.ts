@@ -14,7 +14,7 @@ export function createMockDynamoDBUtil() {
     put: vi.fn(),
     query: vi.fn(),
     scan: vi.fn(),
-    update: vi.fn(),
+    update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn(),
     buildUpdateExpression: vi.fn(),
   };
@@ -54,6 +54,16 @@ export function createMockAuditWriterService() {
   };
 }
 
+export function createMockLeadDeliveryService() {
+  return {
+    deliverLead: vi.fn().mockResolvedValue({
+      delivered: true,
+      statusCode: 200,
+      attempts: 1,
+    }),
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 
@@ -64,6 +74,7 @@ beforeEach(() => {
   const mockLambdaInvokeUtil = createMockLambdaInvokeUtil();
   const mockConstants = createMockConstants();
   const mockAuditWriterService = createMockAuditWriterService();
+  const mockLeadDeliveryService = createMockLeadDeliveryService();
 
   testContainer.bind("DynamoDBUtil").toConstantValue(mockDynamoDBUtil);
   testContainer.bind("Logger").toConstantValue(mockLogger);
@@ -72,6 +83,9 @@ beforeEach(() => {
   testContainer
     .bind("AuditWriterService")
     .toConstantValue(mockAuditWriterService);
+  testContainer
+    .bind("LeadDeliveryService")
+    .toConstantValue(mockLeadDeliveryService);
 });
 
 export function getMockDynamoDBUtil() {
@@ -88,4 +102,8 @@ export function getMockLambdaInvokeUtil() {
 
 export function getMockConstants() {
   return testContainer.get("LeadsConstants");
+}
+
+export function getMockLeadDeliveryService() {
+  return testContainer.get("LeadDeliveryService");
 }

@@ -81,4 +81,13 @@ export interface QaOrchestratorResult {
   halt_plugin?: string;
   /** Affiliate-readable rejection message from the halting plugin */
   halt_reason?: string;
+  /** Effective bypass directives applied by orchestrator for this evaluation. */
+  bypass_applied?: {
+    duplicate_check?: boolean;
+    trusted_form?: boolean;
+    ipqs_phone?: boolean;
+    ipqs_email?: boolean;
+    ipqs_ip?: boolean;
+    all?: boolean;
+  };
 }

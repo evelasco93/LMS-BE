@@ -1,4 +1,5 @@
 import { IBaseCriteriaField } from "./ICampaign.interface";
+import { ILogicRule } from "./ICampaign.interface";
 import { RequestActor } from "@shared/utils/request-audit.util";
 
 /**
@@ -11,8 +12,8 @@ export interface ICriteriaCatalogSet {
   record_type: "catalog_set";
   name: string;
   description?: string;
+  tags?: string[];
   latest_version: number;
-  active: boolean;
   created_at: string;
   updated_at: string;
   created_by?: RequestActor;
@@ -44,6 +45,7 @@ export interface ICriteriaCatalogVersion {
 export type CreateCriteriaCatalogRequest = {
   name: string;
   description?: string;
+  tags?: string[];
   /** Initial set of fields (optional — can be added later). */
   fields?: Pick<
     IBaseCriteriaField,
@@ -81,5 +83,50 @@ export type UpdateCriteriaCatalogRequest = {
 
 export type ApplyCriteriaCatalogRequest = {
   criteria_set_id: string;
+  version: number;
+};
+
+// ── Logic Catalog (separate from criteria catalog) ─────────────────────────
+
+export interface ILogicCatalogSet {
+  id: string;
+  record_type: "logic_set";
+  name: string;
+  description?: string;
+  tags?: string[];
+  latest_version: number;
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+}
+
+export interface ILogicCatalogVersion {
+  id: string;
+  record_type: "logic_version";
+  logic_set_id: string;
+  version: number;
+  name: string;
+  rules: ILogicRule[];
+  campaigns_using: string[];
+  created_at: string;
+  created_by?: RequestActor;
+}
+
+export type CreateLogicCatalogRequest = {
+  name: string;
+  description?: string;
+  tags?: string[];
+  rules?: Pick<ILogicRule, "name" | "action" | "enabled" | "groups">[];
+};
+
+export type UpdateLogicCatalogRequest = {
+  name?: string;
+  description?: string;
+  rules: Pick<ILogicRule, "name" | "action" | "enabled" | "groups">[];
+};
+
+export type ApplyLogicCatalogRequest = {
+  logic_set_id: string;
   version: number;
 };

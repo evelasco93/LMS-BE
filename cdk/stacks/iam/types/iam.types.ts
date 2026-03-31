@@ -44,6 +44,7 @@ export interface IIamStackConfig {
     auth: IRoleConfig;
     users: IRoleConfig;
     audit: IRoleConfig;
+    cherryPick: IRoleConfig;
   };
 }
 

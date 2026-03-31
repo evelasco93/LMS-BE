@@ -28,6 +28,12 @@ import { Role } from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import { IInternalApiConfig } from "./types/api.types";
 import { nameBuilder } from "../../config/base.config";
+import { consolidateLambdaApiPermissions } from "./routes/route-helpers";
+import { ClientsAffiliatesRoutes } from "./routes/clients-affiliates-routes";
+import { CampaignsRoutes } from "./routes/campaigns-routes";
+import { LeadsRoutes } from "./routes/leads-routes";
+import { TenantConfigRoutes } from "./routes/tenant-config-routes";
+import { QaAuditCherryPickRoutes } from "./routes/qa-audit-routes";
 import * as path from "path";
 
 export interface IInternalApiStackProps extends NestedStackProps {
@@ -38,6 +44,7 @@ export interface IInternalApiStackProps extends NestedStackProps {
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;
   auditLambda: IFunction;
+  cherryPickLambda: IFunction;
   apiConfig: IInternalApiConfig;
   authLambdaRoleName: string;
   usersLambdaRoleName: string;
@@ -46,9 +53,13 @@ export interface IInternalApiStackProps extends NestedStackProps {
 
 /**
  * Internal API Stack
- * Unified REST API for internal services (Clients and Affiliates)
- * Routes are organized by resource type: /v2/clients and /v2/affiliates
- * Each route is proxied to its respective Lambda function
+ * Unified REST API for internal services.
+ * Routes are organised by service domain — each service has its own
+ * route Construct class in ./routes/ to keep this file manageable.
+ *
+ * Lambda resource-based policy consolidation (one wildcard permission per
+ * Lambda) is applied here before any routes are registered, preventing the
+ * AWS 20 KB Lambda policy size limit from being exceeded.
  */
 export class InternalApiStack extends NestedStack {
   public readonly api: RestApi;
@@ -70,6 +81,7 @@ export class InternalApiStack extends NestedStack {
       tenantConfigLambda,
       qaOrchestratorLambda,
       auditLambda,
+      cherryPickLambda,
       apiConfig,
       authLambdaRoleName,
       usersLambdaRoleName,
@@ -112,6 +124,9 @@ export class InternalApiStack extends NestedStack {
       scopeDescription: "Write access for internal API",
     });
 
+    // ============================================================================
+    // COGNITO USER POOL
+    // ============================================================================
     this.userPool = new UserPool(
       this,
       `${logicalIdPrefix}-InternalApiUserPool`,
@@ -181,18 +196,13 @@ export class InternalApiStack extends NestedStack {
     );
     this.cognitoDomainName = userPoolDomain.domainName;
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // USER POOL GROUPS (role-based access control)
-    // ──────────────────────────────────────────────────────────────────────────
-    // "admin" — full management access (create/delete users, etc.)
+    // User pool groups (role-based access control)
     new CfnUserPoolGroup(this, `${logicalIdPrefix}-AdminGroup`, {
       userPoolId: this.userPool.userPoolId,
       groupName: "admin",
       description: "Admin users with full management access",
       precedence: 1,
     });
-
-    // "staff" — standard authenticated access
     new CfnUserPoolGroup(this, `${logicalIdPrefix}-StaffGroup`, {
       userPoolId: this.userPool.userPoolId,
       groupName: "staff",
@@ -209,7 +219,7 @@ export class InternalApiStack extends NestedStack {
     );
 
     // ============================================================================
-    // AUTH LAMBDA (custom login endpoint - wraps Cognito, no API GW auth required)
+    // AUTH LAMBDA (custom login endpoint -- no API GW auth required)
     // ============================================================================
     const authRole = Role.fromRoleName(
       this,
@@ -248,7 +258,7 @@ export class InternalApiStack extends NestedStack {
     );
 
     // ============================================================================
-    // USERS LAMBDA (admin user-management endpoint — protected by Cognito authorizer)
+    // USERS LAMBDA (admin user-management -- protected by Cognito authorizer)
     // ============================================================================
     const usersRole = Role.fromRoleName(
       this,
@@ -290,8 +300,6 @@ export class InternalApiStack extends NestedStack {
     );
 
     // Grant the users Lambda admin permissions on the User Pool.
-    // Both the imported role and the user pool are in this nested stack,
-    // so there is no cross-stack circular reference.
     this.userPool.grant(
       usersRole,
       "cognito-idp:AdminCreateUser",
@@ -308,6 +316,30 @@ export class InternalApiStack extends NestedStack {
       "cognito-idp:AdminUpdateUserAttributes",
     );
 
+    // ============================================================================
+    // LAMBDA PERMISSION CONSOLIDATION
+    // Collapse all per-route Lambda::Permission resources into a single wildcard
+    // permission per Lambda. Must be called BEFORE any addMethod() calls.
+    // ============================================================================
+    const allServiceLambdas: IFunction[] = [
+      this.authLambda,
+      this.usersLambda,
+      clientsLambda,
+      affiliatesLambda,
+      campaignsLambda,
+      leadsLambda,
+      tenantConfigLambda,
+      qaOrchestratorLambda,
+      auditLambda,
+      cherryPickLambda,
+    ];
+    for (const fn of allServiceLambdas) {
+      consolidateLambdaApiPermissions(fn);
+    }
+
+    // ============================================================================
+    // API RESOURCE TREE SETUP
+    // ============================================================================
     const addProtectedMethod = (
       resource: IResource,
       httpMethod: string,
@@ -318,95 +350,69 @@ export class InternalApiStack extends NestedStack {
         authorizationType: AuthorizationType.COGNITO,
         authorizer: this.cognitoAuthorizer,
       };
-
       if (requireScopeChecks) {
         methodOptions.authorizationScopes = scopes;
       }
-
       resource.addMethod(httpMethod, integration, methodOptions);
     };
 
-    // ============================================================================
-    // CLIENTS INTEGRATION
-    // ============================================================================
-    const clientsLambdaIntegration = new LambdaIntegration(clientsLambda, {
-      proxy: true,
-      allowTestInvoke: false,
-    });
-
-    // /v2 resource (shared root)
+    // /v2 resource (shared root for all internal routes)
     const v2Resource = this.api.root.addResource("v2");
 
-    // ============================================================================
-    // AUTH ROUTES (unprotected - public login/refresh endpoints)
-    // ============================================================================
+    // -- Auth routes (public -- no Cognito auth) --------------------------------
     const authLambdaIntegration = new LambdaIntegration(this.authLambda, {
       proxy: true,
       allowTestInvoke: false,
     });
     const authResource = v2Resource.addResource("auth");
-
-    // POST /v2/auth/login - exchange email+password for tokens
     authResource.addResource("login").addMethod("POST", authLambdaIntegration, {
       authorizationType: AuthorizationType.NONE,
     });
-
-    // POST /v2/auth/refresh - exchange refresh_token for new tokens
     authResource
       .addResource("refresh")
       .addMethod("POST", authLambdaIntegration, {
         authorizationType: AuthorizationType.NONE,
       });
 
-    // ============================================================================
-    // USERS ROUTES (protected — admin role enforced inside the Lambda)
-    // ============================================================================
+    // -- Users routes (protected) -----------------------------------------------
     const usersLambdaIntegration = new LambdaIntegration(this.usersLambda, {
       proxy: true,
       allowTestInvoke: false,
     });
     const usersResource = v2Resource.addResource("users");
-
-    // POST /v2/users  — create user (admin only)
     addProtectedMethod(usersResource, "POST", usersLambdaIntegration, [
       writeScope,
     ]);
-    // GET /v2/users   — list users (admin only)
     addProtectedMethod(usersResource, "GET", usersLambdaIntegration, [
       readScope,
     ]);
 
     const userByIdResource = usersResource.addResource("{id}");
-    // GET /v2/users/{id}    — get user (admin only)
     addProtectedMethod(userByIdResource, "GET", usersLambdaIntegration, [
       readScope,
     ]);
-    // PUT /v2/users/{id}    — update role (admin only)
     addProtectedMethod(userByIdResource, "PUT", usersLambdaIntegration, [
       writeScope,
     ]);
-    // DELETE /v2/users/{id} — delete user (admin only)
     addProtectedMethod(userByIdResource, "DELETE", usersLambdaIntegration, [
       writeScope,
     ]);
+    addProtectedMethod(
+      userByIdResource.addResource("password"),
+      "PUT",
+      usersLambdaIntegration,
+      [writeScope],
+    );
+    addProtectedMethod(
+      userByIdResource.addResource("enable"),
+      "PUT",
+      usersLambdaIntegration,
+      [writeScope],
+    );
 
-    // PUT /v2/users/{id}/password — reset password (admin only)
-    const userPasswordResource = userByIdResource.addResource("password");
-    addProtectedMethod(userPasswordResource, "PUT", usersLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // PUT /v2/users/{id}/enable — re-enable a disabled (soft-deleted) user (admin only)
-    const userEnableResource = userByIdResource.addResource("enable");
-    addProtectedMethod(userEnableResource, "PUT", usersLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // ── User Table Preferences routes ─────────────────────────────────────────
-    // /v2/users/preferences/{tableId} — caller identity from JWT, no {id} param
-    const userPreferencesResource = usersResource.addResource("preferences");
-    const userPreferenceByTableResource =
-      userPreferencesResource.addResource("{tableId}");
+    const userPreferenceByTableResource = usersResource
+      .addResource("preferences")
+      .addResource("{tableId}");
     addProtectedMethod(
       userPreferenceByTableResource,
       "GET",
@@ -426,726 +432,50 @@ export class InternalApiStack extends NestedStack {
       [writeScope],
     );
 
-    // ============================================================================
-    // CLIENTS INTEGRATION
-    // ============================================================================
-    const clientsResource = v2Resource.addResource("clients");
-
-    // POST /v2/clients - Create client
-    addProtectedMethod(clientsResource, "POST", clientsLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // GET /v2/clients - List clients
-    addProtectedMethod(clientsResource, "GET", clientsLambdaIntegration, [
+    // -- Service route constructs (one per domain) ------------------------------
+    const sharedProps = {
+      v2Resource,
+      authorizer: this.cognitoAuthorizer,
+      requireScopeChecks,
       readScope,
-    ]);
-
-    // /v2/clients/{id} resource
-    const clientResource = clientsResource.addResource("{id}");
-
-    // GET /v2/clients/{id} - Get client
-    addProtectedMethod(clientResource, "GET", clientsLambdaIntegration, [
-      readScope,
-    ]);
-
-    // PUT /v2/clients/{id} - Update client
-    addProtectedMethod(clientResource, "PUT", clientsLambdaIntegration, [
       writeScope,
-    ]);
+    };
 
-    // DELETE /v2/clients/{id} - Delete client
-    addProtectedMethod(clientResource, "DELETE", clientsLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // ============================================================================
-    // AFFILIATES INTEGRATION
-    // ============================================================================
-    const affiliatesLambdaIntegration = new LambdaIntegration(
+    new ClientsAffiliatesRoutes(this, `${logicalIdPrefix}-ClientsAffiliates`, {
+      ...sharedProps,
+      clientsLambda,
       affiliatesLambda,
-      {
-        proxy: true,
-        allowTestInvoke: false,
-      },
-    );
-
-    // /v2/affiliates resource
-    const affiliatesResource = v2Resource.addResource("affiliates");
-
-    // POST /v2/affiliates - Create affiliate
-    addProtectedMethod(
-      affiliatesResource,
-      "POST",
-      affiliatesLambdaIntegration,
-      [writeScope],
-    );
-
-    // GET /v2/affiliates - List affiliates
-    addProtectedMethod(affiliatesResource, "GET", affiliatesLambdaIntegration, [
-      readScope,
-    ]);
-
-    // /v2/affiliates/{id} resource
-    const affiliateResource = affiliatesResource.addResource("{id}");
-
-    // GET /v2/affiliates/{id} - Get affiliate
-    addProtectedMethod(affiliateResource, "GET", affiliatesLambdaIntegration, [
-      readScope,
-    ]);
-
-    // PUT /v2/affiliates/{id} - Update affiliate
-    addProtectedMethod(affiliateResource, "PUT", affiliatesLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // DELETE /v2/affiliates/{id} - Delete affiliate
-    addProtectedMethod(
-      affiliateResource,
-      "DELETE",
-      affiliatesLambdaIntegration,
-      [writeScope],
-    );
-
-    // ============================================================================
-    // CAMPAIGNS INTEGRATION
-    // ============================================================================
-    const campaignsLambdaIntegration = new LambdaIntegration(campaignsLambda, {
-      proxy: true,
-      allowTestInvoke: false,
     });
 
-    const campaignsResource = v2Resource.addResource("campaigns");
-    // POST /v2/campaigns - create campaign
-    addProtectedMethod(campaignsResource, "POST", campaignsLambdaIntegration, [
-      writeScope,
-    ]);
-    // GET /v2/campaigns - list campaigns
-    addProtectedMethod(campaignsResource, "GET", campaignsLambdaIntegration, [
-      readScope,
-    ]);
-
-    const campaignResource = campaignsResource.addResource("{id}");
-
-    // GET /v2/campaigns/{id} - get campaign by id
-    addProtectedMethod(campaignResource, "GET", campaignsLambdaIntegration, [
-      readScope,
-    ]);
-    // PUT /v2/campaigns/{id} - update campaign name
-    addProtectedMethod(campaignResource, "PUT", campaignsLambdaIntegration, [
-      writeScope,
-    ]);
-    // DELETE /v2/campaigns/{id} - soft/hard delete campaign
-    addProtectedMethod(campaignResource, "DELETE", campaignsLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // clients under campaign
-    const campaignClientsResource = campaignResource.addResource("clients");
-    // link client to campaign
-    addProtectedMethod(
-      campaignClientsResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    // update/delete linked client
-    const campaignClientResource =
-      campaignClientsResource.addResource("{clientId}");
-    addProtectedMethod(
-      campaignClientResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      campaignClientResource,
-      "DELETE",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // PUT /v2/campaigns/{id}/clients/{clientId}/delivery - update client delivery config
-    const campaignClientDeliveryResource =
-      campaignClientResource.addResource("delivery");
-    addProtectedMethod(
-      campaignClientDeliveryResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // affiliates under campaign
-    const campaignAffiliatesResource =
-      campaignResource.addResource("affiliates");
-    // link affiliate to campaign (generates campaign key)
-    addProtectedMethod(
-      campaignAffiliatesResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    // update/delete linked affiliate
-    const campaignAffiliateResource =
-      campaignAffiliatesResource.addResource("{affiliateId}");
-    addProtectedMethod(
-      campaignAffiliateResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      campaignAffiliateResource,
-      "DELETE",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // rotate affiliate campaign_key
-    const rotateAffiliateKeyResource =
-      campaignAffiliateResource.addResource("rotate-key");
-    addProtectedMethod(
-      rotateAffiliateKeyResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // PUT /v2/campaigns/{id}/affiliates/{affiliateId}/cap - update affiliate lead cap
-    const campaignAffiliateCapResource =
-      campaignAffiliateResource.addResource("cap");
-    addProtectedMethod(
-      campaignAffiliateCapResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // update campaign status
-    campaignResource.addResource("status").addMethod(
-      "PUT",
-      campaignsLambdaIntegration,
-      requireScopeChecks
-        ? {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-            authorizationScopes: [writeScope],
-          }
-        : {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-          },
-    );
-
-    // update campaign plugins configuration
-    campaignResource.addResource("plugins").addMethod(
-      "PUT",
-      campaignsLambdaIntegration,
-      requireScopeChecks
-        ? {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-            authorizationScopes: [writeScope],
-          }
-        : {
-            authorizationType: AuthorizationType.COGNITO,
-            authorizer: this.cognitoAuthorizer,
-          },
-    );
-
-    // PUT /v2/campaigns/{id}/distribution - update campaign distribution config
-    const campaignDistributionResource =
-      campaignResource.addResource("distribution");
-    addProtectedMethod(
-      campaignDistributionResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // ── Base Criteria routes ──────────────────────────────────────────────────
-    const campaignCriteriaResource = campaignResource.addResource("criteria");
-    addProtectedMethod(
-      campaignCriteriaResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      campaignCriteriaResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // declare static sub-resources BEFORE {fieldId} to avoid route shadowing
-    const campaignCriteriaBaseFieldsResource =
-      campaignCriteriaResource.addResource("base-fields");
-    addProtectedMethod(
-      campaignCriteriaBaseFieldsResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const campaignCriteriaReorderResource =
-      campaignCriteriaResource.addResource("reorder");
-    addProtectedMethod(
-      campaignCriteriaReorderResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const campaignCriteriaHistoryResource =
-      campaignCriteriaResource.addResource("history");
-    addProtectedMethod(
-      campaignCriteriaHistoryResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-
-    // POST /v2/campaigns/{id}/criteria/apply-catalog
-    const campaignApplyCatalogResource =
-      campaignCriteriaResource.addResource("apply-catalog");
-    addProtectedMethod(
-      campaignApplyCatalogResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const campaignCriteriaFieldResource =
-      campaignCriteriaResource.addResource("{fieldId}");
-    addProtectedMethod(
-      campaignCriteriaFieldResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      campaignCriteriaFieldResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      campaignCriteriaFieldResource,
-      "DELETE",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const campaignCriteriaMappingsResource =
-      campaignCriteriaFieldResource.addResource("mappings");
-    addProtectedMethod(
-      campaignCriteriaMappingsResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // ── Logic Rules routes ────────────────────────────────────────────────────
-    const campaignLogicRulesResource =
-      campaignResource.addResource("logic-rules");
-    addProtectedMethod(
-      campaignLogicRulesResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      campaignLogicRulesResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const campaignLogicRuleResource =
-      campaignLogicRulesResource.addResource("{ruleId}");
-    addProtectedMethod(
-      campaignLogicRuleResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      campaignLogicRuleResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      campaignLogicRuleResource,
-      "DELETE",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // generate posting instructions for an affiliate linked to this campaign
-    const campaignPostingInstructionsResource = campaignResource
-      .addResource("posting-instructions")
-      .addResource("generate");
-    addProtectedMethod(
-      campaignPostingInstructionsResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    // ── Criteria Catalog routes ───────────────────────────────────────────────
-    // Mounted at /v2/campaigns/criteria-catalog (no {id} prefix — catalog is
-    // a shared resource, not campaign-scoped until apply-catalog is called)
-    const criteriaCatalogResource =
-      campaignsResource.addResource("criteria-catalog");
-    addProtectedMethod(
-      criteriaCatalogResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      criteriaCatalogResource,
-      "POST",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const criteriaCatalogBySetIdResource =
-      criteriaCatalogResource.addResource("{setId}");
-    addProtectedMethod(
-      criteriaCatalogBySetIdResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      criteriaCatalogBySetIdResource,
-      "PUT",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      criteriaCatalogBySetIdResource,
-      "DELETE",
-      campaignsLambdaIntegration,
-      [writeScope],
-    );
-
-    const criteriaCatalogVersionsResource =
-      criteriaCatalogBySetIdResource.addResource("versions");
-    const criteriaCatalogVersionResource =
-      criteriaCatalogVersionsResource.addResource("{version}");
-    addProtectedMethod(
-      criteriaCatalogVersionResource,
-      "GET",
-      campaignsLambdaIntegration,
-      [readScope],
-    );
-
-    // ============================================================================
-    // LEADS INTEGRATION
-    // ============================================================================
-    const leadsLambdaIntegration = new LambdaIntegration(leadsLambda, {
-      proxy: true,
-      allowTestInvoke: false,
+    new CampaignsRoutes(this, `${logicalIdPrefix}-Campaigns`, {
+      ...sharedProps,
+      campaignsLambda,
     });
 
-    const leadsResource = v2Resource.addResource("leads");
-    // list leads (internal only)
-    addProtectedMethod(leadsResource, "GET", leadsLambdaIntegration, [
-      readScope,
-    ]);
+    new LeadsRoutes(this, `${logicalIdPrefix}-Leads`, {
+      ...sharedProps,
+      leadsLambda,
+    });
 
-    // list raw intake logs captured for all inbound lead submissions
-    const leadsIntakeLogsResource = leadsResource.addResource("intake-logs");
-    addProtectedMethod(leadsIntakeLogsResource, "GET", leadsLambdaIntegration, [
-      readScope,
-    ]);
-
-    const leadByIdResource = leadsResource.addResource("{id}");
-    // get lead by id
-    addProtectedMethod(leadByIdResource, "GET", leadsLambdaIntegration, [
-      readScope,
-    ]);
-    // update lead
-    addProtectedMethod(leadByIdResource, "PUT", leadsLambdaIntegration, [
-      writeScope,
-    ]);
-    // delete lead — soft by default, ?permanent=true for hard delete (admin only)
-    addProtectedMethod(leadByIdResource, "DELETE", leadsLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // ============================================================================
-    // TENANT CONFIG INTEGRATION
-    // ============================================================================
-    const tenantConfigLambdaIntegration = new LambdaIntegration(
+    new TenantConfigRoutes(this, `${logicalIdPrefix}-TenantConfig`, {
+      ...sharedProps,
       tenantConfigLambda,
-      {
-        proxy: true,
-        allowTestInvoke: false,
-      },
-    );
-
-    const tenantConfigResource = v2Resource.addResource("tenant-config");
-
-    // ── Credentials ──────────────────────────────────────────────────────────
-    const credentialsResource = tenantConfigResource.addResource("credentials");
-
-    addProtectedMethod(
-      credentialsResource,
-      "POST",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      credentialsResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-
-    const credentialByIdResource = credentialsResource.addResource("{id}");
-    addProtectedMethod(
-      credentialByIdResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      credentialByIdResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      credentialByIdResource,
-      "DELETE",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const credentialRestoreResource =
-      credentialByIdResource.addResource("restore");
-    addProtectedMethod(
-      credentialRestoreResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const credentialDisableResource =
-      credentialByIdResource.addResource("disable");
-    addProtectedMethod(
-      credentialDisableResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const credentialEnableResource =
-      credentialByIdResource.addResource("enable");
-    addProtectedMethod(
-      credentialEnableResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    // ── Credential Schemas ────────────────────────────────────────────────────
-    const credSchemasResource =
-      tenantConfigResource.addResource("credential-schemas");
-    addProtectedMethod(
-      credSchemasResource,
-      "POST",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      credSchemasResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-
-    const credSchemaByIdResource = credSchemasResource.addResource("{id}");
-    addProtectedMethod(
-      credSchemaByIdResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      credSchemaByIdResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      credSchemaByIdResource,
-      "DELETE",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const credSchemaRestoreResource =
-      credSchemaByIdResource.addResource("restore");
-    addProtectedMethod(
-      credSchemaRestoreResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    // ── Plugins (registry) ───────────────────────────────────────────────────
-    const pluginsResource = tenantConfigResource.addResource("plugins");
-    addProtectedMethod(pluginsResource, "GET", tenantConfigLambdaIntegration, [
-      readScope,
-    ]);
-
-    // ── Plugin Settings ───────────────────────────────────────────────────────
-    const pluginSettingsResource =
-      tenantConfigResource.addResource("plugin-settings");
-    addProtectedMethod(
-      pluginSettingsResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-
-    const pluginSettingBySchemaResource =
-      pluginSettingsResource.addResource("{provider}");
-    addProtectedMethod(
-      pluginSettingBySchemaResource,
-      "GET",
-      tenantConfigLambdaIntegration,
-      [readScope],
-    );
-    addProtectedMethod(
-      pluginSettingBySchemaResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-    addProtectedMethod(
-      pluginSettingBySchemaResource,
-      "DELETE",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const pluginSettingUpdateResource =
-      pluginSettingBySchemaResource.addResource("update");
-    addProtectedMethod(
-      pluginSettingUpdateResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const pluginSettingDisableResource =
-      pluginSettingBySchemaResource.addResource("disable");
-    addProtectedMethod(
-      pluginSettingDisableResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const pluginSettingEnableResource =
-      pluginSettingBySchemaResource.addResource("enable");
-    addProtectedMethod(
-      pluginSettingEnableResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    const pluginSettingRestoreResource =
-      pluginSettingBySchemaResource.addResource("restore");
-    addProtectedMethod(
-      pluginSettingRestoreResource,
-      "PUT",
-      tenantConfigLambdaIntegration,
-      [writeScope],
-    );
-
-    // ============================================================================
-    // QA ORCHESTRATOR HTTP ROUTES
-    // ============================================================================
-    const qaOrchestratorLambdaIntegration = new LambdaIntegration(
-      qaOrchestratorLambda,
-      { proxy: true, allowTestInvoke: false },
-    );
-
-    const qaResource = v2Resource.addResource("qa");
-
-    // ── TrustedForm ───────────────────────────────────────────────────────────
-    const qaTrustedFormResource = qaResource.addResource("trusted-form");
-
-    // POST /v2/qa/trusted-form/validate — proxy to TrustedForm API (auto-resolve or explicit credentials_id)
-    // Note: duplicate-check and full lead validation are lambda-to-lambda only (no HTTP route)
-    const qaValidateResource = qaTrustedFormResource.addResource("validate");
-    addProtectedMethod(
-      qaValidateResource,
-      "POST",
-      qaOrchestratorLambdaIntegration,
-      [writeScope],
-    );
-
-    // ── IPQS ─────────────────────────────────────────────────────────────────
-    const qaIpqsResource = qaResource.addResource("ipqs");
-
-    // POST /v2/qa/ipqs/check — run an IPQS fraud-score check directly (auto-resolve credentials)
-    const qaIpqsCheckResource = qaIpqsResource.addResource("check");
-    addProtectedMethod(
-      qaIpqsCheckResource,
-      "POST",
-      qaOrchestratorLambdaIntegration,
-      [writeScope],
-    );
-
-    // ============================================================================
-    // AUDIT INTEGRATION
-    // ============================================================================
-    const auditLambdaIntegration = new LambdaIntegration(auditLambda, {
-      proxy: true,
-      allowTestInvoke: false,
     });
 
-    const auditResource = v2Resource.addResource("audit");
+    new QaAuditCherryPickRoutes(this, `${logicalIdPrefix}-QaAuditCherryPick`, {
+      ...sharedProps,
+      qaOrchestratorLambda,
+      auditLambda,
+      cherryPickLambda,
+    });
 
-    // GET /v2/audit — full table scan with cursor-based pagination (no filter required)
-    addProtectedMethod(auditResource, "GET", auditLambdaIntegration, [
-      readScope,
-    ]);
-
-    // Declare static sub-resources BEFORE {entityId} to avoid route shadowing
-    // GET /v2/audit/activity — cross-entity activity feed (entity_type or actor_sub filter)
-    const auditActivityResource = auditResource.addResource("activity");
-    addProtectedMethod(auditActivityResource, "GET", auditLambdaIntegration, [
-      readScope,
-    ]);
-
-    // POST /v2/audit/export — manually trigger daily S3 export (admin only)
-    const auditExportResource = auditResource.addResource("export");
-    addProtectedMethod(auditExportResource, "POST", auditLambdaIntegration, [
-      writeScope,
-    ]);
-
-    // GET /v2/audit/{entityId} — paginated audit history for a specific entity
-    const auditByEntityResource = auditResource.addResource("{entityId}");
-    addProtectedMethod(auditByEntityResource, "GET", auditLambdaIntegration, [
-      readScope,
-    ]);
-
+    // ============================================================================
+    // OUTPUTS
+    // ============================================================================
     new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoUserPoolId`, {
       value: this.userPool.userPoolId,
       description: "Cognito User Pool ID for internal API OAuth",
     });
-
     new CfnOutput(
       this,
       `${logicalIdPrefix}-InternalApiCognitoUserPoolClientId`,
@@ -1154,7 +484,6 @@ export class InternalApiStack extends NestedStack {
         description: "Cognito App Client ID for custom login screen",
       },
     );
-
     new CfnOutput(this, `${logicalIdPrefix}-InternalApiCognitoDomainName`, {
       value: userPoolDomain.domainName,
       description: "Cognito domain for OAuth2 authorize/token endpoints",

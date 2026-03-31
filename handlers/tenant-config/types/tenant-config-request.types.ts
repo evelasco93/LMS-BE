@@ -59,3 +59,15 @@ export type UpdatePluginSettingRequest = {
   credentials_id?: string;
   enabled?: boolean;
 };
+
+// ── Tag Definitions ─────────────────────────────────────────────────────────
+
+export type CreateTagDefinitionRequest = {
+  label: string;
+  color?: string;
+};
+
+export type UpdateTagDefinitionRequest = {
+  label?: string;
+  color?: string;
+};

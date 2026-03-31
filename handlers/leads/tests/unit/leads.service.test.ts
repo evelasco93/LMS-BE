@@ -7,6 +7,7 @@ import {
   getTestContainer,
   getMockDynamoDBUtil,
   getMockLambdaInvokeUtil,
+  getMockLeadDeliveryService,
   getMockConstants,
 } from "../setup";
 
@@ -30,6 +31,7 @@ describe("LeadsService", () => {
   let leadsService: LeadsService;
   let mockDynamoDBUtil: any;
   let mockLambdaInvokeUtil: any;
+  let mockLeadDeliveryService: any;
   let mockConstants: any;
 
   beforeEach(() => {
@@ -38,6 +40,7 @@ describe("LeadsService", () => {
     leadsService = container.get<LeadsService>("LeadsService");
     mockDynamoDBUtil = getMockDynamoDBUtil();
     mockLambdaInvokeUtil = getMockLambdaInvokeUtil();
+    mockLeadDeliveryService = getMockLeadDeliveryService();
     mockConstants = getMockConstants();
   });
 
@@ -58,22 +61,16 @@ describe("LeadsService", () => {
 
   describe("createLead", () => {
     it("normalises flat external format (no payload wrapper) correctly", async () => {
-      // External affiliates post a flat body: { campaign_id, campaign_key, ...leadData }
-      // Service must extract lead data into payload and still reject for a missing campaign.
       mockDynamoDBUtil.get.mockResolvedValueOnce(null);
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: "CM123",
-          campaign_key: "KEY123",
-          first_name: "Edgar",
-          email: "test@example.com",
-          phone: "+15551234567",
-        } as any,
-        true,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: "CM123",
+        campaign_key: "KEY123",
+        first_name: "Edgar",
+        email: "test@example.com",
+        phone: "+15551234567",
+      } as any);
 
-      // Gets through normalisation, reaches "Campaign not found" — not an Invalid fields error
       expect(result.result).toBe("failed");
       expect(result.error).toContain("Campaign not found");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
@@ -82,14 +79,11 @@ describe("LeadsService", () => {
     it("fails when campaign not found", async () => {
       mockDynamoDBUtil.get.mockResolvedValueOnce(null);
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: "CM404",
-          campaign_key: "KEY123",
-          payload: {},
-        },
-        true,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: "CM404",
+        campaign_key: "KEY123",
+        payload: {},
+      });
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("Campaign not found");
@@ -107,19 +101,17 @@ describe("LeadsService", () => {
         ],
       });
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: "CM123",
-          campaign_key: "KEY123",
-          payload: {},
-        },
-        false,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: "CM123",
+        campaign_key: "KEY123",
+        payload: {},
+      });
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("Invalid campaign_key");
     });
-    it("stores test lead when campaign is in TEST", async () => {
+
+    it("stores test lead when affiliate is TEST", async () => {
       const campaign = buildCampaign(
         CampaignStatus.TEST,
         CampaignParticipantStatus.TEST,
@@ -133,7 +125,7 @@ describe("LeadsService", () => {
         payload: { email: "test@example.com" },
       };
 
-      const result = await leadsService.createLead(payload, true);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("passed");
       expect(result.data?.lead_id).toBeDefined();
@@ -153,14 +145,14 @@ describe("LeadsService", () => {
         payload: {},
       };
 
-      const result = await leadsService.createLead(payload, true);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("Invalid campaign_key");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
 
-    it("rejects draft campaigns on either endpoint", async () => {
+    it("rejects draft campaigns for TEST affiliates", async () => {
       const campaign = buildCampaign(
         CampaignStatus.DRAFT,
         CampaignParticipantStatus.TEST,
@@ -173,7 +165,7 @@ describe("LeadsService", () => {
         payload: {},
       };
 
-      const result = await leadsService.createLead(payload, true);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("draft");
@@ -186,37 +178,32 @@ describe("LeadsService", () => {
       );
       mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: campaign.id,
-          campaign_key: "KEY123",
-          payload: {},
-        },
-        false,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: {},
+      });
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("inactive");
     });
 
-    it("rejects live endpoint when campaign is TEST", async () => {
+    it("rejects LIVE affiliate when campaign is TEST", async () => {
       mockDynamoDBUtil.get.mockResolvedValueOnce(
         buildCampaign(CampaignStatus.TEST, CampaignParticipantStatus.LIVE),
       );
 
-      const payload: CreateLeadRequest = {
+      const result = await leadsService.createLead({
         campaign_id: "CM123",
         campaign_key: "KEY123",
         payload: {},
-      };
-
-      const result = await leadsService.createLead(payload, false);
+      });
 
       expect(result.result).toBe("failed");
-      expect(result.error).toContain("send to /leads/test");
+      expect(result.error).toContain("test mode");
     });
 
-    it("allows TEST affiliate to send test leads when campaign is ACTIVE", async () => {
+    it("allows TEST affiliate on ACTIVE campaign", async () => {
       const campaign = buildCampaign(
         CampaignStatus.ACTIVE,
         CampaignParticipantStatus.TEST,
@@ -230,41 +217,31 @@ describe("LeadsService", () => {
         payload: { email: "test@example.com" },
       };
 
-      const result = await leadsService.createLead(payload, true);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("passed");
       expect(result.data?.lead_id).toBeDefined();
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
-    it("rejects LIVE affiliate attempting to use the test endpoint", async () => {
-      mockDynamoDBUtil.get.mockResolvedValueOnce(
-        buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.LIVE),
+    it("auto-detects test from payload field value", async () => {
+      const campaign = buildCampaign(
+        CampaignStatus.ACTIVE,
+        CampaignParticipantStatus.LIVE,
       );
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-      const result = await leadsService.createLead(
-        { campaign_id: "CM123", campaign_key: "KEY123", payload: {} },
-        true,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { first_name: "Test", email: "guy@example.com" },
+      });
 
-      expect(result.result).toBe("failed");
-      expect(result.error).toContain("campaign is live");
-      expect(result.error).toContain("/leads");
-    });
-
-    it("rejects TEST affiliate attempting to use the live endpoint", async () => {
-      mockDynamoDBUtil.get.mockResolvedValueOnce(
-        buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.TEST),
-      );
-
-      const result = await leadsService.createLead(
-        { campaign_id: "CM123", campaign_key: "KEY123", payload: {} },
-        false,
-      );
-
-      expect(result.result).toBe("failed");
-      expect(result.error).toContain("test mode");
-      expect(result.error).toContain("/leads/test");
+      // Auto-detected as test: accepted but no delivery
+      expect(result.result).toBe("passed");
+      expect(result.message).toContain("Test lead accepted");
+      expect(mockLeadDeliveryService.deliverLead).not.toHaveBeenCalled();
     });
 
     it("stores lead but marks rejected when affiliate is DISABLED", async () => {
@@ -281,7 +258,7 @@ describe("LeadsService", () => {
         payload: { name: "Disabled Affiliate Lead" },
       };
 
-      const result = await leadsService.createLead(payload, false);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("failed");
       expect(result.lead_id).toBeDefined();
@@ -303,7 +280,7 @@ describe("LeadsService", () => {
         payload: { name: "Bob" },
       };
 
-      const result = await leadsService.createLead(payload, false);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("failed");
       expect(result.lead_id).toBeDefined();
@@ -325,7 +302,7 @@ describe("LeadsService", () => {
         payload: { name: "Alice" },
       };
 
-      const result = await leadsService.createLead(payload, false);
+      const result = await leadsService.createLead(payload);
 
       expect(result.result).toBe("passed");
       expect(result.data?.lead_id).toBeDefined();
@@ -353,14 +330,11 @@ describe("LeadsService", () => {
       });
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: campaign.id,
-          campaign_key: "KEY123",
-          payload: { email: "dup@test.com" },
-        },
-        false,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "dup@real.com" },
+      });
 
       expect(result.result).toBe("failed");
       expect(result.lead_id).toBeDefined();
@@ -391,18 +365,46 @@ describe("LeadsService", () => {
       });
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: campaign.id,
-          campaign_key: "KEY123",
-          payload: { email: "dup@test.com" },
-        },
-        false,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "dup@real.com" },
+      });
 
       expect(result.result).toBe("passed");
       expect(result.data?.lead_id).toBeDefined();
       expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects live lead when delivery is not accepted", async () => {
+      const campaign = buildCampaign(
+        CampaignStatus.ACTIVE,
+        CampaignParticipantStatus.LIVE,
+      );
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+      mockLeadDeliveryService.deliverLead.mockImplementationOnce(
+        async (lead: any) => {
+          lead.sold = false;
+          lead.rejected = true;
+          lead.rejection_reason =
+            "No eligible LIVE client available for delivery";
+          lead.rejection_errors = [
+            "No eligible LIVE client available for delivery",
+          ];
+        },
+      );
+
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "lead@undelivered.com" },
+      });
+
+      expect(result.result).toBe("failed");
+      expect(result.lead_id).toBeDefined();
+      expect(result.errors?.[0]).toContain("No eligible LIVE client");
+      expect(mockLeadDeliveryService.deliverLead).toHaveBeenCalledTimes(1);
     });
 
     it("handles persistence failure", async () => {
@@ -411,14 +413,11 @@ describe("LeadsService", () => {
       );
       mockDynamoDBUtil.put.mockRejectedValueOnce(new Error("dynamo fail"));
 
-      const result = await leadsService.createLead(
-        {
-          campaign_id: "CM123",
-          campaign_key: "KEY123",
-          payload: {},
-        },
-        false,
-      );
+      const result = await leadsService.createLead({
+        campaign_id: "CM123",
+        campaign_key: "KEY123",
+        payload: {},
+      });
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("dynamo fail");

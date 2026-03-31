@@ -1,5 +1,10 @@
 import { NestedStack, NestedStackProps, RemovalPolicy } from "aws-cdk-lib";
-import { Table, AttributeType, BillingMode } from "aws-cdk-lib/aws-dynamodb";
+import {
+  Table,
+  AttributeType,
+  BillingMode,
+  ProjectionType,
+} from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 import { ITableConfig } from "./types/data.types";
 
@@ -40,7 +45,19 @@ export class LeadsDataStack extends NestedStack {
       removalPolicy: removalPolicy ?? RemovalPolicy.DESTROY,
     });
 
-    // TODO: add GSIs (e.g., campaign_id/status) when needed
+    // Query-first read path for campaign-scoped lead listing.
+    this.table.addGlobalSecondaryIndex({
+      indexName: `${tableConfig.tableName}-campaign-created-at-index`,
+      partitionKey: {
+        name: "campaign_id",
+        type: AttributeType.STRING,
+      },
+      sortKey: {
+        name: "created_at",
+        type: AttributeType.STRING,
+      },
+      projectionType: ProjectionType.ALL,
+    });
   }
 
   private getAttributeType(type: "S" | "N" | "B") {

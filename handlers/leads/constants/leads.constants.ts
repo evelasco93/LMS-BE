@@ -3,6 +3,7 @@ import { injectable } from "inversify";
 @injectable()
 export class LeadsConstants {
   public readonly LEADS_TABLE_NAME: string;
+  public readonly LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: string;
   public readonly CAMPAIGNS_TABLE_NAME: string;
   public readonly QA_ORCHESTRATOR_LAMBDA_NAME: string;
   public readonly CRITERIA_VALIDATION_LAMBDA_NAME: string;
@@ -18,6 +19,9 @@ export class LeadsConstants {
 
   constructor() {
     this.LEADS_TABLE_NAME = process.env.LEADS_TABLE_NAME ?? "";
+    this.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME =
+      process.env.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME ??
+      `${this.LEADS_TABLE_NAME}-campaign-created-at-index`;
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
     this.QA_ORCHESTRATOR_LAMBDA_NAME =
       process.env.QA_ORCHESTRATOR_LAMBDA_NAME ?? "";

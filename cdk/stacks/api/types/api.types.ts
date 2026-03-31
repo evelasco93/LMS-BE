@@ -64,6 +64,7 @@ export interface IApiStackProps extends IBaseStackProps {
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;
   auditLambda: IFunction;
+  cherryPickLambda: IFunction;
   authLambdaRoleName: string;
   usersLambdaRoleName: string;
 }

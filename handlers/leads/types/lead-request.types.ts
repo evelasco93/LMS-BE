@@ -15,6 +15,7 @@ export type ListLeadsQuery = {
   limit?: number;
   lastEvaluatedKey?: string;
   includeDeleted?: boolean;
+  include_trace?: boolean;
 };
 
 export type ListIntakeLogsQuery = {

@@ -19,4 +19,5 @@ export type ListClientsQuery = {
   limit?: number;
   lastEvaluatedKey?: string;
   includeDeleted?: boolean;
+  includeCampaigns?: boolean;
 };

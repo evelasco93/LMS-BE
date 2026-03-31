@@ -20,6 +20,8 @@ import {
   UpdateCredentialSchemaRequest,
   SetPluginSettingRequest,
   UpdatePluginSettingRequest,
+  CreateTagDefinitionRequest,
+  UpdateTagDefinitionRequest,
 } from "../types/tenant-config-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
@@ -552,6 +554,104 @@ export class TenantConfigController extends Controller {
       success: true,
       message: "Plugin setting restored",
       data: result.data,
+    };
+  }
+
+  // ── Tag Definitions ──────────────────────────────────────────────────────
+
+  @GET("/tag-definitions")
+  @produces("application/json")
+  async listTagDefinitions(
+    @queryParam("includeDeleted") includeDeleted?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.listTagDefinitions(
+      includeDeleted === "true",
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to list tag definitions",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Tag definitions retrieved successfully",
+      data: {
+        items: result.data,
+        count: result.data?.length ?? 0,
+      },
+    };
+  }
+
+  @POST("/tag-definitions")
+  @produces("application/json")
+  async createTagDefinition(
+    @body payload: CreateTagDefinitionRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.createTagDefinition(
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to create tag definition",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Tag definition created successfully",
+      data: result.data,
+    };
+  }
+
+  @PUT("/tag-definitions/:id")
+  @produces("application/json")
+  async updateTagDefinition(
+    @pathParam("id") id: string,
+    @body payload: UpdateTagDefinitionRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.updateTagDefinition(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to update tag definition",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Tag definition updated successfully",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/tag-definitions/:id")
+  @produces("application/json")
+  async deleteTagDefinition(
+    @pathParam("id") id: string,
+    @queryParam("permanent") permanent?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.deleteTagDefinition(
+      id,
+      { permanent: permanent === "true" },
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to delete tag definition",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message:
+        permanent === "true"
+          ? "Tag definition permanently deleted"
+          : "Tag definition deleted",
     };
   }
 }

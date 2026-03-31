@@ -24,12 +24,16 @@ import {
   IEditHistoryEntry,
   IFieldOption,
   IIpqsEmailCheckConfig,
+  IIpqsEmailCriteria,
   IIpqsIpCheckConfig,
+  IIpqsIpCriteria,
   IIpqsPhoneCheckConfig,
+  IIpqsPhoneCriteria,
   IIpqsPluginConfig,
   ILogicRule,
   ILogicRuleCondition,
   ILogicRuleGroup,
+  ICampaignValidationBypassConfig,
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
 import {
@@ -49,6 +53,9 @@ import {
   PostingInstructionsResult,
   ReorderCriteriaRequest,
   SetAffiliateCapRequest,
+  SetAffiliateValidationBypassRequest,
+  SetAffiliateSoldPixelRequest,
+  SetCampaignTagsRequest,
   SetClientDeliveryRequest,
   SetDistributionRequest,
   SetValueMappingsRequest,
@@ -65,9 +72,15 @@ import {
 import {
   ICriteriaCatalogSet,
   ICriteriaCatalogVersion,
+  ILogicCatalogSet,
+  ILogicCatalogVersion,
+  CreateLogicCatalogRequest,
+  UpdateLogicCatalogRequest,
+  ApplyLogicCatalogRequest,
 } from "../interfaces/ICriteriaCatalog.interface";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
+import { ITagDefinitionRecord } from "../../tenant-config/interfaces/ITenantConfig.interface";
 
 @injectable()
 export class CampaignService {
@@ -88,7 +101,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["name"],
+        ["name", "tags"],
       );
 
       if (!ok) {
@@ -97,6 +110,15 @@ export class CampaignService {
 
       if (!sanitized.name) {
         return { result: false, error: "name is required" };
+      }
+
+      // Optionally validate tags on creation
+      if (request.tags) {
+        if (!Array.isArray(request.tags)) {
+          return { result: false, error: "tags must be an array of strings" };
+        }
+        const validationError = await this.validateCampaignTags(request.tags);
+        if (validationError) return { result: false, error: validationError };
       }
 
       const now = new Date().toISOString();
@@ -113,6 +135,7 @@ export class CampaignService {
         updated_by: actor,
         is_deleted: false,
         active: true,
+        ...(request.tags ? { tags: request.tags } : {}),
       };
 
       await this.dynamoDBUtil.put({
@@ -223,7 +246,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["name"],
+        ["name", "default_cherry_pickable"],
       );
 
       if (!ok) {
@@ -247,6 +270,21 @@ export class CampaignService {
       const changes: AuditChange[] = [];
       if (campaign.name !== name) {
         changes.push({ field: "name", from: campaign.name, to: name });
+      }
+
+      const newPickable = sanitized.default_cherry_pickable as
+        | boolean
+        | undefined;
+      if (
+        newPickable !== undefined &&
+        campaign.default_cherry_pickable !== newPickable
+      ) {
+        changes.push({
+          field: "default_cherry_pickable",
+          from: campaign.default_cherry_pickable,
+          to: newPickable,
+        });
+        campaign.default_cherry_pickable = newPickable;
       }
 
       campaign.name = name;
@@ -303,6 +341,20 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
+
+      // Guard: campaign must have criteria and logic before linking
+      const hasCriteria =
+        (campaign.base_criteria ?? []).length > 0 || !!campaign.criteria_set_id;
+      const hasLogic =
+        (campaign.logic_rules ?? []).length > 0 || !!campaign.logic_set_id;
+      if (!hasCriteria || !hasLogic) {
+        return {
+          result: false,
+          error:
+            "Campaign must have criteria and logic configured before linking participants",
+        };
+      }
+
       const normalized = this.normalizeParticipants(campaign);
       Object.assign(campaign, normalized);
 
@@ -321,6 +373,15 @@ export class CampaignService {
           status: campaignStatus,
         };
         campaign.clients = [...campaign.clients, newClient];
+      }
+
+      const existingClientOverride = (campaign.client_overrides ?? {})[
+        clientId
+      ];
+      if (!existingClientOverride) {
+        const overrides = { ...(campaign.client_overrides ?? {}) };
+        overrides[clientId] = { logic_mode: "inherit_campaign" };
+        campaign.client_overrides = overrides;
       }
 
       campaign.ever_linked_participants = true;
@@ -402,6 +463,20 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
+
+      // Guard: campaign must have criteria and logic before linking
+      const hasCriteria =
+        (campaign.base_criteria ?? []).length > 0 || !!campaign.criteria_set_id;
+      const hasLogic =
+        (campaign.logic_rules ?? []).length > 0 || !!campaign.logic_set_id;
+      if (!hasCriteria || !hasLogic) {
+        return {
+          result: false,
+          error:
+            "Campaign must have criteria and logic configured before linking participants",
+        };
+      }
+
       const normalized = this.normalizeParticipants(campaign);
       Object.assign(campaign, normalized);
 
@@ -423,6 +498,15 @@ export class CampaignService {
           status: campaignStatus,
         };
         campaign.affiliates = [...campaign.affiliates, newAffiliate];
+      }
+
+      const existingAffiliateOverride = (campaign.affiliate_overrides ?? {})[
+        affiliateId
+      ];
+      if (!existingAffiliateOverride) {
+        const overrides = { ...(campaign.affiliate_overrides ?? {}) };
+        overrides[affiliateId] = { logic_mode: "inherit_campaign" };
+        campaign.affiliate_overrides = overrides;
       }
 
       campaign.updated_at = new Date().toISOString();
@@ -1317,6 +1401,16 @@ export class CampaignService {
           error: "Each payload_mapping entry must have a non-empty key",
         };
       }
+      if (
+        mapping.parameter_target !== undefined &&
+        mapping.parameter_target !== "query" &&
+        mapping.parameter_target !== "body"
+      ) {
+        return {
+          result: false,
+          error: `payload_mapping key "${mapping.key}": parameter_target must be "query" or "body"`,
+        };
+      }
       if (mapping.value_source === "field" && !mapping.field_name?.trim()) {
         return {
           result: false,
@@ -1516,6 +1610,202 @@ export class CampaignService {
     }
   }
 
+  async setCampaignTags(
+    campaignId: string,
+    request: SetCampaignTagsRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    try {
+      if (!request || !Array.isArray(request.tags)) {
+        return { result: false, error: "tags must be an array of strings" };
+      }
+
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const tags = [
+        ...new Set(
+          request.tags
+            .map((t) => (typeof t === "string" ? t.trim() : ""))
+            .filter(Boolean),
+        ),
+      ];
+
+      const validationError = await this.validateCampaignTags(tags);
+      if (validationError) {
+        return { result: false, error: validationError };
+      }
+
+      const prev = campaign.tags ?? null;
+      campaign.tags = tags;
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "campaign_tags_updated",
+        changes: [{ field: "tags", from: prev, to: tags }],
+        actor,
+        changed_at: now,
+      });
+
+      // Propagate tags to linked catalog sets (union merge)
+      await this.propagateTagsToCatalogs(campaign, tags);
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to set campaign tags", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set campaign tags",
+      };
+    }
+  }
+
+  private async propagateTagsToCatalogs(
+    campaign: ICampaign,
+    tags: string[],
+  ): Promise<void> {
+    if (tags.length === 0) return;
+
+    const catalogIds: { id: string; table: string }[] = [];
+    if (campaign.criteria_set_id) {
+      catalogIds.push({
+        id: campaign.criteria_set_id,
+        table: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+      });
+    }
+    if (campaign.logic_set_id) {
+      catalogIds.push({
+        id: campaign.logic_set_id,
+        table: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+      });
+    }
+
+    for (const { id, table } of catalogIds) {
+      try {
+        const set = await this.dynamoDBUtil.get<
+          ICriteriaCatalogSet | ILogicCatalogSet
+        >({
+          TableName: table,
+          Key: { id },
+        });
+        if (!set) continue;
+
+        const merged = [...new Set([...(set.tags ?? []), ...tags])];
+        set.tags = merged;
+        set.updated_at = new Date().toISOString();
+
+        await this.dynamoDBUtil.put({ TableName: table, Item: set });
+      } catch (err: any) {
+        this.logger.warn(`Failed to propagate tags to catalog ${id}`, err);
+      }
+    }
+  }
+
+  async setAffiliateValidationBypass(
+    campaignId: string,
+    affiliateId: string,
+    request: SetAffiliateValidationBypassRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    try {
+      const bypass = request?.validation_bypass;
+      if (!bypass || typeof bypass !== "object" || Array.isArray(bypass)) {
+        return {
+          result: false,
+          error: "validation_bypass must be an object",
+        };
+      }
+
+      const keys: Array<keyof ICampaignValidationBypassConfig> = [
+        "trusted_form_claim",
+        "duplicate_check",
+        "ipqs_phone",
+        "ipqs_email",
+        "ipqs_ip",
+        "all",
+      ];
+
+      const normalizedBypass: ICampaignValidationBypassConfig = {};
+      for (const key of keys) {
+        const value = bypass[key];
+        if (value === undefined) continue;
+        if (typeof value !== "boolean") {
+          return {
+            result: false,
+            error: `validation_bypass.${key} must be a boolean`,
+          };
+        }
+        normalizedBypass[key] = value;
+      }
+
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate) {
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not linked to campaign`,
+        };
+      }
+
+      const prev = affiliate.validation_bypass ?? null;
+      const hasValues = Object.keys(normalizedBypass).length > 0;
+      if (hasValues) {
+        affiliate.validation_bypass = normalizedBypass;
+      } else {
+        delete affiliate.validation_bypass;
+      }
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_validation_bypass_updated",
+        changes: [
+          {
+            field: `affiliates.${affiliateId}.validation_bypass`,
+            from: prev,
+            to: hasValues ? normalizedBypass : null,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to set affiliate validation bypass", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set affiliate validation bypass",
+      };
+    }
+  }
+
   async setAffiliateCap(
     campaignId: string,
     affiliateId: string,
@@ -1588,6 +1878,220 @@ export class CampaignService {
       return {
         result: false,
         error: error.message || "Failed to set affiliate lead cap",
+      };
+    }
+  }
+
+  async setAffiliateSoldPixel(
+    campaignId: string,
+    affiliateId: string,
+    request: SetAffiliateSoldPixelRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    if (typeof request.enabled !== "boolean") {
+      return {
+        result: false,
+        error: "sold_pixel_config.enabled must be a boolean",
+      };
+    }
+
+    if (!request.url?.trim()) {
+      return { result: false, error: "sold_pixel_config.url is required" };
+    }
+    try {
+      new URL(request.url);
+    } catch {
+      return {
+        result: false,
+        error: "sold_pixel_config.url must be a valid URL",
+      };
+    }
+
+    const allowedMethods = ["POST", "GET", "PUT", "PATCH"] as const;
+    if (!allowedMethods.includes(request.method as any)) {
+      return {
+        result: false,
+        error: `sold_pixel_config.method must be one of: ${allowedMethods.join(", ")}`,
+      };
+    }
+
+    const allowedParameterModes = ["query", "body"] as const;
+    const normalizedParameterModeRaw =
+      typeof request.parameter_mode === "string"
+        ? request.parameter_mode.trim().toLowerCase()
+        : undefined;
+    const normalizedParameterMode =
+      normalizedParameterModeRaw === "query" ||
+      normalizedParameterModeRaw === "body"
+        ? normalizedParameterModeRaw
+        : undefined;
+    if (
+      normalizedParameterModeRaw !== undefined &&
+      !allowedParameterModes.includes(normalizedParameterModeRaw as any)
+    ) {
+      return {
+        result: false,
+        error: `sold_pixel_config.parameter_mode must be one of: ${allowedParameterModes.join(", ")}`,
+      };
+    }
+
+    if (
+      !Array.isArray(request.payload_mapping) ||
+      request.payload_mapping.length === 0
+    ) {
+      return {
+        result: false,
+        error: "sold_pixel_config.payload_mapping must have at least one entry",
+      };
+    }
+
+    for (const mapping of request.payload_mapping) {
+      const normalizedParameterTargetRaw =
+        typeof mapping.parameter_target === "string"
+          ? mapping.parameter_target.trim().toLowerCase()
+          : undefined;
+      const normalizedParameterTarget =
+        normalizedParameterTargetRaw === "query" ||
+        normalizedParameterTargetRaw === "body"
+          ? normalizedParameterTargetRaw
+          : undefined;
+      if (!mapping.key?.trim()) {
+        return {
+          result: false,
+          error:
+            "Each sold_pixel_config.payload_mapping entry must have a non-empty key",
+        };
+      }
+      if (
+        normalizedParameterTarget === undefined &&
+        normalizedParameterMode === undefined
+      ) {
+        return {
+          result: false,
+          error: `sold_pixel_config.payload_mapping key "${mapping.key}": parameter_target is required`,
+        };
+      }
+      if (
+        normalizedParameterTargetRaw !== undefined &&
+        !allowedParameterModes.includes(normalizedParameterTargetRaw as any)
+      ) {
+        return {
+          result: false,
+          error: `sold_pixel_config.payload_mapping key "${mapping.key}": parameter_target must be one of: ${allowedParameterModes.join(", ")}`,
+        };
+      }
+      if (mapping.value_source === "field" && !mapping.field_name?.trim()) {
+        return {
+          result: false,
+          error: `sold_pixel_config.payload_mapping key "${mapping.key}": field_name is required when value_source is \"field\"`,
+        };
+      }
+      if (
+        mapping.value_source === "static" &&
+        mapping.static_value === undefined
+      ) {
+        return {
+          result: false,
+          error: `sold_pixel_config.payload_mapping key "${mapping.key}": static_value is required when value_source is \"static\"`,
+        };
+      }
+    }
+
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate) {
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not linked to campaign`,
+        };
+      }
+
+      const soldPixelConfig = {
+        enabled: request.enabled,
+        url: request.url.trim(),
+        method: request.method,
+        ...(request.headers && Object.keys(request.headers).length > 0
+          ? { headers: request.headers }
+          : {}),
+        payload_mapping: request.payload_mapping.map((mapping) => {
+          const normalizedTargetRaw =
+            typeof mapping.parameter_target === "string"
+              ? mapping.parameter_target.trim().toLowerCase()
+              : undefined;
+          const normalizedTarget =
+            normalizedTargetRaw === "query" || normalizedTargetRaw === "body"
+              ? normalizedTargetRaw
+              : undefined;
+          const fallbackTarget =
+            normalizedParameterMode ??
+            (request.method === "GET" ? "query" : undefined);
+          const targetToPersist = normalizedTarget ?? fallbackTarget;
+          if (mapping.value_source === "field") {
+            return {
+              key: mapping.key,
+              value_source: "field" as const,
+              field_name: mapping.field_name,
+              ...(targetToPersist
+                ? {
+                    parameter_target: targetToPersist as "query" | "body",
+                  }
+                : {}),
+            };
+          }
+
+          return {
+            key: mapping.key,
+            value_source: "static" as const,
+            static_value: mapping.static_value,
+            ...(targetToPersist
+              ? {
+                  parameter_target: targetToPersist as "query" | "body",
+                }
+              : {}),
+          };
+        }),
+      };
+
+      const previousConfig = affiliate.sold_pixel_config ?? null;
+      affiliate.sold_pixel_config = soldPixelConfig;
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_pixel_updated",
+        changes: [
+          {
+            field: `affiliates.${affiliateId}.sold_pixel_config`,
+            from: previousConfig,
+            to: soldPixelConfig,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to set affiliate sold pixel config", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set affiliate sold pixel config",
       };
     }
   }
@@ -1924,6 +2428,15 @@ export class CampaignService {
           TableName: this.constants.CAMPAIGNS_TABLE_NAME,
           Key: { id },
         });
+        const deletedAt = new Date().toISOString();
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "campaign",
+          action: "deleted",
+          changes: [],
+          actor,
+          changed_at: deletedAt,
+        });
         this.logger.info("Campaign permanently deleted", {
           campaignId: id,
           actor,
@@ -1943,6 +2456,14 @@ export class CampaignService {
           TableName: this.constants.CAMPAIGNS_TABLE_NAME,
           Key: { id },
           ...expression,
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "campaign",
+          action: "soft_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
         });
         this.logger.info("Campaign soft-deleted", { campaignId: id, actor });
       }
@@ -3025,6 +3546,1325 @@ export class CampaignService {
     }
   }
 
+  // ── Per-Affiliate Logic Rule Overrides ──────────────────────────────────────
+
+  async listAffiliateLogicRules(
+    campaignId: string,
+    affiliateId: string,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+      const overrides = (campaign.affiliate_overrides ?? {})[affiliateId] ?? {};
+      return { result: true, data: overrides.logic_rules ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to list affiliate logic rules", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list affiliate logic rules",
+      };
+    }
+  }
+
+  async createAffiliateLogicRule(
+    campaignId: string,
+    affiliateId: string,
+    request: CreateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const validationError = this.validateLogicRuleRequest(request);
+      if (validationError) return { result: false, error: validationError };
+
+      const now = new Date().toISOString();
+      const rule: ILogicRule = {
+        id: IdGenerator.generate("LR"),
+        name: request.name.trim(),
+        action: request.action,
+        enabled: request.enabled ?? true,
+        groups: request.groups.map((g) => ({
+          id: IdGenerator.generate("LG"),
+          conditions: g.conditions.map((c) => ({
+            id: IdGenerator.generate("LC"),
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(c.value !== undefined ? { value: c.value } : {}),
+          })),
+        })),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      const overrides = { ...(campaign.affiliate_overrides ?? {}) };
+      const existing = overrides[affiliateId] ?? {};
+      overrides[affiliateId] = {
+        ...existing,
+        logic_rules: [...(existing.logic_rules ?? []), rule],
+      };
+      campaign.affiliate_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_logic_rule_added",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: null, to: rule.id },
+          { field: "name", from: null, to: rule.name },
+          { field: "action", from: null, to: rule.action },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: rule };
+    } catch (error: any) {
+      this.logger.error("Failed to create affiliate logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create affiliate logic rule",
+      };
+    }
+  }
+
+  async updateAffiliateLogicRule(
+    campaignId: string,
+    affiliateId: string,
+    ruleId: string,
+    request: UpdateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+
+      const overrides = { ...(campaign.affiliate_overrides ?? {}) };
+      const existing = overrides[affiliateId] ?? {};
+      const rules = existing.logic_rules ?? [];
+      const ruleIndex = rules.findIndex((r) => r.id === ruleId);
+      if (ruleIndex === -1)
+        return {
+          result: false,
+          error: `Logic rule ${ruleId} not found for affiliate ${affiliateId}`,
+        };
+
+      if (request.groups !== undefined) {
+        const validationError = this.validateLogicRuleRequest({
+          name: request.name ?? "x",
+          action: request.action ?? "fail",
+          groups: request.groups,
+        });
+        if (validationError) return { result: false, error: validationError };
+      }
+
+      const now = new Date().toISOString();
+      const existingRule = rules[ruleIndex];
+      const updated: ILogicRule = {
+        ...existingRule,
+        name:
+          request.name !== undefined ? request.name.trim() : existingRule.name,
+        action:
+          request.action !== undefined ? request.action : existingRule.action,
+        enabled:
+          request.enabled !== undefined
+            ? request.enabled
+            : existingRule.enabled,
+        groups:
+          request.groups !== undefined
+            ? request.groups.map((g) => ({
+                id: g.id ?? IdGenerator.generate("LG"),
+                conditions: g.conditions.map((c) => ({
+                  id: c.id ?? IdGenerator.generate("LC"),
+                  field_name: c.field_name,
+                  operator: c.operator,
+                  ...(c.value !== undefined ? { value: c.value } : {}),
+                })),
+              }))
+            : existingRule.groups,
+        updated_at: now,
+        updated_by: actor,
+      };
+
+      const updatedRules = [...rules];
+      updatedRules[ruleIndex] = updated;
+      overrides[affiliateId] = { ...existing, logic_rules: updatedRules };
+      campaign.affiliate_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_logic_rule_updated",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: ruleId, to: ruleId },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update affiliate logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update affiliate logic rule",
+      };
+    }
+  }
+
+  async deleteAffiliateLogicRule(
+    campaignId: string,
+    affiliateId: string,
+    ruleId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+
+      const overrides = { ...(campaign.affiliate_overrides ?? {}) };
+      const existing = overrides[affiliateId] ?? {};
+      const rules = existing.logic_rules ?? [];
+      const ruleToDelete = rules.find((r) => r.id === ruleId);
+      if (!ruleToDelete)
+        return {
+          result: false,
+          error: `Logic rule ${ruleId} not found for affiliate ${affiliateId}`,
+        };
+
+      const now = new Date().toISOString();
+      overrides[affiliateId] = {
+        ...existing,
+        logic_rules: rules.filter((r) => r.id !== ruleId),
+      };
+      campaign.affiliate_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_logic_rule_deleted",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: ruleToDelete.id, to: null },
+          { field: "name", from: ruleToDelete.name, to: null },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: { id: ruleId } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete affiliate logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete affiliate logic rule",
+      };
+    }
+  }
+
+  // ── Per-Affiliate Pixel Criteria ──────────────────────────────────────────
+
+  async listAffiliatePixelCriteria(
+    campaignId: string,
+    affiliateId: string,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+      return { result: true, data: affiliate.pixel_criteria ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to list affiliate pixel criteria", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list affiliate pixel criteria",
+      };
+    }
+  }
+
+  async createAffiliatePixelCriterion(
+    campaignId: string,
+    affiliateId: string,
+    request: CreateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const validationError = this.validateLogicRuleRequest(request);
+      if (validationError) return { result: false, error: validationError };
+
+      const now = new Date().toISOString();
+      const rule: ILogicRule = {
+        id: IdGenerator.generate("LR"),
+        name: request.name.trim(),
+        action: request.action,
+        enabled: request.enabled ?? true,
+        groups: request.groups.map((g) => ({
+          id: IdGenerator.generate("LG"),
+          conditions: g.conditions.map((c) => ({
+            id: IdGenerator.generate("LC"),
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(c.value !== undefined ? { value: c.value } : {}),
+          })),
+        })),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      affiliate.pixel_criteria = [...(affiliate.pixel_criteria ?? []), rule];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_pixel_criterion_added",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: null, to: rule.id },
+          { field: "name", from: null, to: rule.name },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: rule };
+    } catch (error: any) {
+      this.logger.error("Failed to create affiliate pixel criterion", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create affiliate pixel criterion",
+      };
+    }
+  }
+
+  async updateAffiliatePixelCriterion(
+    campaignId: string,
+    affiliateId: string,
+    ruleId: string,
+    request: UpdateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const rules = affiliate.pixel_criteria ?? [];
+      const ruleIndex = rules.findIndex((r) => r.id === ruleId);
+      if (ruleIndex === -1)
+        return {
+          result: false,
+          error: `Pixel criterion ${ruleId} not found for affiliate ${affiliateId}`,
+        };
+
+      const now = new Date().toISOString();
+      const existing = rules[ruleIndex];
+      const updated: ILogicRule = {
+        ...existing,
+        ...(request.name !== undefined ? { name: request.name.trim() } : {}),
+        ...(request.action !== undefined ? { action: request.action } : {}),
+        ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
+        ...(request.groups !== undefined
+          ? {
+              groups: request.groups.map((g) => ({
+                id: g.id ?? IdGenerator.generate("LG"),
+                conditions: g.conditions.map((c) => ({
+                  id: c.id ?? IdGenerator.generate("LC"),
+                  field_name: c.field_name,
+                  operator: c.operator,
+                  ...(c.value !== undefined ? { value: c.value } : {}),
+                })),
+              })),
+            }
+          : {}),
+        updated_at: now,
+        updated_by: actor,
+      };
+      rules[ruleIndex] = updated;
+      affiliate.pixel_criteria = rules;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_pixel_criterion_updated",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: null, to: ruleId },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update affiliate pixel criterion", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update affiliate pixel criterion",
+      };
+    }
+  }
+
+  async deleteAffiliatePixelCriterion(
+    campaignId: string,
+    affiliateId: string,
+    ruleId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const rules = affiliate.pixel_criteria ?? [];
+      const ruleToDelete = rules.find((r) => r.id === ruleId);
+      if (!ruleToDelete)
+        return {
+          result: false,
+          error: `Pixel criterion ${ruleId} not found for affiliate ${affiliateId}`,
+        };
+
+      const now = new Date().toISOString();
+      affiliate.pixel_criteria = rules.filter((r) => r.id !== ruleId);
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_pixel_criterion_deleted",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: ruleToDelete.id, to: null },
+          { field: "name", from: ruleToDelete.name, to: null },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: { id: ruleId } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete affiliate pixel criterion", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete affiliate pixel criterion",
+      };
+    }
+  }
+
+  // ── Per-Affiliate Sold Criteria ─────────────────────────────────────────
+
+  async listAffiliateSoldCriteria(
+    campaignId: string,
+    affiliateId: string,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+      return { result: true, data: affiliate.sold_criteria ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to list affiliate sold criteria", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list affiliate sold criteria",
+      };
+    }
+  }
+
+  async createAffiliateSoldCriterion(
+    campaignId: string,
+    affiliateId: string,
+    request: CreateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const validationError = this.validateLogicRuleRequest(request);
+      if (validationError) return { result: false, error: validationError };
+
+      const now = new Date().toISOString();
+      const rule: ILogicRule = {
+        id: IdGenerator.generate("LR"),
+        name: request.name.trim(),
+        action: request.action,
+        enabled: request.enabled ?? true,
+        groups: request.groups.map((g) => ({
+          id: IdGenerator.generate("LG"),
+          conditions: g.conditions.map((c) => ({
+            id: IdGenerator.generate("LC"),
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(c.value !== undefined ? { value: c.value } : {}),
+          })),
+        })),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      affiliate.sold_criteria = [...(affiliate.sold_criteria ?? []), rule];
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_sold_criterion_added",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: null, to: rule.id },
+          { field: "name", from: null, to: rule.name },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: rule };
+    } catch (error: any) {
+      this.logger.error("Failed to create affiliate sold criterion", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create affiliate sold criterion",
+      };
+    }
+  }
+
+  async updateAffiliateSoldCriterion(
+    campaignId: string,
+    affiliateId: string,
+    ruleId: string,
+    request: UpdateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const rules = affiliate.sold_criteria ?? [];
+      const ruleIndex = rules.findIndex((r) => r.id === ruleId);
+      if (ruleIndex === -1)
+        return {
+          result: false,
+          error: `Sold criterion ${ruleId} not found for affiliate ${affiliateId}`,
+        };
+
+      const now = new Date().toISOString();
+      const existing = rules[ruleIndex];
+      const updated: ILogicRule = {
+        ...existing,
+        ...(request.name !== undefined ? { name: request.name.trim() } : {}),
+        ...(request.action !== undefined ? { action: request.action } : {}),
+        ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
+        ...(request.groups !== undefined
+          ? {
+              groups: request.groups.map((g) => ({
+                id: g.id ?? IdGenerator.generate("LG"),
+                conditions: g.conditions.map((c) => ({
+                  id: c.id ?? IdGenerator.generate("LC"),
+                  field_name: c.field_name,
+                  operator: c.operator,
+                  ...(c.value !== undefined ? { value: c.value } : {}),
+                })),
+              })),
+            }
+          : {}),
+        updated_at: now,
+        updated_by: actor,
+      };
+      rules[ruleIndex] = updated;
+      affiliate.sold_criteria = rules;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_sold_criterion_updated",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: null, to: ruleId },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update affiliate sold criterion", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update affiliate sold criterion",
+      };
+    }
+  }
+
+  async deleteAffiliateSoldCriterion(
+    campaignId: string,
+    affiliateId: string,
+    ruleId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+
+      const rules = affiliate.sold_criteria ?? [];
+      const ruleToDelete = rules.find((r) => r.id === ruleId);
+      if (!ruleToDelete)
+        return {
+          result: false,
+          error: `Sold criterion ${ruleId} not found for affiliate ${affiliateId}`,
+        };
+
+      const now = new Date().toISOString();
+      affiliate.sold_criteria = rules.filter((r) => r.id !== ruleId);
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_sold_criterion_deleted",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          { field: "rule_id", from: ruleToDelete.id, to: null },
+          { field: "name", from: ruleToDelete.name, to: null },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: { id: ruleId } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete affiliate sold criterion", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete affiliate sold criterion",
+      };
+    }
+  }
+
+  async updateAffiliateCherryPickOverride(
+    campaignId: string,
+    affiliateId: string,
+    value: boolean | null,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    return this.mutateAffiliate(
+      campaignId,
+      affiliateId,
+      (a) => {
+        if (value === null) {
+          delete a.cherry_pick_override;
+        } else {
+          a.cherry_pick_override = value;
+        }
+      },
+      actor,
+      { recordRemoval: false },
+      {
+        action: "affiliate_cherry_pick_override_updated",
+        changes: (before) => [
+          {
+            field: `affiliates.${affiliateId}.cherry_pick_override`,
+            from: before.cherry_pick_override ?? null,
+            to: value,
+          },
+        ],
+      },
+    );
+  }
+
+  async applyLogicCatalogToAffiliate(
+    campaignId: string,
+    affiliateId: string,
+    request: ApplyLogicCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const { logic_set_id, version } = request;
+      const versionId = `${logic_set_id}#v${version}`;
+      const [campaign, catalogVersion] = await Promise.all([
+        this.getCampaignById(campaignId),
+        this.dynamoDBUtil.get<ILogicCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id: versionId },
+        }),
+      ]);
+
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const affiliate = (campaign.affiliates ?? []).find(
+        (a) => a.affiliate_id === affiliateId,
+      );
+      if (!affiliate)
+        return {
+          result: false,
+          error: `Affiliate ${affiliateId} not found on this campaign`,
+        };
+      if (!catalogVersion || catalogVersion.record_type !== "logic_version")
+        return {
+          result: false,
+          error: `Logic catalog version ${versionId} not found`,
+        };
+
+      const now = new Date().toISOString();
+      const rules: ILogicRule[] = JSON.parse(
+        JSON.stringify(catalogVersion.rules),
+      );
+      const overrides = { ...(campaign.affiliate_overrides ?? {}) };
+      const existing = overrides[affiliateId] ?? {};
+      overrides[affiliateId] = {
+        ...existing,
+        logic_set_id,
+        logic_set_version: version,
+        logic_rules: rules,
+      };
+      campaign.affiliate_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "affiliate_logic_catalog_applied",
+        changes: [
+          { field: "affiliate_id", from: null, to: affiliateId },
+          {
+            field: "logic_set_id",
+            from: existing.logic_set_id,
+            to: logic_set_id,
+          },
+          {
+            field: "logic_set_version",
+            from: existing.logic_set_version,
+            to: version,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: rules };
+    } catch (error: any) {
+      this.logger.error("Failed to apply logic catalog to affiliate", error);
+      return {
+        result: false,
+        error: error.message || "Failed to apply logic catalog to affiliate",
+      };
+    }
+  }
+
+  // ── Per-Client Logic Rule Overrides ────────────────────────────────────────
+
+  async listClientLogicRules(
+    campaignId: string,
+    clientId: string,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client)
+        return {
+          result: false,
+          error: `Client ${clientId} not found on this campaign`,
+        };
+      const overrides = (campaign.client_overrides ?? {})[clientId] ?? {};
+      return { result: true, data: overrides.logic_rules ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to list client logic rules", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list client logic rules",
+      };
+    }
+  }
+
+  async createClientLogicRule(
+    campaignId: string,
+    clientId: string,
+    request: CreateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client)
+        return {
+          result: false,
+          error: `Client ${clientId} not found on this campaign`,
+        };
+
+      const validationError = this.validateLogicRuleRequest(request);
+      if (validationError) return { result: false, error: validationError };
+
+      const now = new Date().toISOString();
+      const rule: ILogicRule = {
+        id: IdGenerator.generate("LR"),
+        name: request.name.trim(),
+        action: request.action,
+        enabled: request.enabled ?? true,
+        groups: request.groups.map((g) => ({
+          id: IdGenerator.generate("LG"),
+          conditions: g.conditions.map((c) => ({
+            id: IdGenerator.generate("LC"),
+            field_name: c.field_name,
+            operator: c.operator,
+            ...(c.value !== undefined ? { value: c.value } : {}),
+          })),
+        })),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      const overrides = { ...(campaign.client_overrides ?? {}) };
+      const existing = overrides[clientId] ?? {};
+      overrides[clientId] = {
+        ...existing,
+        logic_rules: [...(existing.logic_rules ?? []), rule],
+      };
+      campaign.client_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "client_logic_rule_added",
+        changes: [
+          { field: "client_id", from: null, to: clientId },
+          { field: "rule_id", from: null, to: rule.id },
+          { field: "name", from: null, to: rule.name },
+          { field: "action", from: null, to: rule.action },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: rule };
+    } catch (error: any) {
+      this.logger.error("Failed to create client logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create client logic rule",
+      };
+    }
+  }
+
+  async updateClientLogicRule(
+    campaignId: string,
+    clientId: string,
+    ruleId: string,
+    request: UpdateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+
+      const overrides = { ...(campaign.client_overrides ?? {}) };
+      const existing = overrides[clientId] ?? {};
+      const rules = existing.logic_rules ?? [];
+      const ruleIndex = rules.findIndex((r) => r.id === ruleId);
+      if (ruleIndex === -1)
+        return {
+          result: false,
+          error: `Logic rule ${ruleId} not found for client ${clientId}`,
+        };
+
+      if (request.groups !== undefined) {
+        const validationError = this.validateLogicRuleRequest({
+          name: request.name ?? "x",
+          action: request.action ?? "fail",
+          groups: request.groups,
+        });
+        if (validationError) return { result: false, error: validationError };
+      }
+
+      const now = new Date().toISOString();
+      const existingRule = rules[ruleIndex];
+      const updated: ILogicRule = {
+        ...existingRule,
+        name:
+          request.name !== undefined ? request.name.trim() : existingRule.name,
+        action:
+          request.action !== undefined ? request.action : existingRule.action,
+        enabled:
+          request.enabled !== undefined
+            ? request.enabled
+            : existingRule.enabled,
+        groups:
+          request.groups !== undefined
+            ? request.groups.map((g) => ({
+                id: g.id ?? IdGenerator.generate("LG"),
+                conditions: g.conditions.map((c) => ({
+                  id: c.id ?? IdGenerator.generate("LC"),
+                  field_name: c.field_name,
+                  operator: c.operator,
+                  ...(c.value !== undefined ? { value: c.value } : {}),
+                })),
+              }))
+            : existingRule.groups,
+        updated_at: now,
+        updated_by: actor,
+      };
+
+      const updatedRules = [...rules];
+      updatedRules[ruleIndex] = updated;
+      overrides[clientId] = { ...existing, logic_rules: updatedRules };
+      campaign.client_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "client_logic_rule_updated",
+        changes: [
+          { field: "client_id", from: null, to: clientId },
+          { field: "rule_id", from: ruleId, to: ruleId },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update client logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update client logic rule",
+      };
+    }
+  }
+
+  async deleteClientLogicRule(
+    campaignId: string,
+    clientId: string,
+    ruleId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+
+      const overrides = { ...(campaign.client_overrides ?? {}) };
+      const existing = overrides[clientId] ?? {};
+      const rules = existing.logic_rules ?? [];
+      const ruleToDelete = rules.find((r) => r.id === ruleId);
+      if (!ruleToDelete)
+        return {
+          result: false,
+          error: `Logic rule ${ruleId} not found for client ${clientId}`,
+        };
+
+      const now = new Date().toISOString();
+      overrides[clientId] = {
+        ...existing,
+        logic_rules: rules.filter((r) => r.id !== ruleId),
+      };
+      campaign.client_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "client_logic_rule_deleted",
+        changes: [
+          { field: "client_id", from: null, to: clientId },
+          { field: "rule_id", from: ruleToDelete.id, to: null },
+          { field: "name", from: ruleToDelete.name, to: null },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: { id: ruleId } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete client logic rule", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete client logic rule",
+      };
+    }
+  }
+
+  async applyLogicCatalogToClient(
+    campaignId: string,
+    clientId: string,
+    request: ApplyLogicCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    try {
+      const { logic_set_id, version } = request;
+      const versionId = `${logic_set_id}#v${version}`;
+      const [campaign, catalogVersion] = await Promise.all([
+        this.getCampaignById(campaignId),
+        this.dynamoDBUtil.get<ILogicCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id: versionId },
+        }),
+      ]);
+
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client)
+        return {
+          result: false,
+          error: `Client ${clientId} not found on this campaign`,
+        };
+      if (!catalogVersion || catalogVersion.record_type !== "logic_version")
+        return {
+          result: false,
+          error: `Logic catalog version ${versionId} not found`,
+        };
+
+      const now = new Date().toISOString();
+      const rules: ILogicRule[] = JSON.parse(
+        JSON.stringify(catalogVersion.rules),
+      );
+      const overrides = { ...(campaign.client_overrides ?? {}) };
+      const existing = overrides[clientId] ?? {};
+      overrides[clientId] = {
+        ...existing,
+        logic_set_id,
+        logic_set_version: version,
+        logic_rules: rules,
+      };
+      campaign.client_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "client_logic_catalog_applied",
+        changes: [
+          { field: "client_id", from: null, to: clientId },
+          {
+            field: "logic_set_id",
+            from: existing.logic_set_id,
+            to: logic_set_id,
+          },
+          {
+            field: "logic_set_version",
+            from: existing.logic_set_version,
+            to: version,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: rules };
+    } catch (error: any) {
+      this.logger.error("Failed to apply logic catalog to client", error);
+      return {
+        result: false,
+        error: error.message || "Failed to apply logic catalog to client",
+      };
+    }
+  }
+
+  /**
+   * Sync a client's pinned base logic to the current campaign logic.
+   * - Replaces the client's pinned base (logic_set_id/version) with the campaign's.
+   * - Removes client override rules that are redundant extensions of campaign rules
+   *   (same field_names AND same action).
+   * - Keeps true overrides (same fields, different action) and unique rules.
+   */
+  async syncClientLogicToCampaign(
+    campaignId: string,
+    clientId: string,
+    actor?: RequestActor,
+  ): Promise<
+    ServiceResult<{ kept_rules: ILogicRule[]; removed_count: number }>
+  > {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted)
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client)
+        return {
+          result: false,
+          error: `Client ${clientId} not found on this campaign`,
+        };
+
+      const campaignRules = campaign.logic_rules ?? [];
+      const overrides = { ...(campaign.client_overrides ?? {}) };
+      const existing = overrides[clientId] ?? {};
+      const clientRules = existing.logic_rules ?? [];
+
+      // Build a set of "field signature → action" from campaign rules for matching
+      const campaignSignatures = new Map<string, string>();
+      for (const rule of campaignRules) {
+        const fieldNames = new Set<string>();
+        for (const group of rule.groups) {
+          for (const cond of group.conditions) {
+            fieldNames.add(cond.field_name);
+          }
+        }
+        const sig = [...fieldNames].sort().join("|");
+        campaignSignatures.set(sig, rule.action);
+      }
+
+      // Partition client rules: keep overrides + unique, remove redundant extensions
+      const keptRules: ILogicRule[] = [];
+      let removedCount = 0;
+      for (const rule of clientRules) {
+        const fieldNames = new Set<string>();
+        for (const group of rule.groups) {
+          for (const cond of group.conditions) {
+            fieldNames.add(cond.field_name);
+          }
+        }
+        const sig = [...fieldNames].sort().join("|");
+        const campaignAction = campaignSignatures.get(sig);
+        if (campaignAction !== undefined && campaignAction === rule.action) {
+          // Redundant extension — same fields AND same action → remove
+          removedCount++;
+        } else {
+          // True override (different action) or unique rule → keep
+          keptRules.push(rule);
+        }
+      }
+
+      const now = new Date().toISOString();
+      overrides[clientId] = {
+        ...existing,
+        logic_set_id: campaign.logic_set_id,
+        logic_set_version: campaign.logic_set_version,
+        logic_rules: keptRules,
+      };
+      campaign.client_overrides = overrides;
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "client_logic_synced_to_campaign",
+        changes: [
+          { field: "client_id", from: null, to: clientId },
+          {
+            field: "logic_set_id",
+            from: existing.logic_set_id,
+            to: campaign.logic_set_id,
+          },
+          {
+            field: "logic_set_version",
+            from: existing.logic_set_version,
+            to: campaign.logic_set_version,
+          },
+          { field: "removed_extension_rules", from: null, to: removedCount },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return {
+        result: true,
+        data: { kept_rules: keptRules, removed_count: removedCount },
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to sync client logic to campaign", error);
+      return {
+        result: false,
+        error: error.message || "Failed to sync client logic to campaign",
+      };
+    }
+  }
+
   private validateLogicRuleRequest(
     request: Pick<CreateLogicRuleRequest, "name" | "action" | "groups">,
   ): string | null {
@@ -3148,14 +4988,11 @@ export class CampaignService {
             status: CampaignParticipantStatus.LIVE,
           }
         : {
+            ...a,
             affiliate_id: a.affiliate_id,
             campaign_key: a.campaign_key,
             added_at: a.added_at ?? new Date().toISOString(),
             status: a.status ?? CampaignParticipantStatus.LIVE,
-            ...(typeof a.lead_cap === "number" ? { lead_cap: a.lead_cap } : {}),
-            ...(typeof a.leads_sent === "number"
-              ? { leads_sent: a.leads_sent }
-              : {}),
           },
     );
 
@@ -3289,10 +5126,19 @@ export class CampaignService {
     const patchPhone = patch.phone as
       | Partial<IIpqsPhoneCheckConfig>
       | undefined;
+    const patchPhoneCriteria = patchPhone?.criteria as
+      | Partial<IIpqsPhoneCriteria>
+      | undefined;
     const patchEmail = patch.email as
       | Partial<IIpqsEmailCheckConfig>
       | undefined;
+    const patchEmailCriteria = patchEmail?.criteria as
+      | Partial<IIpqsEmailCriteria>
+      | undefined;
     const patchIp = patch.ip as Partial<IIpqsIpCheckConfig> | undefined;
+    const patchIpCriteria = patchIp?.criteria as
+      | Partial<IIpqsIpCriteria>
+      | undefined;
 
     return {
       enabled:
@@ -3307,9 +5153,96 @@ export class CampaignService {
           : typeof base.gate === "boolean"
             ? base.gate
             : defaults.gate,
-      phone: patchPhone ? { ...base.phone, ...patchPhone } : base.phone,
-      email: patchEmail ? { ...base.email, ...patchEmail } : base.email,
-      ip: patchIp ? { ...base.ip, ...patchIp } : base.ip,
+      phone: patchPhone
+        ? {
+            ...base.phone,
+            ...patchPhone,
+            criteria: patchPhoneCriteria
+              ? {
+                  ...base.phone.criteria,
+                  ...patchPhoneCriteria,
+                  valid: patchPhoneCriteria.valid
+                    ? {
+                        ...base.phone.criteria.valid,
+                        ...patchPhoneCriteria.valid,
+                      }
+                    : base.phone.criteria.valid,
+                  fraud_score: patchPhoneCriteria.fraud_score
+                    ? {
+                        ...base.phone.criteria.fraud_score,
+                        ...patchPhoneCriteria.fraud_score,
+                      }
+                    : base.phone.criteria.fraud_score,
+                  country: patchPhoneCriteria.country
+                    ? {
+                        ...base.phone.criteria.country,
+                        ...patchPhoneCriteria.country,
+                      }
+                    : base.phone.criteria.country,
+                }
+              : base.phone.criteria,
+          }
+        : base.phone,
+      email: patchEmail
+        ? {
+            ...base.email,
+            ...patchEmail,
+            criteria: patchEmailCriteria
+              ? {
+                  ...base.email.criteria,
+                  ...patchEmailCriteria,
+                  valid: patchEmailCriteria.valid
+                    ? {
+                        ...base.email.criteria.valid,
+                        ...patchEmailCriteria.valid,
+                      }
+                    : base.email.criteria.valid,
+                  fraud_score: patchEmailCriteria.fraud_score
+                    ? {
+                        ...base.email.criteria.fraud_score,
+                        ...patchEmailCriteria.fraud_score,
+                      }
+                    : base.email.criteria.fraud_score,
+                }
+              : base.email.criteria,
+          }
+        : base.email,
+      ip: patchIp
+        ? {
+            ...base.ip,
+            ...patchIp,
+            criteria: patchIpCriteria
+              ? {
+                  ...base.ip.criteria,
+                  ...patchIpCriteria,
+                  fraud_score: patchIpCriteria.fraud_score
+                    ? {
+                        ...base.ip.criteria.fraud_score,
+                        ...patchIpCriteria.fraud_score,
+                      }
+                    : base.ip.criteria.fraud_score,
+                  country_code: patchIpCriteria.country_code
+                    ? {
+                        ...base.ip.criteria.country_code,
+                        ...patchIpCriteria.country_code,
+                      }
+                    : base.ip.criteria.country_code,
+                  proxy: patchIpCriteria.proxy
+                    ? {
+                        ...base.ip.criteria.proxy,
+                        ...patchIpCriteria.proxy,
+                      }
+                    : base.ip.criteria.proxy,
+                  vpn: patchIpCriteria.vpn
+                    ? {
+                        ...base.ip.criteria.vpn,
+                        ...patchIpCriteria.vpn,
+                      }
+                    : base.ip.criteria.vpn,
+                }
+              : base.ip.criteria,
+          }
+        : base.ip,
     };
   }
 
@@ -3346,6 +5279,36 @@ export class CampaignService {
     if (!setting) return true;
 
     return setting.enabled === true;
+  }
+
+  private async validateCampaignTags(tags: string[]): Promise<string | null> {
+    if (!this.constants.TENANT_SETTINGS_TABLE_NAME) return null;
+
+    const typeIndex = `${this.constants.TENANT_SETTINGS_TABLE_NAME}-type-index`;
+    const definitions = await this.dynamoDBUtil.queryAll<ITagDefinitionRecord>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      IndexName: typeIndex,
+      KeyConditionExpression: "#t = :type",
+      ExpressionAttributeNames: { "#t": "type" },
+      ExpressionAttributeValues: {
+        ":type": "tag_definition",
+        ":f": false,
+      },
+      FilterExpression: "attribute_not_exists(is_deleted) OR is_deleted = :f",
+    });
+
+    const knownLabels = new Set(definitions.map((d) => d.label.toLowerCase()));
+
+    for (const tag of tags) {
+      if (typeof tag !== "string" || tag.trim().length === 0) {
+        return "Each tag must be a non-empty string";
+      }
+      if (!knownLabels.has(tag.trim().toLowerCase())) {
+        return `Unknown tag: "${tag}"`;
+      }
+    }
+
+    return null;
   }
 
   private getDefaultPlugins(): ICampaignPlugins {
@@ -3559,9 +5522,7 @@ export class CampaignService {
     }
   }
 
-  async getCriteriaCatalogSet(
-    id: string,
-  ): Promise<
+  async getCriteriaCatalogSet(id: string): Promise<
     ServiceResult<{
       set: ICriteriaCatalogSet;
       versions: ICriteriaCatalogVersion[];
@@ -3643,8 +5604,8 @@ export class CampaignService {
         record_type: "catalog_set",
         name: request.name.trim(),
         description: request.description,
+        ...(request.tags ? { tags: request.tags } : {}),
         latest_version: 1,
-        active: true,
         created_at: now,
         updated_at: now,
         created_by: actor,
@@ -3720,12 +5681,6 @@ export class CampaignService {
       });
       if (!set || set.record_type !== "catalog_set") {
         return { result: false, error: `Criteria catalog set ${id} not found` };
-      }
-      if (!set.active) {
-        return {
-          result: false,
-          error: `Criteria catalog set ${id} is deactivated and cannot be updated`,
-        };
       }
 
       const now = new Date().toISOString();
@@ -3808,10 +5763,10 @@ export class CampaignService {
     }
   }
 
-  async deactivateCriteriaCatalogSet(
+  async deleteCriteriaCatalogSet(
     id: string,
     actor?: RequestActor,
-  ): Promise<ServiceResult<ICriteriaCatalogSet>> {
+  ): Promise<ServiceResult<void>> {
     try {
       const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
         TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
@@ -3820,36 +5775,137 @@ export class CampaignService {
       if (!set || set.record_type !== "catalog_set") {
         return { result: false, error: `Criteria catalog set ${id} not found` };
       }
-      if (!set.active) {
-        return { result: true, data: set };
+
+      const versions =
+        await this.dynamoDBUtil.queryAll<ICriteriaCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          IndexName: "criteria_set_id-index",
+          KeyConditionExpression: "criteria_set_id = :sid",
+          ExpressionAttributeValues: { ":sid": id },
+        });
+
+      const inUseVersion = versions.find(
+        (v) => (v.campaigns_using ?? []).length > 0,
+      );
+      if (inUseVersion) {
+        return {
+          result: false,
+          error: `Criteria catalog set ${id} is in use by campaigns and cannot be deleted`,
+        };
       }
 
+      await Promise.all([
+        this.dynamoDBUtil.delete({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id },
+        }),
+        ...versions.map((v) =>
+          this.dynamoDBUtil.delete({
+            TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+            Key: { id: v.id },
+          }),
+        ),
+      ]);
+
       const now = new Date().toISOString();
-      set.active = false;
-      set.updated_at = now;
-      set.updated_by = actor;
-
-      await this.dynamoDBUtil.put({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
-        Item: set,
-      });
-
       await this.auditWriterService.writeAuditEvent({
         entity_id: id,
         entity_type: "criteria_catalog",
-        action: "criteria_catalog_updated",
-        changes: [{ field: "active", from: true, to: false }],
+        action: "criteria_catalog_deleted",
+        changes: [],
         actor,
         changed_at: now,
       });
 
-      this.logger.info("Criteria catalog set deactivated", { setId: id });
-      return { result: true, data: set };
+      this.logger.info("Criteria catalog set deleted", { setId: id });
+      return { result: true };
     } catch (error: any) {
-      this.logger.error("Failed to deactivate criteria catalog set", error);
+      this.logger.error("Failed to delete criteria catalog set", error);
       return {
         result: false,
-        error: error.message || "Failed to deactivate criteria catalog set",
+        error: error.message || "Failed to delete criteria catalog set",
+      };
+    }
+  }
+
+  async deleteCriteriaCatalogVersion(
+    criteriaSetId: string,
+    version: number,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const versionId = `${criteriaSetId}#v${version}`;
+      const record = await this.dynamoDBUtil.get<ICriteriaCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id: versionId },
+      });
+      if (!record || record.record_type !== "catalog_version") {
+        return {
+          result: false,
+          error: `Criteria catalog version ${versionId} not found`,
+        };
+      }
+
+      if ((record.campaigns_using ?? []).length > 0) {
+        return {
+          result: false,
+          error: `Criteria catalog version ${versionId} is in use by campaigns and cannot be deleted`,
+        };
+      }
+
+      await this.dynamoDBUtil.delete({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id: versionId },
+      });
+
+      const now = new Date().toISOString();
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: criteriaSetId,
+        entity_type: "criteria_catalog",
+        action: "criteria_catalog_version_deleted",
+        changes: [{ field: "version", from: version, to: null }],
+        actor,
+        changed_at: now,
+      });
+
+      // If no versions remain, cascade-delete the parent set.
+      const remaining =
+        await this.dynamoDBUtil.queryAll<ICriteriaCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          IndexName: "criteria_set_id-index",
+          KeyConditionExpression: "criteria_set_id = :sid",
+          ExpressionAttributeValues: { ":sid": criteriaSetId },
+        });
+
+      if (remaining.length === 0) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id: criteriaSetId },
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: criteriaSetId,
+          entity_type: "criteria_catalog",
+          action: "criteria_catalog_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
+        this.logger.info(
+          "Criteria catalog set cascade-deleted (last version removed)",
+          { setId: criteriaSetId },
+        );
+      }
+
+      this.logger.info("Criteria catalog version deleted", {
+        setId: criteriaSetId,
+        version,
+      });
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete criteria catalog version", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete criteria catalog version",
       };
     }
   }
@@ -3942,5 +5998,523 @@ export class CampaignService {
         error: error.message || "Failed to apply criteria catalog to campaign",
       };
     }
+  }
+
+  // ── Logic Catalog ───────────────────────────────────────────────────────
+
+  async listLogicCatalog(): Promise<
+    ServiceResult<{ items: ILogicCatalogSet[] }>
+  > {
+    try {
+      const scanResult = await this.dynamoDBUtil.scanAll<ILogicCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        FilterExpression: "record_type = :rt",
+        ExpressionAttributeValues: { ":rt": "logic_set" },
+      });
+      return { result: true, data: { items: scanResult } };
+    } catch (error: any) {
+      this.logger.error("Failed to list logic catalog", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list logic catalog",
+      };
+    }
+  }
+
+  async getLogicCatalogSet(id: string): Promise<
+    ServiceResult<{
+      set: ILogicCatalogSet;
+      versions: ILogicCatalogVersion[];
+    }>
+  > {
+    try {
+      const set = await this.dynamoDBUtil.get<ILogicCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id },
+      });
+      if (!set || set.record_type !== "logic_set") {
+        return { result: false, error: `Logic catalog set ${id} not found` };
+      }
+
+      const versions = await this.dynamoDBUtil.scanAll<ILogicCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        FilterExpression: "record_type = :rt AND logic_set_id = :sid",
+        ExpressionAttributeValues: {
+          ":rt": "logic_version",
+          ":sid": id,
+        },
+      });
+
+      return {
+        result: true,
+        data: {
+          set,
+          versions: versions.sort((a, b) => a.version - b.version),
+        },
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to get logic catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get logic catalog set",
+      };
+    }
+  }
+
+  async getLogicCatalogVersion(
+    logicSetId: string,
+    version: number,
+  ): Promise<ServiceResult<ILogicCatalogVersion>> {
+    try {
+      const versionId = `${logicSetId}#v${version}`;
+      const record = await this.dynamoDBUtil.get<ILogicCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id: versionId },
+      });
+      if (!record || record.record_type !== "logic_version") {
+        return {
+          result: false,
+          error: `Logic catalog version ${versionId} not found`,
+        };
+      }
+      return { result: true, data: record };
+    } catch (error: any) {
+      this.logger.error("Failed to get logic catalog version", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get logic catalog version",
+      };
+    }
+  }
+
+  async createLogicCatalogSet(
+    request: CreateLogicCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<
+    ServiceResult<{
+      set: ILogicCatalogSet;
+      version: ILogicCatalogVersion;
+    }>
+  > {
+    try {
+      if (!request.name?.trim()) {
+        return { result: false, error: "name is required" };
+      }
+
+      const rulesInput = request.rules ?? [];
+      for (let i = 0; i < rulesInput.length; i++) {
+        const rule = rulesInput[i];
+        const validationError = this.validateLogicRuleRequest({
+          name: rule.name,
+          action: rule.action,
+          groups: rule.groups as any,
+        });
+        if (validationError) {
+          return {
+            result: false,
+            error: `rules[${i}] ${validationError}`,
+          };
+        }
+      }
+
+      const now = new Date().toISOString();
+      const setId = IdGenerator.generate("LCS");
+      const versionId = `${setId}#v1`;
+
+      const set: ILogicCatalogSet = {
+        id: setId,
+        record_type: "logic_set",
+        name: request.name.trim(),
+        description: request.description,
+        ...(request.tags ? { tags: request.tags } : {}),
+        latest_version: 1,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      const version: ILogicCatalogVersion = {
+        id: versionId,
+        record_type: "logic_version",
+        logic_set_id: setId,
+        version: 1,
+        name: set.name,
+        rules: this.buildLogicCatalogRules(rulesInput, actor, now),
+        campaigns_using: [],
+        created_at: now,
+        created_by: actor,
+      };
+
+      await Promise.all([
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: set,
+        }),
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: version,
+        }),
+      ]);
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: setId,
+        entity_type: "logic_catalog",
+        action: "logic_catalog_created",
+        changes: [],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: { set, version } };
+    } catch (error: any) {
+      this.logger.error("Failed to create logic catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create logic catalog set",
+      };
+    }
+  }
+
+  async updateLogicCatalogSet(
+    id: string,
+    request: UpdateLogicCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<
+    ServiceResult<{
+      set: ILogicCatalogSet;
+      version: ILogicCatalogVersion;
+    }>
+  > {
+    try {
+      const set = await this.dynamoDBUtil.get<ILogicCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id },
+      });
+      if (!set || set.record_type !== "logic_set") {
+        return { result: false, error: `Logic catalog set ${id} not found` };
+      }
+
+      for (let i = 0; i < request.rules.length; i++) {
+        const rule = request.rules[i];
+        const validationError = this.validateLogicRuleRequest({
+          name: rule.name,
+          action: rule.action,
+          groups: rule.groups as any,
+        });
+        if (validationError) {
+          return {
+            result: false,
+            error: `rules[${i}] ${validationError}`,
+          };
+        }
+      }
+
+      const now = new Date().toISOString();
+      const newVersionNumber = set.latest_version + 1;
+      const versionId = `${id}#v${newVersionNumber}`;
+
+      const changes: AuditChange[] = [];
+      if (request.name && request.name !== set.name) {
+        changes.push({ field: "name", from: set.name, to: request.name });
+        set.name = request.name;
+      }
+      if (
+        request.description !== undefined &&
+        request.description !== set.description
+      ) {
+        changes.push({
+          field: "description",
+          from: set.description,
+          to: request.description,
+        });
+        set.description = request.description;
+      }
+
+      set.latest_version = newVersionNumber;
+      set.updated_at = now;
+      set.updated_by = actor;
+
+      const newVersion: ILogicCatalogVersion = {
+        id: versionId,
+        record_type: "logic_version",
+        logic_set_id: id,
+        version: newVersionNumber,
+        name: set.name,
+        rules: this.buildLogicCatalogRules(request.rules, actor, now),
+        campaigns_using: [],
+        created_at: now,
+        created_by: actor,
+      };
+
+      await Promise.all([
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: set,
+        }),
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: newVersion,
+        }),
+      ]);
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "logic_catalog",
+        action: "logic_catalog_updated",
+        changes,
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: { set, version: newVersion } };
+    } catch (error: any) {
+      this.logger.error("Failed to update logic catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update logic catalog set",
+      };
+    }
+  }
+
+  async deleteLogicCatalogSet(
+    id: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const set = await this.dynamoDBUtil.get<ILogicCatalogSet>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id },
+      });
+      if (!set || set.record_type !== "logic_set") {
+        return { result: false, error: `Logic catalog set ${id} not found` };
+      }
+
+      const versions = await this.dynamoDBUtil.scanAll<ILogicCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        FilterExpression: "record_type = :rt AND logic_set_id = :sid",
+        ExpressionAttributeValues: {
+          ":rt": "logic_version",
+          ":sid": id,
+        },
+      });
+
+      const inUseVersion = versions.find(
+        (v) => (v.campaigns_using ?? []).length > 0,
+      );
+      if (inUseVersion) {
+        return {
+          result: false,
+          error: `Logic catalog set ${id} is in use by campaigns and cannot be deleted`,
+        };
+      }
+
+      await Promise.all([
+        this.dynamoDBUtil.delete({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id },
+        }),
+        ...versions.map((v) =>
+          this.dynamoDBUtil.delete({
+            TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+            Key: { id: v.id },
+          }),
+        ),
+      ]);
+
+      const now = new Date().toISOString();
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "logic_catalog",
+        action: "logic_catalog_deleted",
+        changes: [],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete logic catalog set", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete logic catalog set",
+      };
+    }
+  }
+
+  async deleteLogicCatalogVersion(
+    logicSetId: string,
+    version: number,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const versionId = `${logicSetId}#v${version}`;
+      const record = await this.dynamoDBUtil.get<ILogicCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id: versionId },
+      });
+      if (!record || record.record_type !== "logic_version") {
+        return {
+          result: false,
+          error: `Logic catalog version ${versionId} not found`,
+        };
+      }
+
+      if ((record.campaigns_using ?? []).length > 0) {
+        return {
+          result: false,
+          error: `Logic catalog version ${versionId} is in use by campaigns and cannot be deleted`,
+        };
+      }
+
+      await this.dynamoDBUtil.delete({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        Key: { id: versionId },
+      });
+
+      const now = new Date().toISOString();
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: logicSetId,
+        entity_type: "logic_catalog",
+        action: "logic_catalog_version_deleted",
+        changes: [{ field: "version", from: version, to: null }],
+        actor,
+        changed_at: now,
+      });
+
+      const remaining = await this.dynamoDBUtil.scanAll<ILogicCatalogVersion>({
+        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        FilterExpression: "record_type = :rt AND logic_set_id = :sid",
+        ExpressionAttributeValues: {
+          ":rt": "logic_version",
+          ":sid": logicSetId,
+        },
+      });
+
+      if (remaining.length === 0) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id: logicSetId },
+        });
+      }
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete logic catalog version", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete logic catalog version",
+      };
+    }
+  }
+
+  async applyLogicCatalogToCampaign(
+    campaignId: string,
+    request: ApplyLogicCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    try {
+      const { logic_set_id, version } = request;
+      const versionId = `${logic_set_id}#v${version}`;
+      const [campaign, catalogVersion] = await Promise.all([
+        this.getCampaignById(campaignId),
+        this.dynamoDBUtil.get<ILogicCatalogVersion>({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Key: { id: versionId },
+        }),
+      ]);
+
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      if (!catalogVersion || catalogVersion.record_type !== "logic_version") {
+        return {
+          result: false,
+          error: `Logic catalog version ${versionId} not found`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [
+        {
+          field: "logic_set_id",
+          from: campaign.logic_set_id,
+          to: logic_set_id,
+        },
+        {
+          field: "logic_set_version",
+          from: campaign.logic_set_version,
+          to: version,
+        },
+      ];
+
+      campaign.logic_rules = JSON.parse(JSON.stringify(catalogVersion.rules));
+      campaign.logic_set_id = logic_set_id;
+      campaign.logic_set_version = version;
+      campaign.logic_version = String(version);
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      if (!catalogVersion.campaigns_using.includes(campaignId)) {
+        catalogVersion.campaigns_using.push(campaignId);
+      }
+
+      const normalized = this.normalizeParticipants(campaign);
+      Object.assign(campaign, normalized);
+
+      await Promise.all([
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+          Item: campaign,
+        }),
+        this.dynamoDBUtil.put({
+          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          Item: catalogVersion,
+        }),
+      ]);
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "logic_catalog_assigned",
+        changes,
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: this.enrichCampaignForResponse(campaign) };
+    } catch (error: any) {
+      this.logger.error("Failed to apply logic catalog to campaign", error);
+      return {
+        result: false,
+        error: error.message || "Failed to apply logic catalog to campaign",
+      };
+    }
+  }
+
+  private buildLogicCatalogRules(
+    rules: Array<Pick<ILogicRule, "name" | "action" | "enabled" | "groups">>,
+    actor: RequestActor | undefined,
+    now: string,
+  ): ILogicRule[] {
+    return rules.map((rule) => ({
+      id: IdGenerator.generate("LR"),
+      name: rule.name.trim(),
+      action: rule.action,
+      enabled: rule.enabled ?? true,
+      groups: (rule.groups ?? []).map((group) => ({
+        id: IdGenerator.generate("LG"),
+        conditions: (group.conditions ?? []).map((condition) => ({
+          id: IdGenerator.generate("LC"),
+          field_name: condition.field_name,
+          operator: condition.operator,
+          ...(condition.value !== undefined ? { value: condition.value } : {}),
+        })),
+      })),
+      created_at: now,
+      updated_at: now,
+      created_by: actor,
+      updated_by: actor,
+    }));
   }
 }

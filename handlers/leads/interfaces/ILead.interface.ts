@@ -1,5 +1,9 @@
 import type { RequestActor } from "@shared/utils/request-audit.util";
-import type { ILeadDeliveryResult } from "../../campaigns/interfaces/IClientDelivery.interface";
+import type {
+  ILeadDeliveryResult,
+  IAffiliateSoldPixelConfig,
+} from "../../campaigns/interfaces/IClientDelivery.interface";
+import type { ICampaignValidationBypassConfig } from "../../campaigns/interfaces/ICampaign.interface";
 
 export type LeadSoldStatus = "sold" | "not_sold" | "not_delivered";
 
@@ -74,6 +78,8 @@ export interface ILead {
   mapped_fields?: IMappedFieldEntry[];
   /** Result of the logic rules evaluation at lead intake time */
   logic_rules_result?: ILogicRulesResult;
+  /** True when campaign-level logic rules rejected the lead (client delivery may still occur) */
+  affiliate_logic_failed?: boolean;
   duplicate?: boolean;
   duplicate_matches?: {
     lead_ids: string[];
@@ -96,10 +102,14 @@ export interface ILead {
   halt_reason?: string;
   /** Whether the lead was sold (delivered and accepted) by a client. Absent until delivery is attempted */
   sold?: boolean;
+  /** True when the webhook accepted but sold_criteria rules failed, overriding sold to false */
+  sold_criteria_failed?: boolean;
   /** ID of the client the lead was delivered to */
   sold_to_client_id?: string;
   /** Full result of the webhook delivery attempt */
   delivery_result?: ILeadDeliveryResult;
+  /** Full result of the affiliate sold-pixel dispatch attempt */
+  affiliate_pixel_result?: IAffiliatePixelResult;
   /** Derived on read for UI convenience */
   sold_status?: LeadSoldStatus;
   created_by?: RequestActor;
@@ -109,4 +119,72 @@ export interface ILead {
   active?: boolean;
   deleted_at?: string;
   deleted_by?: RequestActor;
+  /** Whether this lead is eligible to be cherry-picked by an operator */
+  cherry_pickable?: boolean;
+  /** Whether this lead has been cherry-picked */
+  cherry_picked?: boolean;
+  /** Metadata recorded when a cherry-pick delivery is executed */
+  cherry_pick_meta?: ICherryPickMeta;
+  /** End-to-end routing and validation trace for debugging/observability. */
+  decision_trace?: ILeadDecisionTrace;
+}
+
+export interface ILeadDecisionTrace {
+  version: number;
+  intake?: {
+    original_source?: string;
+    order_number?: number;
+    order_number_normalized?: boolean;
+    /** How test mode was determined: "affiliate_status" | "payload_detection" | null */
+    test_detected_by?: "affiliate_status" | "payload_detection";
+    captured_at: string;
+  };
+  qa?: {
+    duplicate_detected?: boolean;
+    pipeline_halted?: boolean;
+    halt_plugin?: string;
+    halt_reason?: string;
+    bypass_applied?: ICampaignValidationBypassConfig;
+    evaluated_at: string;
+  };
+  routing?: {
+    distribution_enabled?: boolean;
+    eligible_client_ids?: string[];
+    selected_client_id?: string;
+    forced_single_client?: boolean;
+    evaluated_at: string;
+  };
+  final_decision?: {
+    accepted: boolean;
+    reason: string;
+    decided_at: string;
+  };
+}
+
+export interface IAffiliatePixelResult {
+  affiliate_id: string;
+  campaign_id: string;
+  fired_at: string;
+  webhook_url: string;
+  final_webhook_url: string;
+  webhook_method: IAffiliateSoldPixelConfig["method"];
+  sent_query_params?: Record<string, unknown>;
+  sent_body_payload?: Record<string, unknown>;
+  webhook_response_status?: number;
+  webhook_response_body?: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface ICherryPickMeta {
+  /** The client the lead was cherry-picked to */
+  target_client_id: string;
+  /** The campaign from which the cherry-pick was executed */
+  source_campaign_id: string;
+  /** Result of the webhook delivery attempt */
+  delivery_result: ILeadDeliveryResult;
+  /** ISO timestamp of when the cherry-pick was executed */
+  executed_at: string;
+  /** Actor who triggered the cherry-pick */
+  executed_by?: RequestActor;
 }

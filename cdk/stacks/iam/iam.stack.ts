@@ -28,6 +28,7 @@ export class IamStack extends Stack {
   public readonly authLambdaRole: Role;
   public readonly usersLambdaRole: Role;
   public readonly auditLambdaRole: Role;
+  public readonly cherryPickLambdaRole: Role;
 
   constructor(scope: Construct, id: string, props: IIamStackProps) {
     super(scope, id, props);
@@ -115,6 +116,12 @@ export class IamStack extends Stack {
     this.auditLambdaRole = this.createRole(
       `${config.appPrefix}-AuditLambdaRole`,
       iamConfig.lambdaRoles.audit,
+    );
+
+    // Create Cherry Pick Lambda Role
+    this.cherryPickLambdaRole = this.createRole(
+      `${config.appPrefix}-CherryPickLambdaRole`,
+      iamConfig.lambdaRoles.cherryPick,
     );
 
     // Apply tags

@@ -4,14 +4,18 @@
   "description": "Lead Management System MVP",
   "scripts": {
     "build": "tsc && npm run build:handlers",
+    "typecheck": "tsc --noEmit",
     "build:clients": "cd handlers/clients && tsc",
     "build:affiliates": "cd handlers/affiliates && tsc",
-    "build:handlers": "npm run build:clients && npm run build:affiliates",
-    "test": "./scripts/run-handler-tests.sh"
+    "build:handlers": "bash ./scripts/run-handler-packages.sh --cmd \"npm run build\"",
+    "test": "bash ./scripts/run-handler-tests.sh",
+    "test:handlers": "bash ./scripts/run-handler-tests.sh",
+    "test:handlers:unit": "bash ./scripts/run-handler-tests.sh --cmd \"npm run test:unit\""
   },
   "author": "Edgar Velasco",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.600.0",
     "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/client-lambda": "^3.994.0",
     "@aws-sdk/client-s3": "^3.600.0",
@@ -33,6 +37,7 @@
     "esbuild": "^0.24.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.0",
+    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^2.1.0"
   },
   "engines": {

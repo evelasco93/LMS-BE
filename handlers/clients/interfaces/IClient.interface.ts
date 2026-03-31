@@ -1,5 +1,6 @@
 import { ClientStatus } from "../enums/client-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
+import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 
 export interface IClient {
   id: string;
@@ -16,4 +17,5 @@ export interface IClient {
   deleted_at?: string;
   is_deleted?: boolean;
   active?: boolean;
+  campaigns?: { id: string; name: string; status: CampaignParticipantStatus }[];
 }

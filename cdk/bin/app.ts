@@ -60,6 +60,7 @@ const apiStack = new ApiStack(app, `${baseConfig.appPrefix}-ApiStack`, {
   tenantConfigLambda: servicesStack.tenantConfigLambda,
   qaOrchestratorLambda: servicesStack.qaOrchestratorLambda,
   auditLambda: servicesStack.auditLambda,
+  cherryPickLambda: servicesStack.cherryPickLambda,
   authLambdaRoleName: iamStack.authLambdaRole.roleName,
   usersLambdaRoleName: iamStack.usersLambdaRole.roleName,
   description: `${baseConfig.system.toUpperCase()} - API Gateway`,

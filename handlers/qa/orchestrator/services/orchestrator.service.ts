@@ -23,6 +23,7 @@ import {
   TrustedFormPluginConfig,
   TrustedFormResult,
   TrustedFormValidateResponse,
+  ValidationBypassDirectives,
 } from "../interfaces/IOrchestrator.interface";
 import { OrchestratorEvent } from "../types/orchestrator-event.types";
 import { ServiceResult } from "../types/common.types";
@@ -46,16 +47,21 @@ export class OrchestratorService {
   async execute(
     event: OrchestratorEvent,
   ): Promise<ServiceResult<OrchestratorResponse>> {
+    const bypass = this.normalizeBypass(event.bypass);
+    const bypassAll = bypass.all === true;
+
     // ── Stage 1: duplicate_check (hardcoded, always a gate) ──────────────────
     const duplicatePlugin = event.plugins?.duplicate_check;
     const duplicateEnabled = duplicatePlugin?.enabled ?? true;
+    const duplicateBypassed =
+      duplicateEnabled && (bypassAll || bypass.duplicate_check === true);
 
     let duplicateResult: Partial<DuplicateCheckResult> = {
       duplicate: false,
       duplicate_matches: { lead_ids: [] },
     };
 
-    if (duplicateEnabled) {
+    if (duplicateEnabled && !duplicateBypassed) {
       if (!this.constants.DUPLICATE_CHECK_LAMBDA_NAME) {
         this.logger.warn("DUPLICATE_CHECK_LAMBDA_NAME is not configured");
       } else {
@@ -92,7 +98,7 @@ export class OrchestratorService {
       matchedLeadIds.length > 0 || duplicateResult?.duplicate === true;
 
     // Gate: duplicate found → halt pipeline at stage 1, skip stages 2+
-    if (duplicate && duplicateEnabled) {
+    if (duplicate && duplicateEnabled && !duplicateBypassed) {
       return {
         result: true,
         data: {
@@ -105,16 +111,21 @@ export class OrchestratorService {
           plugin_results: {
             duplicate_check: {
               enabled: true,
+              bypassed: false,
               duplicate: true,
               matched_lead_ids: matchedLeadIds,
             },
           },
+          ...(Object.keys(bypass).length > 0 ? { bypass_applied: bypass } : {}),
         },
       };
     }
 
     // ── Stages 2+: configurable plugin pipeline ───────────────────────────────
-    const pipeline = this.buildPipeline(event);
+    const { pipeline, trustedFormBypassed, ipqsBypassed } = this.buildPipeline(
+      event,
+      bypass,
+    );
     const {
       trustedFormResult,
       ipqsResult,
@@ -141,9 +152,11 @@ export class OrchestratorService {
             halt_reason: haltReason,
           }
         : {}),
+      ...(Object.keys(bypass).length > 0 ? { bypass_applied: bypass } : {}),
       plugin_results: {
         duplicate_check: {
           enabled: duplicateEnabled,
+          ...(duplicateBypassed ? { bypassed: true } : {}),
           duplicate,
           matched_lead_ids: matchedLeadIds,
         },
@@ -151,6 +164,7 @@ export class OrchestratorService {
           ? {
               trusted_form: {
                 enabled: true,
+                ...(trustedFormBypassed ? { bypassed: true } : {}),
                 success: trustedFormResult?.success,
                 error: trustedFormResult?.error,
               },
@@ -160,6 +174,7 @@ export class OrchestratorService {
           ? {
               ipqs: {
                 enabled: true,
+                ...(ipqsBypassed ? { bypassed: true } : {}),
                 success: ipqsResult?.success,
                 error: ipqsResult?.error,
               },
@@ -178,11 +193,22 @@ export class OrchestratorService {
    */
   private buildPipeline(
     event: OrchestratorEvent,
-  ): Map<number, Array<() => Promise<StageTaskResult>>> {
+    bypass: ValidationBypassDirectives,
+  ): {
+    pipeline: Map<number, Array<() => Promise<StageTaskResult>>>;
+    trustedFormBypassed: boolean;
+    ipqsBypassed: boolean;
+  } {
     const stages = new Map<number, Array<() => Promise<StageTaskResult>>>();
+    const bypassAll = bypass.all === true;
+    let trustedFormBypassed = false;
+    let ipqsBypassed = false;
 
     const trustedFormPlugin = event.plugins?.trusted_form;
-    if (trustedFormPlugin?.enabled && event.cert_id) {
+    const trustedFormBypass = bypassAll || bypass.trusted_form === true;
+    if (trustedFormPlugin?.enabled && trustedFormBypass) {
+      trustedFormBypassed = true;
+    } else if (trustedFormPlugin?.enabled && event.cert_id) {
       const stageNum = trustedFormPlugin.stage ?? 2;
       if (!stages.has(stageNum)) stages.set(stageNum, []);
       stages
@@ -191,17 +217,93 @@ export class OrchestratorService {
     }
 
     const ipqsPlugin = event.plugins?.ipqs;
+    const bypassPhone = bypassAll || bypass.ipqs_phone === true;
+    const bypassEmail = bypassAll || bypass.ipqs_email === true;
+    const bypassIp = bypassAll || bypass.ipqs_ip === true;
     if (
       ipqsPlugin?.enabled &&
       (event.phone || event.email || event.ip_address)
     ) {
+      const hasPhone = Boolean(event.phone);
+      const hasEmail = Boolean(event.email);
+      const hasIp = Boolean(event.ip_address);
+
+      const shouldRunPhone = hasPhone && !bypassPhone;
+      const shouldRunEmail = hasEmail && !bypassEmail;
+      const shouldRunIp = hasIp && !bypassIp;
+
+      ipqsBypassed =
+        (hasPhone && bypassPhone) ||
+        (hasEmail && bypassEmail) ||
+        (hasIp && bypassIp);
+
+      if (!shouldRunPhone && !shouldRunEmail && !shouldRunIp) {
+        return {
+          pipeline: new Map([...stages.entries()].sort(([a], [b]) => a - b)),
+          trustedFormBypassed,
+          ipqsBypassed,
+        };
+      }
+
+      const effectiveEvent: OrchestratorEvent = {
+        ...event,
+        ...(shouldRunPhone ? {} : { phone: undefined }),
+        ...(shouldRunEmail ? {} : { email: undefined }),
+        ...(shouldRunIp ? {} : { ip_address: undefined }),
+      };
+      const effectivePlugin: IpqsPluginConfig = {
+        ...ipqsPlugin,
+        phone: shouldRunPhone
+          ? ipqsPlugin.phone
+          : { ...(ipqsPlugin.phone ?? {}), enabled: false },
+        email: shouldRunEmail
+          ? ipqsPlugin.email
+          : { ...(ipqsPlugin.email ?? {}), enabled: false },
+        ip: shouldRunIp
+          ? ipqsPlugin.ip
+          : { ...(ipqsPlugin.ip ?? {}), enabled: false },
+      };
+
       const stageNum = ipqsPlugin.stage ?? 2;
       if (!stages.has(stageNum)) stages.set(stageNum, []);
-      stages.get(stageNum)!.push(() => this.runIpqsTask(event, ipqsPlugin));
+      stages
+        .get(stageNum)!
+        .push(() => this.runIpqsTask(effectiveEvent, effectivePlugin));
     }
 
     // Return stages sorted ascending so lower stage numbers run first
-    return new Map([...stages.entries()].sort(([a], [b]) => a - b));
+    return {
+      pipeline: new Map([...stages.entries()].sort(([a], [b]) => a - b)),
+      trustedFormBypassed,
+      ipqsBypassed,
+    };
+  }
+
+  private normalizeBypass(
+    bypass?: ValidationBypassDirectives,
+  ): ValidationBypassDirectives {
+    if (!bypass || typeof bypass !== "object" || Array.isArray(bypass)) {
+      return {};
+    }
+
+    const normalized: ValidationBypassDirectives = {};
+    const keys: Array<keyof ValidationBypassDirectives> = [
+      "duplicate_check",
+      "trusted_form",
+      "ipqs_phone",
+      "ipqs_email",
+      "ipqs_ip",
+      "all",
+    ];
+
+    for (const key of keys) {
+      const value = bypass[key];
+      if (typeof value === "boolean") {
+        normalized[key] = value;
+      }
+    }
+
+    return normalized;
   }
 
   /**
@@ -288,7 +390,7 @@ export class OrchestratorService {
             cert_id: event.cert_id,
             phone: event.phone,
             vendor: plugin.vendor,
-            claim: false,
+            claim: plugin.claim ?? false,
           },
         });
 
@@ -415,34 +517,95 @@ export class OrchestratorService {
     try {
       const tableName = this.constants.TENANT_SETTINGS_TABLE_NAME;
 
-      // Query plugin_setting directly by provider using the type-provider GSI.
-      // plugin_setting records store `provider` (not schema_id), so we can
-      // resolve in a single lookup.
-      const settingRecords =
-        await this.dynamoDBUtil.queryAll<PluginSettingLookup>({
-          TableName: tableName,
-          IndexName: `${tableName}-type-provider-index`,
-          KeyConditionExpression: "#t = :type AND #p = :provider",
-          FilterExpression:
-            "enabled = :e AND (attribute_not_exists(is_deleted) OR is_deleted = :f)",
-          ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
-          ExpressionAttributeValues: {
-            ":type": "plugin_setting",
-            ":provider": provider,
-            ":e": true,
-            ":f": false,
-          },
-          Limit: 1,
-        });
+      // Preferred path: modern plugin_setting records are keyed by
+      // (type="plugin_setting", provider=<provider>) on type-provider-index.
+      const directSettings = await this.dynamoDBUtil.queryAll<
+        PluginSettingLookup & { provider?: string }
+      >({
+        TableName: tableName,
+        IndexName: `${tableName}-type-provider-index`,
+        KeyConditionExpression: "#t = :type AND #p = :provider",
+        FilterExpression:
+          "enabled = :e AND (attribute_not_exists(is_deleted) OR is_deleted = :f)",
+        ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
+        ExpressionAttributeValues: {
+          ":type": "plugin_setting",
+          ":provider": provider,
+          ":e": true,
+          ":f": false,
+        },
+        Limit: 1,
+      });
 
-      if (!settingRecords.length) {
+      const directCredentialId = directSettings.find(
+        (record) =>
+          typeof record.credentials_id === "string" && record.credentials_id,
+      )?.credentials_id;
+      if (directCredentialId) {
+        return directCredentialId;
+      }
+
+      // Backward-compat path: some environments still map
+      // credential_schema(provider) -> plugin_setting(schema_id).
+      const schemaRecords = await this.dynamoDBUtil.queryAll<{
+        id: string;
+        type: string;
+      }>({
+        TableName: tableName,
+        IndexName: `${tableName}-type-provider-index`,
+        KeyConditionExpression: "#t = :type AND #p = :provider",
+        FilterExpression:
+          "enabled = :e AND (attribute_not_exists(is_deleted) OR is_deleted = :f)",
+        ExpressionAttributeNames: { "#t": "type", "#p": "provider" },
+        ExpressionAttributeValues: {
+          ":type": "credential_schema",
+          ":provider": provider,
+          ":e": true,
+          ":f": false,
+        },
+        Limit: 1,
+      });
+
+      const schemaId = schemaRecords.find((record) => record.id)?.id;
+      if (!schemaId) {
         this.logger.warn(
           `No active plugin setting found for provider "${provider}"`,
         );
         return null;
       }
 
-      return settingRecords[0].credentials_id;
+      const legacySettings =
+        await this.dynamoDBUtil.queryAll<PluginSettingLookup>({
+          TableName: tableName,
+          IndexName: `${tableName}-schema-id-index`,
+          KeyConditionExpression: "schema_id = :schema_id",
+          FilterExpression:
+            "#t = :type AND enabled = :e AND (attribute_not_exists(is_deleted) OR is_deleted = :f)",
+          ExpressionAttributeNames: {
+            "#t": "type",
+          },
+          ExpressionAttributeValues: {
+            ":schema_id": schemaId,
+            ":type": "plugin_setting",
+            ":e": true,
+            ":f": false,
+          },
+          Limit: 1,
+        });
+
+      const legacyCredentialId = legacySettings.find(
+        (record) =>
+          typeof record.credentials_id === "string" && record.credentials_id,
+      )?.credentials_id;
+
+      if (!legacyCredentialId) {
+        this.logger.warn(
+          `No active plugin setting found for provider "${provider}"`,
+        );
+        return null;
+      }
+
+      return legacyCredentialId;
     } catch (error) {
       this.logger.error("Failed to resolve default credentials_id", {
         error,

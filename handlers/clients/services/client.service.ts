@@ -96,7 +96,10 @@ export class ClientService {
     }
   }
 
-  async getClient(id: string): Promise<ServiceResult<IClient>> {
+  async getClient(
+    id: string,
+    options?: { includeCampaigns?: boolean },
+  ): Promise<ServiceResult<IClient>> {
     try {
       const client = await this.dynamoDBUtil.get<IClient>({
         TableName: this.constants.CLIENTS_TABLE_NAME,
@@ -108,6 +111,10 @@ export class ClientService {
           result: false,
           error: `Client with id ${id} not found`,
         };
+      }
+
+      if (options?.includeCampaigns) {
+        client.campaigns = await this.enrichClientWithCampaigns(id);
       }
 
       return {
@@ -162,6 +169,7 @@ export class ClientService {
         limit = 20,
         lastEvaluatedKey,
         includeDeleted = false,
+        includeCampaigns = false,
       } = query;
 
       if (status) {
@@ -190,11 +198,20 @@ export class ClientService {
             : undefined,
         });
 
+        const statusItems = includeCampaigns
+          ? await Promise.all(
+              queryResult.items.map(async (c) => {
+                c.campaigns = await this.enrichClientWithCampaigns(c.id);
+                return c;
+              }),
+            )
+          : queryResult.items;
+
         return {
           result: true,
           data: {
-            items: queryResult.items,
-            count: queryResult.items.length,
+            items: statusItems,
+            count: statusItems.length,
             lastEvaluatedKey: queryResult.lastEvaluatedKey
               ? Buffer.from(
                   JSON.stringify(queryResult.lastEvaluatedKey),
@@ -221,11 +238,20 @@ export class ClientService {
           : undefined,
       });
 
+      const items = includeCampaigns
+        ? await Promise.all(
+            scanResult.items.map(async (c) => {
+              c.campaigns = await this.enrichClientWithCampaigns(c.id);
+              return c;
+            }),
+          )
+        : scanResult.items;
+
       return {
         result: true,
         data: {
-          items: scanResult.items,
-          count: scanResult.items.length,
+          items,
+          count: items.length,
           lastEvaluatedKey: scanResult.lastEvaluatedKey
             ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
                 "base64",
@@ -443,11 +469,13 @@ export class ClientService {
   private async findCampaignsWithClient(clientId: string): Promise<
     {
       id: string;
+      name: string;
       clients?: { client_id: string; status?: CampaignParticipantStatus }[];
     }[]
   > {
     const scanResult = await this.dynamoDBUtil.scan<{
       id: string;
+      name: string;
       clients?: { client_id: string; status?: CampaignParticipantStatus }[];
     }>({
       TableName: this.constants.CAMPAIGNS_TABLE_NAME,
@@ -456,6 +484,24 @@ export class ClientService {
     return (scanResult.items ?? []).filter((campaign) =>
       (campaign.clients ?? []).some((c) => c.client_id === clientId),
     );
+  }
+
+  private async enrichClientWithCampaigns(
+    clientId: string,
+  ): Promise<
+    { id: string; name: string; status: CampaignParticipantStatus }[]
+  > {
+    const campaigns = await this.findCampaignsWithClient(clientId);
+    return campaigns.map((campaign) => {
+      const link = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        status: link?.status ?? CampaignParticipantStatus.DISABLED,
+      };
+    });
   }
 
   private async campaignHasLeads(campaignId: string): Promise<boolean> {

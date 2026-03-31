@@ -41,7 +41,10 @@ export class ClientController extends Controller {
   async createClient(
     @body payload: CreateClientRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.clientService.createClient(payload, this.getActor());
+    const result = await this.clientService.createClient(
+      payload,
+      this.getActor(),
+    );
 
     if (!result.result) {
       return {
@@ -60,8 +63,13 @@ export class ClientController extends Controller {
 
   @GET("/:id")
   @produces("application/json")
-  async getClient(@pathParam("id") id: string): Promise<RestApiResponse> {
-    const result = await this.clientService.getClient(id);
+  async getClient(
+    @pathParam("id") id: string,
+    @queryParam("includeCampaigns") includeCampaigns?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.clientService.getClient(id, {
+      includeCampaigns: includeCampaigns === "true" || includeCampaigns === "1",
+    });
 
     if (!result.result) {
       return {
@@ -85,6 +93,7 @@ export class ClientController extends Controller {
     @queryParam("limit") limit?: string,
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
     @queryParam("includeDeleted") includeDeleted?: string,
+    @queryParam("includeCampaigns") includeCampaigns?: string,
   ): Promise<RestApiResponse> {
     const result = await this.clientService.listClients({
       status,
@@ -92,6 +101,8 @@ export class ClientController extends Controller {
       lastEvaluatedKey,
       includeDeleted:
         includeDeleted === "true" || includeDeleted === "1" || false,
+      includeCampaigns:
+        includeCampaigns === "true" || includeCampaigns === "1" || false,
     });
 
     if (!result.result) {

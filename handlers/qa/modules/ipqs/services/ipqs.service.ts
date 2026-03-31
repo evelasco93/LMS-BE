@@ -162,24 +162,83 @@ export class IpqsService {
       return subCfg.enabled ?? hasField;
     };
 
+    const phoneCriteria =
+      (raw?.phone as { criteria?: Partial<IIpqsPhoneCriteria> } | undefined)
+        ?.criteria ?? {};
+    const emailCriteria =
+      (raw?.email as { criteria?: Partial<IIpqsEmailCriteria> } | undefined)
+        ?.criteria ?? {};
+    const ipCriteria =
+      (raw?.ip as { criteria?: Partial<IIpqsIpCriteria> } | undefined)
+        ?.criteria ?? {};
+
+    const normalizeAllowedList = (
+      value: unknown,
+      fallback: string[],
+    ): string[] => {
+      if (!Array.isArray(value)) return fallback;
+      return value.filter((item): item is string => typeof item === "string");
+    };
+
     return {
       phone: {
         enabled: inferEnabled(raw?.phone, !!fields.phone),
-        criteria:
-          (raw?.phone as IIpqsPhoneCheckConfig | undefined)?.criteria ??
-          DEFAULT_PHONE_CRITERIA,
+        criteria: {
+          valid: {
+            ...DEFAULT_PHONE_CRITERIA.valid,
+            ...(phoneCriteria.valid ?? {}),
+          },
+          fraud_score: {
+            ...DEFAULT_PHONE_CRITERIA.fraud_score,
+            ...(phoneCriteria.fraud_score ?? {}),
+          },
+          country: {
+            ...DEFAULT_PHONE_CRITERIA.country,
+            ...(phoneCriteria.country ?? {}),
+            allowed: normalizeAllowedList(
+              phoneCriteria.country?.allowed,
+              DEFAULT_PHONE_CRITERIA.country.allowed,
+            ),
+          },
+        },
       },
       email: {
         enabled: inferEnabled(raw?.email, !!fields.email),
-        criteria:
-          (raw?.email as IIpqsEmailCheckConfig | undefined)?.criteria ??
-          DEFAULT_EMAIL_CRITERIA,
+        criteria: {
+          valid: {
+            ...DEFAULT_EMAIL_CRITERIA.valid,
+            ...(emailCriteria.valid ?? {}),
+          },
+          fraud_score: {
+            ...DEFAULT_EMAIL_CRITERIA.fraud_score,
+            ...(emailCriteria.fraud_score ?? {}),
+          },
+        },
       },
       ip: {
         enabled: inferEnabled(raw?.ip, !!fields.ip_address),
-        criteria:
-          (raw?.ip as IIpqsIpCheckConfig | undefined)?.criteria ??
-          DEFAULT_IP_CRITERIA,
+        criteria: {
+          fraud_score: {
+            ...DEFAULT_IP_CRITERIA.fraud_score,
+            ...(ipCriteria.fraud_score ?? {}),
+          },
+          country_code: {
+            ...DEFAULT_IP_CRITERIA.country_code,
+            ...(ipCriteria.country_code ?? {}),
+            allowed: normalizeAllowedList(
+              ipCriteria.country_code?.allowed,
+              DEFAULT_IP_CRITERIA.country_code.allowed,
+            ),
+          },
+          proxy: {
+            ...DEFAULT_IP_CRITERIA.proxy,
+            ...(ipCriteria.proxy ?? {}),
+          },
+          vpn: {
+            ...DEFAULT_IP_CRITERIA.vpn,
+            ...(ipCriteria.vpn ?? {}),
+          },
+        },
       },
     };
   }
@@ -222,24 +281,29 @@ export class IpqsService {
   ): boolean {
     if (!raw.success) return false;
 
-    if (criteria.valid.enabled && raw.valid !== criteria.valid.required) {
+    const validCheck = criteria?.valid;
+    const fraudScoreCheck = criteria?.fraud_score;
+    const countryCheck = criteria?.country;
+
+    if (validCheck?.enabled && raw.valid !== validCheck.required) {
       return false;
     }
 
     if (
-      criteria.fraud_score.enabled &&
+      fraudScoreCheck?.enabled &&
       raw.fraud_score !== undefined &&
-      !this.evalScore(raw.fraud_score, criteria.fraud_score)
+      !this.evalScore(raw.fraud_score, fraudScoreCheck)
     ) {
       return false;
     }
 
-    if (
-      criteria.country.enabled &&
-      raw.country !== undefined &&
-      !criteria.country.allowed.includes(raw.country)
-    ) {
-      return false;
+    if (countryCheck?.enabled && raw.country !== undefined) {
+      const allowedCountries = Array.isArray(countryCheck.allowed)
+        ? countryCheck.allowed
+        : [];
+      if (!allowedCountries.includes(raw.country)) {
+        return false;
+      }
     }
 
     return true;
@@ -281,14 +345,17 @@ export class IpqsService {
   ): boolean {
     if (!raw.success) return false;
 
-    if (criteria.valid.enabled && raw.valid !== criteria.valid.required) {
+    const validCheck = criteria?.valid;
+    const fraudScoreCheck = criteria?.fraud_score;
+
+    if (validCheck?.enabled && raw.valid !== validCheck.required) {
       return false;
     }
 
     if (
-      criteria.fraud_score.enabled &&
+      fraudScoreCheck?.enabled &&
       raw.fraud_score !== undefined &&
-      !this.evalScore(raw.fraud_score, criteria.fraud_score)
+      !this.evalScore(raw.fraud_score, fraudScoreCheck)
     ) {
       return false;
     }
@@ -333,34 +400,40 @@ export class IpqsService {
   ): boolean {
     if (!raw.success) return false;
 
+    const fraudScoreCheck = criteria?.fraud_score;
+    const countryCodeCheck = criteria?.country_code;
+    const proxyCheck = criteria?.proxy;
+    const vpnCheck = criteria?.vpn;
+
     if (
-      criteria.fraud_score.enabled &&
+      fraudScoreCheck?.enabled &&
       raw.fraud_score !== undefined &&
-      !this.evalScore(raw.fraud_score, criteria.fraud_score)
+      !this.evalScore(raw.fraud_score, fraudScoreCheck)
     ) {
       return false;
     }
 
-    if (
-      criteria.country_code.enabled &&
-      raw.country_code !== undefined &&
-      !criteria.country_code.allowed.includes(raw.country_code)
-    ) {
-      return false;
+    if (countryCodeCheck?.enabled && raw.country_code !== undefined) {
+      const allowedCountries = Array.isArray(countryCodeCheck.allowed)
+        ? countryCodeCheck.allowed
+        : [];
+      if (!allowedCountries.includes(raw.country_code)) {
+        return false;
+      }
     }
 
     if (
-      criteria.proxy.enabled &&
+      proxyCheck?.enabled &&
       raw.proxy !== undefined &&
-      raw.proxy !== criteria.proxy.allowed
+      raw.proxy !== proxyCheck.allowed
     ) {
       return false;
     }
 
     if (
-      criteria.vpn.enabled &&
+      vpnCheck?.enabled &&
       raw.vpn !== undefined &&
-      raw.vpn !== criteria.vpn.allowed
+      raw.vpn !== vpnCheck.allowed
     ) {
       return false;
     }

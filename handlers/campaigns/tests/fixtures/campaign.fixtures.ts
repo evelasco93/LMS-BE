@@ -16,6 +16,20 @@ export const mockCampaign: ICampaign = {
       status: CampaignParticipantStatus.LIVE,
     },
   ],
+  base_criteria: [{ field_name: "email", operator: "is_not_empty", value: "" }],
+  logic_rules: [
+    {
+      name: "Default",
+      action: "pass" as const,
+      groups: [
+        {
+          conditions: [
+            { field_name: "state", operator: "is" as const, value: "FL" },
+          ],
+        },
+      ],
+    },
+  ],
   plugins: {
     duplicate_check: {
       enabled: true,
@@ -66,6 +80,20 @@ export const emptyCampaign: ICampaign = {
   status: CampaignStatus.DRAFT,
   clients: [],
   affiliates: [],
+  base_criteria: [{ field_name: "email", operator: "is_not_empty", value: "" }],
+  logic_rules: [
+    {
+      name: "Default",
+      action: "pass" as const,
+      groups: [
+        {
+          conditions: [
+            { field_name: "state", operator: "is" as const, value: "FL" },
+          ],
+        },
+      ],
+    },
+  ],
   plugins: {
     duplicate_check: {
       enabled: true,
@@ -120,6 +148,20 @@ export const campaignWithAffiliate: ICampaign = {
       affiliate_id: "AF777",
       campaign_key: "777777777777",
       status: CampaignParticipantStatus.LIVE,
+    },
+  ],
+  base_criteria: [{ field_name: "email", operator: "is_not_empty", value: "" }],
+  logic_rules: [
+    {
+      name: "Default",
+      action: "pass" as const,
+      groups: [
+        {
+          conditions: [
+            { field_name: "state", operator: "is" as const, value: "FL" },
+          ],
+        },
+      ],
     },
   ],
   plugins: {

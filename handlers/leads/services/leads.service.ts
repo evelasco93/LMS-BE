@@ -31,7 +31,10 @@ import {
   QaOrchestratorResult,
   ValueMappingResult,
 } from "../interfaces/leads-internal.interface";
-import { ICampaign } from "../../campaigns/interfaces/ICampaign.interface";
+import {
+  ICampaign,
+  ICampaignValidationBypassConfig,
+} from "../../campaigns/interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 import {
@@ -66,7 +69,6 @@ export class LeadsService {
 
   async createLead(
     request: CreateLeadRequest,
-    isTest: boolean,
     actor?: RequestActor,
     rawHeaders?: Record<string, string | string[] | undefined>,
   ): Promise<LeadIntakeResponse> {
@@ -104,7 +106,7 @@ export class LeadsService {
       if (!campaignId || !campaignKey) {
         return {
           result: "failed",
-          message: isTest ? "Test lead rejected" : "Lead rejected",
+          message: "Lead rejected",
           error: "campaign_id and campaign_key are required",
         };
       }
@@ -138,7 +140,7 @@ export class LeadsService {
       if (!campaign) {
         return {
           result: "failed",
-          message: isTest ? "Test lead rejected" : "Lead rejected",
+          message: "Lead rejected",
           error: "Campaign not found",
         };
       }
@@ -149,7 +151,7 @@ export class LeadsService {
       if (!affiliate) {
         return {
           result: "failed",
-          message: isTest ? "Test lead rejected" : "Lead rejected",
+          message: "Lead rejected",
           error: "Invalid campaign_key for campaign",
         };
       }
@@ -157,61 +159,53 @@ export class LeadsService {
       const affiliateStatus =
         affiliate.status ?? CampaignParticipantStatus.LIVE;
 
+      // ── Derive test mode ──────────────────────────────────────────────────
+      // Test mode is determined by affiliate status (TEST) or by auto-detecting
+      // the word "test" (case-insensitive) in any payload field value.
+      const isTestByStatus = affiliateStatus === CampaignParticipantStatus.TEST;
+      const isTestByPayload = Object.values(normalizedLeadPayload).some(
+        (v) => typeof v === "string" && /\btest\b/i.test(v),
+      );
+      const isTest = isTestByStatus || isTestByPayload;
+
       // Affiliate-driven status gate.
-      // A TEST affiliate's per-campaign role takes precedence over the campaign-level
-      // status check: they may send test leads to ACTIVE campaigns (e.g. one of many
-      // affiliates on a live campaign is still in QA/test mode).
-      if (affiliateStatus !== CampaignParticipantStatus.DISABLED) {
-        if (affiliateStatus === CampaignParticipantStatus.TEST) {
-          // TEST affiliate: test endpoint only; DRAFT and INACTIVE campaigns are blocked.
-          if (!isTest) {
-            const baseUrl = await this.resolveExternalLeadsBaseUrl();
-            const testUrl = baseUrl ? `${baseUrl}/test` : "/leads/test";
-            return {
-              result: "failed",
-              message: "Lead rejected",
-              error: `This campaign is in test mode. Please send your lead to: ${testUrl}`,
-            };
-          }
-          if (campaign.status === CampaignStatus.INACTIVE) {
-            return {
-              result: "failed",
-              message: "Test lead rejected",
-              error: "Campaign is inactive",
-            };
-          }
-          if (campaign.status === CampaignStatus.DRAFT) {
-            return {
-              result: "failed",
-              message: "Test lead rejected",
-              error:
-                "Campaign is in draft; move to TEST before sending test leads",
-            };
-          }
-          // ACTIVE or TEST campaign → TEST affiliate is allowed on the test endpoint
-        } else {
-          // LIVE affiliate: live endpoint only; full campaign-status validation applies.
-          if (isTest) {
-            const baseUrl = await this.resolveExternalLeadsBaseUrl();
-            const liveUrl = baseUrl || "/leads";
-            return {
-              result: "failed",
-              message: "Test lead rejected",
-              error: `This campaign is live. Please send your lead to: ${liveUrl}`,
-            };
-          }
-          const statusCheck = await this.validateStatus(campaign.status, false);
-          if (statusCheck) {
-            return {
-              result: "failed",
-              message: "Lead rejected",
-              error: statusCheck,
-            };
-          }
+      if (affiliateStatus === CampaignParticipantStatus.DISABLED) {
+        // Disabled affiliates proceed — rejectedByAffiliate is handled later.
+      } else if (isTestByStatus) {
+        // TEST affiliate: DRAFT and INACTIVE campaigns are blocked.
+        if (campaign.status === CampaignStatus.INACTIVE) {
+          return {
+            result: "failed",
+            message: "Test lead rejected",
+            error: "Campaign is inactive",
+          };
+        }
+        if (campaign.status === CampaignStatus.DRAFT) {
+          return {
+            result: "failed",
+            message: "Test lead rejected",
+            error:
+              "Campaign is in draft; move to TEST before sending test leads",
+          };
+        }
+        // ACTIVE or TEST campaign → TEST affiliate is allowed
+      } else {
+        // LIVE affiliate: full campaign-status validation applies.
+        const statusCheck = await this.validateStatus(campaign.status, false);
+        if (statusCheck) {
+          return {
+            result: "failed",
+            message: "Lead rejected",
+            error: statusCheck,
+          };
         }
       }
 
       const now = new Date().toISOString();
+      const validationBypass = this.resolveValidationBypass(
+        campaign,
+        affiliate,
+      );
 
       // ── Affiliate lead cap check (live leads only) ────────────────────────
       // Cap is tracked per-affiliate per-campaign on the campaign record.
@@ -238,6 +232,9 @@ export class LeadsService {
         normalizedLeadPayload,
         now,
       );
+
+      // ── Persist normalized order_number into the payload ─────────────────
+      mappedPayload.order_number = orderNumber;
 
       // ── Stage 0: Criteria validation (required fields) — runs before duplicate check ─
       const criteriaValidationResult = await this.runCriteriaValidation(
@@ -274,6 +271,29 @@ export class LeadsService {
           ...(criteriaRejectionErrors.length > 0
             ? { rejection_errors: criteriaRejectionErrors }
             : {}),
+          decision_trace: {
+            version: 1,
+            intake: {
+              ...(originalSource !== undefined
+                ? { original_source: originalSource }
+                : {}),
+              order_number: orderNumber,
+              order_number_normalized: orderNumberWasNormalized,
+              ...(isTest
+                ? {
+                    test_detected_by: isTestByStatus
+                      ? ("affiliate_status" as const)
+                      : ("payload_detection" as const),
+                  }
+                : {}),
+              captured_at: now,
+            },
+            final_decision: {
+              accepted: false,
+              reason: rejectionReason,
+              decided_at: now,
+            },
+          },
           created_by: actor,
           updated_at: now,
           updated_by: actor,
@@ -349,145 +369,63 @@ export class LeadsService {
       const logicRulesResult = await this.runLogicRules(
         campaignId,
         normalizedLeadPayload,
+        affiliate.affiliate_id,
       );
 
-      if (!logicRulesResult.passed) {
-        const rejectionReason =
+      const affiliateLogicFailed = !logicRulesResult.passed;
+      let logicRejectionReason: string | undefined;
+      let logicRejectionErrors: string[] = [];
+
+      if (affiliateLogicFailed) {
+        logicRejectionReason =
           logicRulesResult.rejection_reason ?? REJECTION_LOGIC_RULES;
-        const logicRejectionErrors = (
-          logicRulesResult.condition_failures ?? []
-        ).map((f) => {
-          const fieldLabel = f.field.replace(/_/g, " ");
-          const expected = Array.isArray(f.expected)
-            ? f.expected.join(" or ")
-            : f.expected;
-          switch (f.operator) {
-            case "is":
-              return `${fieldLabel} must equal ${expected}`;
-            case "is_not":
-              return `${fieldLabel} must not equal ${expected}`;
-            case "contains":
-              return `${fieldLabel} does not match options`;
-            case "does_not_contain":
-              return `${fieldLabel} contains a disallowed value`;
-            case "starts_with":
-              return `${fieldLabel} must start with ${expected}`;
-            case "does_not_start_with":
-              return `${fieldLabel} must not start with ${expected}`;
-            case "ends_with":
-              return `${fieldLabel} must end with ${expected}`;
-            case "does_not_end_with":
-              return `${fieldLabel} must not end with ${expected}`;
-            case "greater_than":
-              return `${fieldLabel} must be greater than ${expected}`;
-            case "less_than":
-              return `${fieldLabel} must be less than ${expected}`;
-            default:
-              return `${fieldLabel} does not meet requirements`;
-          }
-        });
-
-        const logicRejectLead: ILead = {
-          id: IdGenerator.generateLeadId(),
-          campaign_id: campaignId,
-          campaign_key: campaignKey,
-          test: isTest,
-          ...(originalSource !== undefined
-            ? { original_source: originalSource }
-            : {}),
-          order_number: orderNumber,
-          payload: mappedPayload,
-          ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
-          duplicate: false,
-          duplicate_matches: { lead_ids: [] },
-          created_at: now,
-          affiliate_status_at_intake: affiliateStatus,
-          rejected: true,
-          rejection_reason: rejectionReason,
-          ...(logicRejectionErrors.length > 0
-            ? { rejection_errors: logicRejectionErrors }
-            : {}),
-          logic_rules_result: {
-            passed: false,
-            rejection_reason: rejectionReason,
-            matched_rule_id: logicRulesResult.matched_rule_id,
-            matched_rule_name: logicRulesResult.matched_rule_name,
+        logicRejectionErrors = (logicRulesResult.condition_failures ?? []).map(
+          (f) => {
+            const fieldLabel = f.field.replace(/_/g, " ");
+            const expected = Array.isArray(f.expected)
+              ? f.expected.join(" or ")
+              : f.expected;
+            switch (f.operator) {
+              case "is":
+                return `${fieldLabel} must equal ${expected}`;
+              case "is_not":
+                return `${fieldLabel} must not equal ${expected}`;
+              case "contains":
+                return `${fieldLabel} does not match options`;
+              case "does_not_contain":
+                return `${fieldLabel} contains a disallowed value`;
+              case "starts_with":
+                return `${fieldLabel} must start with ${expected}`;
+              case "does_not_start_with":
+                return `${fieldLabel} must not start with ${expected}`;
+              case "ends_with":
+                return `${fieldLabel} must end with ${expected}`;
+              case "does_not_end_with":
+                return `${fieldLabel} must not end with ${expected}`;
+              case "greater_than":
+                return `${fieldLabel} must be greater than ${expected}`;
+              case "less_than":
+                return `${fieldLabel} must be less than ${expected}`;
+              default:
+                return `${fieldLabel} does not meet requirements`;
+            }
           },
-          created_by: actor,
-          updated_at: now,
-          updated_by: actor,
-          is_deleted: false,
-          active: false,
-        };
-
-        await this.dynamoDBUtil.put({
-          TableName: this.constants.LEADS_TABLE_NAME,
-          Item: logicRejectLead,
-        });
-
-        await this.writeLeadIntakeAuditEvents(
-          logicRejectLead.id,
-          originalSource,
-          rawOrderNumber,
-          orderNumberWasNormalized,
-          orderNumber,
-          now,
         );
-
-        if (mappedFields.length > 0) {
-          await this.auditWriterService.writeAuditEvent({
-            entity_id: logicRejectLead.id,
-            entity_type: "lead",
-            action: "value_mapped",
-            changes: mappedFields.map((f) => ({
-              field: `payload.${f.field}`,
-              from: f.original_value,
-              to: f.mapped_value,
-            })),
-            actor: {
-              username: "system:value_mapper",
-              full_name: "Value Mapper",
-            },
-            changed_at: now,
-          });
-        }
-
-        this.logger.info("Lead rejected by logic rules", {
-          leadId: logicRejectLead.id,
-          campaignId,
-          matchedRuleId: logicRulesResult.matched_rule_id,
-          matchedRuleName: logicRulesResult.matched_rule_name,
-          errorCount: logicRejectionErrors.length,
-        });
-
-        const logicRejectResponse: LeadIntakeResponse = {
-          result: "failed",
-          lead_id: logicRejectLead.id,
-          message: "Lead Rejected",
-          errors:
-            logicRejectionErrors.length > 0
-              ? logicRejectionErrors
-              : [rejectionReason],
-        };
-
-        this.writeIntakeLog(
-          logicRejectLead,
-          isTest,
-          raw as Record<string, unknown>,
-          rawHeaders,
-          normalizedLeadPayload,
-          logicRejectResponse,
-        ).catch((err) => this.logger.error("Failed to write intake log", err));
-
-        return logicRejectResponse;
       }
 
-      const qaResult = await this.runQaPlugins(campaign, {
-        campaign_id: campaignId,
-        campaign_key: campaignKey,
-        payload: mappedPayload,
-        test: isTest,
-      });
+      const qaResult = await this.runQaPlugins(
+        campaign,
+        {
+          campaign_id: campaignId,
+          campaign_key: campaignKey,
+          payload: mappedPayload,
+          test: isTest,
+        },
+        {
+          affiliate_id: affiliate.affiliate_id,
+          bypass: validationBypass,
+        },
+      );
 
       const duplicateMatchIds = Array.isArray(
         qaResult.duplicate_matches?.lead_ids,
@@ -511,9 +449,14 @@ export class LeadsService {
         qaResult.halt_plugin !== "duplicate_check";
 
       const rejected =
-        rejectedByAffiliate || rejectedByDuplicate || pluginGateRejected;
+        rejectedByAffiliate ||
+        rejectedByDuplicate ||
+        pluginGateRejected ||
+        affiliateLogicFailed;
 
       const rejectionReasons: string[] = [];
+      if (affiliateLogicFailed && logicRejectionReason)
+        rejectionReasons.push(logicRejectionReason);
       if (rejectedByAffiliate)
         rejectionReasons.push(REJECTION_AFFILIATE_DISABLED);
       if (rejectedByDuplicate) rejectionReasons.push(REJECTION_DUPLICATE);
@@ -534,6 +477,20 @@ export class LeadsService {
         order_number: orderNumber,
         payload: mappedPayload,
         ...(mappedFields.length > 0 ? { mapped_fields: mappedFields } : {}),
+        ...(affiliateLogicFailed
+          ? {
+              affiliate_logic_failed: true,
+              logic_rules_result: {
+                passed: false,
+                rejection_reason: logicRejectionReason,
+                matched_rule_id: logicRulesResult.matched_rule_id,
+                matched_rule_name: logicRulesResult.matched_rule_name,
+              },
+              ...(logicRejectionErrors.length > 0
+                ? { rejection_errors: logicRejectionErrors }
+                : {}),
+            }
+          : {}),
         duplicate: duplicateDetected,
         duplicate_matches: {
           lead_ids: duplicateMatchIds,
@@ -554,12 +511,67 @@ export class LeadsService {
         affiliate_status_at_intake: affiliateStatus,
         rejected,
         rejection_reason: rejectionReason,
+        decision_trace: {
+          version: 1,
+          intake: {
+            ...(originalSource !== undefined
+              ? { original_source: originalSource }
+              : {}),
+            order_number: orderNumber,
+            order_number_normalized: orderNumberWasNormalized,
+            ...(isTest
+              ? {
+                  test_detected_by: isTestByStatus
+                    ? ("affiliate_status" as const)
+                    : ("payload_detection" as const),
+                }
+              : {}),
+            captured_at: now,
+          },
+          qa: {
+            duplicate_detected: duplicateDetected,
+            pipeline_halted: qaResult.pipeline_halted === true,
+            ...(qaResult.halt_plugin
+              ? { halt_plugin: qaResult.halt_plugin }
+              : {}),
+            ...(qaResult.halt_reason
+              ? { halt_reason: qaResult.halt_reason }
+              : {}),
+            ...(qaResult.bypass_applied
+              ? { bypass_applied: qaResult.bypass_applied }
+              : validationBypass
+                ? { bypass_applied: validationBypass }
+                : {}),
+            evaluated_at: now,
+          },
+          final_decision: {
+            accepted: !rejected,
+            reason:
+              rejectionReason ??
+              (isTest ? LEAD_ACCEPTED_TEST_MESSAGE : LEAD_ACCEPTED_MESSAGE),
+            decided_at: now,
+          },
+        },
         created_by: actor,
         updated_at: now,
         updated_by: actor,
         is_deleted: false,
         active: true,
       };
+
+      // Auto-set cherry_pickable for rejected, non-test leads based on config
+      if (rejected && !isTest) {
+        const affiliateEntry = campaign.affiliates?.find(
+          (a) => a.campaign_key === campaignKey,
+        );
+        const pickable =
+          affiliateEntry?.cherry_pick_override ??
+          campaign.default_cherry_pickable ??
+          false;
+        if (pickable) {
+          lead.cherry_pickable = true;
+        }
+      }
 
       await this.dynamoDBUtil.put({
         TableName: this.constants.LEADS_TABLE_NAME,
@@ -609,11 +621,58 @@ export class LeadsService {
         test: isTest,
       });
 
-      // ── Increment affiliate leads_sent (live, accepted leads only) ─────────
-      // Uses DynamoDB UpdateItem against the affiliate's entry in the campaign
-      // record.  The affiliate's position in the list is resolved by index so
-      // the expression can use a numeric path like affiliates[2].leads_sent.
-      if (!isTest && !rejected) {
+      // ── Synchronous webhook delivery ──────────────────────────────────────
+      // Deliver when: not test, not hard-rejected (affiliate disabled, duplicate,
+      // plugin gate).  Logic-failed leads still attempt delivery — the client's
+      // own override rules decide acceptance in pickDeliveryClient().
+      const hardRejected =
+        rejectedByAffiliate || rejectedByDuplicate || pluginGateRejected;
+      if (!isTest && !hardRejected) {
+        await this.leadDeliveryService
+          .deliverLead(lead, campaign)
+          .catch((err: any) =>
+            this.logger.error("Lead delivery error (non-fatal)", {
+              leadId: lead.id,
+              error: err?.message,
+            }),
+          );
+      }
+
+      // ── Evaluate sold criteria & increment lead cap post-delivery ─────────
+      // leads_sent only increments for leads that are actually sold.  If the
+      // affiliate defines sold_criteria rules, the lead must ALSO pass those
+      // rules (evaluated against the lead payload) to count as sold.
+      if (!isTest && lead.sold === true) {
+        const soldCriteria = affiliate.sold_criteria ?? [];
+        const enabledSoldCriteria = soldCriteria.filter(
+          (r) => r.enabled !== false,
+        );
+        if (enabledSoldCriteria.length > 0) {
+          const payload = (lead.payload ?? {}) as Record<string, unknown>;
+          const soldCriteriaPassed = this.leadDeliveryService.passesLogicRules(
+            enabledSoldCriteria,
+            payload,
+          );
+          if (!soldCriteriaPassed) {
+            lead.sold = false;
+            lead.sold_to_client_id = undefined;
+            lead.sold_criteria_failed = true;
+            await this.dynamoDBUtil.update({
+              TableName: this.constants.LEADS_TABLE_NAME,
+              Key: { id: lead.id },
+              UpdateExpression:
+                "SET sold = :sold, sold_criteria_failed = :scf, updated_at = :now REMOVE sold_to_client_id",
+              ExpressionAttributeValues: {
+                ":sold": false,
+                ":scf": true,
+                ":now": now,
+              },
+            });
+          }
+        }
+      }
+
+      if (!isTest && lead.sold === true) {
         const affiliateIndex = (campaign.affiliates ?? []).findIndex(
           (a) => a.campaign_key === campaignKey,
         );
@@ -636,18 +695,6 @@ export class LeadsService {
               }),
             );
         }
-      }
-
-      // ── Synchronous webhook delivery (live, accepted leads only) ──────────
-      if (!isTest && !rejected) {
-        await this.leadDeliveryService
-          .deliverLead(lead, campaign, isTest)
-          .catch((err: any) =>
-            this.logger.error("Lead delivery error (non-fatal)", {
-              leadId: lead.id,
-              error: err?.message,
-            }),
-          );
       }
 
       const leadResponse: LeadIntakeResponse = lead.rejected
@@ -686,7 +733,7 @@ export class LeadsService {
       this.logger.error("Failed to create lead", error);
       return {
         result: "failed",
-        message: isTest ? "Test lead rejected" : "Lead rejected",
+        message: "Lead rejected",
         error: error.message || "Failed to create lead",
       };
     }
@@ -706,6 +753,7 @@ export class LeadsService {
         limit = 20,
         lastEvaluatedKey,
         includeDeleted = false,
+        include_trace = false,
       } = query;
 
       const exclusiveStartKey = lastEvaluatedKey
@@ -723,12 +771,6 @@ export class LeadsService {
         values[":is_deleted_false"] = false;
       }
 
-      if (campaign_id) {
-        filters.push("#campaign_id = :campaign_id");
-        names["#campaign_id"] = "campaign_id";
-        values[":campaign_id"] = campaign_id;
-      }
-
       if (typeof test === "boolean") {
         filters.push("#test = :test");
         names["#test"] = "test";
@@ -739,32 +781,97 @@ export class LeadsService {
         ? filters.join(" AND ")
         : undefined;
 
-      const scanResult = await this.dynamoDBUtil.scan<ILead>({
-        TableName: this.constants.LEADS_TABLE_NAME,
-        Limit: limit,
-        ExclusiveStartKey: exclusiveStartKey,
-        ...(filterExpression
-          ? {
-              FilterExpression: filterExpression,
-              ...(Object.keys(names).length > 0
-                ? { ExpressionAttributeNames: names }
-                : {}),
-              ExpressionAttributeValues: values,
-            }
-          : {}),
-      });
+      let items: ILead[] = [];
+      let nextKey: Record<string, unknown> | undefined;
+
+      if (campaign_id) {
+        try {
+          const queryNames: Record<string, string> = {
+            ...names,
+            "#campaign_id": "campaign_id",
+          };
+          const queryValues: Record<string, unknown> = {
+            ...values,
+            ":campaign_id": campaign_id,
+          };
+
+          const queryResult = await this.dynamoDBUtil.query<ILead>({
+            TableName: this.constants.LEADS_TABLE_NAME,
+            IndexName: this.constants.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME,
+            KeyConditionExpression: "#campaign_id = :campaign_id",
+            ExpressionAttributeNames: queryNames,
+            ExpressionAttributeValues: queryValues,
+            ...(filterExpression ? { FilterExpression: filterExpression } : {}),
+            Limit: limit,
+            ExclusiveStartKey: exclusiveStartKey,
+            ScanIndexForward: false,
+          });
+
+          items = queryResult.items;
+          nextKey = queryResult.lastEvaluatedKey;
+        } catch (error: any) {
+          // Safe rollout: if index is not available yet, keep behavior by
+          // falling back to scan for this request.
+          this.logger.warn(
+            "Leads campaign index query failed; falling back to scan",
+            {
+              campaignId: campaign_id,
+              error: error?.message,
+              indexName: this.constants.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME,
+            },
+          );
+
+          const scanFilters = ["#campaign_id = :campaign_id", ...filters];
+          const scanNames: Record<string, string> = {
+            ...names,
+            "#campaign_id": "campaign_id",
+          };
+          const scanValues: Record<string, unknown> = {
+            ...values,
+            ":campaign_id": campaign_id,
+          };
+
+          const scanResult = await this.dynamoDBUtil.scan<ILead>({
+            TableName: this.constants.LEADS_TABLE_NAME,
+            Limit: limit,
+            ExclusiveStartKey: exclusiveStartKey,
+            FilterExpression: scanFilters.join(" AND "),
+            ExpressionAttributeNames: scanNames,
+            ExpressionAttributeValues: scanValues,
+          });
+
+          items = scanResult.items;
+          nextKey = scanResult.lastEvaluatedKey;
+        }
+      } else {
+        const scanResult = await this.dynamoDBUtil.scan<ILead>({
+          TableName: this.constants.LEADS_TABLE_NAME,
+          Limit: limit,
+          ExclusiveStartKey: exclusiveStartKey,
+          ...(filterExpression
+            ? {
+                FilterExpression: filterExpression,
+                ...(Object.keys(names).length > 0
+                  ? { ExpressionAttributeNames: names }
+                  : {}),
+                ExpressionAttributeValues: values,
+              }
+            : {}),
+        });
+
+        items = scanResult.items;
+        nextKey = scanResult.lastEvaluatedKey;
+      }
 
       return {
         result: true,
         data: {
-          items: scanResult.items.map((lead) =>
-            this.enrichLeadForResponse(lead),
+          items: items.map((lead) =>
+            this.enrichLeadForResponse(lead, include_trace),
           ),
-          count: scanResult.items.length,
-          lastEvaluatedKey: scanResult.lastEvaluatedKey
-            ? Buffer.from(JSON.stringify(scanResult.lastEvaluatedKey)).toString(
-                "base64",
-              )
+          count: items.length,
+          lastEvaluatedKey: nextKey
+            ? Buffer.from(JSON.stringify(nextKey)).toString("base64")
             : undefined,
         },
       };
@@ -777,7 +884,10 @@ export class LeadsService {
     }
   }
 
-  async getLead(id: string): Promise<ServiceResult<ILead>> {
+  async getLead(
+    id: string,
+    includeTrace = false,
+  ): Promise<ServiceResult<ILead>> {
     try {
       const lead = await this.dynamoDBUtil.get<ILead>({
         TableName: this.constants.LEADS_TABLE_NAME,
@@ -788,7 +898,10 @@ export class LeadsService {
         return { result: false, error: `Lead ${id} not found` };
       }
 
-      return { result: true, data: this.enrichLeadForResponse(lead) };
+      return {
+        result: true,
+        data: this.enrichLeadForResponse(lead, includeTrace),
+      };
     } catch (error: any) {
       this.logger.error("Failed to get lead", error);
       return { result: false, error: error.message || "Failed to get lead" };
@@ -1050,7 +1163,9 @@ export class LeadsService {
       is_test: isTest,
       ...(s("marketing_source")
         ? { marketing_source: s("marketing_source") }
-        : {}),
+        : lead.original_source
+          ? { marketing_source: lead.original_source }
+          : {}),
       ...(s("pub_id") ? { pub_id: s("pub_id") } : {}),
       ...(s("first_name") ? { first_name: s("first_name") } : {}),
       ...(s("last_name") ? { last_name: s("last_name") } : {}),
@@ -1238,13 +1353,9 @@ export class LeadsService {
     status: CampaignStatus,
     isTest: boolean,
   ): Promise<string | null> {
-    const baseUrl = await this.resolveExternalLeadsBaseUrl();
-    const liveUrl = baseUrl || "/leads";
-    const testUrl = baseUrl ? `${baseUrl}/test` : "/leads/test";
-
     if (isTest) {
       if (status === CampaignStatus.ACTIVE) {
-        return `Campaign is live; send to ${liveUrl}`;
+        return "Campaign is live; test leads are not accepted on live campaigns unless affiliate status is TEST";
       }
       if (status === CampaignStatus.INACTIVE) {
         return "Campaign is inactive";
@@ -1256,7 +1367,7 @@ export class LeadsService {
     }
 
     if (status === CampaignStatus.TEST) {
-      return `Campaign is in test mode; send to ${testUrl}`;
+      return "Campaign is in test mode";
     }
     if (status === CampaignStatus.INACTIVE) {
       return "Campaign is inactive";
@@ -1317,11 +1428,64 @@ export class LeadsService {
     return "not_delivered";
   }
 
-  private enrichLeadForResponse(lead: ILead): ILead {
-    return {
+  private enrichLeadForResponse(lead: ILead, includeTrace = false): ILead {
+    const enriched: ILead = {
       ...lead,
       sold_status: this.resolveSoldStatus(lead),
     };
+    if (!includeTrace) {
+      delete enriched.decision_trace;
+    }
+    return enriched;
+  }
+
+  private resolveValidationBypass(
+    campaign: ICampaign,
+    affiliate: {
+      affiliate_id: string;
+      validation_bypass?: ICampaignValidationBypassConfig;
+    },
+  ): ICampaignValidationBypassConfig | undefined {
+    const affiliateBypass = affiliate.validation_bypass ?? {};
+    const overrideBypass =
+      campaign.affiliate_overrides?.[affiliate.affiliate_id]
+        ?.validation_bypass ?? {};
+
+    const merged: ICampaignValidationBypassConfig = {
+      ...affiliateBypass,
+      ...overrideBypass,
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  private mapBypassForOrchestrator(bypass?: ICampaignValidationBypassConfig):
+    | {
+        duplicate_check?: boolean;
+        trusted_form?: boolean;
+        ipqs_phone?: boolean;
+        ipqs_email?: boolean;
+        ipqs_ip?: boolean;
+        all?: boolean;
+      }
+    | undefined {
+    if (!bypass) return undefined;
+    const mapped = {
+      ...(bypass.duplicate_check !== undefined
+        ? { duplicate_check: bypass.duplicate_check }
+        : {}),
+      ...(bypass.trusted_form_claim !== undefined
+        ? { trusted_form: bypass.trusted_form_claim }
+        : {}),
+      ...(bypass.ipqs_phone !== undefined
+        ? { ipqs_phone: bypass.ipqs_phone }
+        : {}),
+      ...(bypass.ipqs_email !== undefined
+        ? { ipqs_email: bypass.ipqs_email }
+        : {}),
+      ...(bypass.ipqs_ip !== undefined ? { ipqs_ip: bypass.ipqs_ip } : {}),
+      ...(bypass.all !== undefined ? { all: bypass.all } : {}),
+    };
+    return Object.keys(mapped).length > 0 ? mapped : undefined;
   }
 
   private async getCampaign(id: string): Promise<ICampaign | null> {
@@ -1336,6 +1500,7 @@ export class LeadsService {
   private async runLogicRules(
     campaignId: string,
     payload: Record<string, unknown>,
+    affiliateId?: string,
   ): Promise<LogicRulesResponse> {
     if (!this.constants.LOGIC_RULES_LAMBDA_NAME) {
       return { passed: true };
@@ -1344,7 +1509,11 @@ export class LeadsService {
     try {
       return await this.lambdaInvokeUtil.invokeJson<LogicRulesResponse>({
         functionName: this.constants.LOGIC_RULES_LAMBDA_NAME,
-        payload: { campaign_id: campaignId, payload },
+        payload: {
+          campaign_id: campaignId,
+          payload,
+          ...(affiliateId ? { affiliate_id: affiliateId } : {}),
+        },
       });
     } catch (error) {
       this.logger.error(
@@ -1385,13 +1554,21 @@ export class LeadsService {
   private async runQaPlugins(
     campaign: ICampaign,
     request: CreateLeadRequest,
+    options?: {
+      affiliate_id?: string;
+      lead_id?: string;
+      bypass?: ICampaignValidationBypassConfig;
+    },
   ): Promise<QaOrchestratorResult> {
+    const orchestratorBypass = this.mapBypassForOrchestrator(options?.bypass);
+
     if (!this.constants.QA_ORCHESTRATOR_LAMBDA_NAME) {
       return {
         duplicate: false,
         duplicate_matches: {
           lead_ids: [],
         },
+        ...(orchestratorBypass ? { bypass_applied: orchestratorBypass } : {}),
       };
     }
 
@@ -1416,9 +1593,14 @@ export class LeadsService {
         functionName: this.constants.QA_ORCHESTRATOR_LAMBDA_NAME,
         payload: {
           campaign_id: request.campaign_id,
+          ...(options?.lead_id ? { lead_id: options.lead_id } : {}),
+          ...(options?.affiliate_id
+            ? { affiliate_id: options.affiliate_id }
+            : {}),
           test: request.test ?? false,
           payload: leadPayload,
           plugins: campaign.plugins,
+          ...(orchestratorBypass ? { bypass: orchestratorBypass } : {}),
           ...(certId ? { cert_id: certId } : {}),
           ...(phone ? { phone } : {}),
           ...(email ? { email } : {}),
@@ -1433,6 +1615,7 @@ export class LeadsService {
         duplicate_matches: {
           lead_ids: [],
         },
+        ...(orchestratorBypass ? { bypass_applied: orchestratorBypass } : {}),
       };
     }
   }

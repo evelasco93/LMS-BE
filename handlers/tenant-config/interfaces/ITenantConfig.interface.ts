@@ -9,7 +9,30 @@ export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 export type TenantSettingsRecordType =
   | "credential"
   | "credential_schema"
-  | "plugin_setting";
+  | "plugin_setting"
+  | "tag_definition";
+
+// ── Tag Registry ────────────────────────────────────────────────────────────
+
+export interface ITagDefinitionRecord {
+  /** Auto-generated TG-prefixed ID */
+  id: string;
+  /** Discriminator for single-table design — always "tag_definition" */
+  type: "tag_definition";
+  /** The tag keyword shown in UIs and stored on campaigns, e.g. "rideshare" */
+  label: string;
+  /** Optional hex colour used to tint the tag pill in UIs */
+  color?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+  /** Soft-delete fields */
+  is_deleted: boolean;
+  active: boolean;
+  deleted_at: string | null;
+  deleted_by: RequestActor | null;
+}
 
 // ── Credential Schemas ────────────────────────────────────────────────────────
 

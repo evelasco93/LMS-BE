@@ -14,6 +14,7 @@ import {
 
 export type CreateCampaignRequest = {
   name: string;
+  tags?: string[];
 };
 
 export type LinkClientRequest = {
@@ -165,6 +166,7 @@ export type PostingInstructionsResult = {
 // ── Delivery ──────────────────────────────────────────────────────────────────
 
 export {
+  IAffiliateSoldPixelConfig,
   IClientDeliveryConfig,
   IWebhookFieldMapping,
   IWebhookAcceptanceRule,
@@ -196,10 +198,27 @@ export type SetAffiliateCapRequest = {
   lead_cap: number | null;
 };
 
+/** Body for PUT /campaigns/{id}/tags */
+export type SetCampaignTagsRequest = {
+  tags: string[];
+};
+
+/** Body for PUT /campaigns/{id}/affiliates/{affiliateId}/validation-bypass */
+export type SetAffiliateValidationBypassRequest = {
+  validation_bypass: import("../interfaces/ICampaign.interface").ICampaignValidationBypassConfig;
+};
+
+/** Body for PUT /campaigns/{id}/affiliates/{affiliateId}/pixel */
+export type SetAffiliateSoldPixelRequest =
+  import("../interfaces/IClientDelivery.interface").IAffiliateSoldPixelConfig;
+
 // ── Criteria Catalog ─────────────────────────────────────────────────────────
 
 export type {
   CreateCriteriaCatalogRequest,
   UpdateCriteriaCatalogRequest,
   ApplyCriteriaCatalogRequest,
+  CreateLogicCatalogRequest,
+  UpdateLogicCatalogRequest,
+  ApplyLogicCatalogRequest,
 } from "../interfaces/ICriteriaCatalog.interface";

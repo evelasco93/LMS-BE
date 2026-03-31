@@ -45,6 +45,7 @@ interface CampaignRecord {
   id: string;
   is_deleted?: boolean;
   logic_rules?: ILogicRule[];
+  affiliate_overrides?: Record<string, { logic_rules?: ILogicRule[] }>;
 }
 
 @injectable()
@@ -73,9 +74,23 @@ export class LogicRulesService {
         return { result: true, data: { passed: true } };
       }
 
-      const enabledRules = (campaign.logic_rules ?? []).filter(
-        (r) => r.enabled,
-      );
+      // Resolve the effective ruleset: affiliate overrides take priority over
+      // campaign-level rules when the affiliate has its own logic_rules configured.
+      // This lets individual affiliates have accept/reject rules that differ from
+      // (and supersede) the campaign default — e.g. a campaign-wide state restrict
+      // can be bypassed for a specific affiliate that has its own state whitelist.
+      const affiliateOverrideRules =
+        event.affiliate_id && campaign.affiliate_overrides
+          ? (campaign.affiliate_overrides[event.affiliate_id]?.logic_rules ??
+            [])
+          : [];
+
+      const effectiveRules =
+        affiliateOverrideRules.length > 0
+          ? affiliateOverrideRules
+          : (campaign.logic_rules ?? []);
+
+      const enabledRules = effectiveRules.filter((r) => r.enabled);
 
       if (enabledRules.length === 0) {
         return { result: true, data: { passed: true } };

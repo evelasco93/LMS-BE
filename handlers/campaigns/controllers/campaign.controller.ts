@@ -32,9 +32,15 @@ import {
   SetClientDeliveryRequest,
   SetDistributionRequest,
   SetAffiliateCapRequest,
+  SetAffiliateValidationBypassRequest,
+  SetAffiliateSoldPixelRequest,
+  SetCampaignTagsRequest,
   CreateCriteriaCatalogRequest,
   UpdateCriteriaCatalogRequest,
   ApplyCriteriaCatalogRequest,
+  CreateLogicCatalogRequest,
+  UpdateLogicCatalogRequest,
+  ApplyLogicCatalogRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -336,6 +342,91 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Affiliate lead cap updated",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/affiliates/:affiliateId/validation-bypass")
+  @produces("application/json")
+  async setAffiliateValidationBypass(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: SetAffiliateValidationBypassRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setAffiliateValidationBypass(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to set affiliate validation bypass",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Affiliate validation bypass updated",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/tags")
+  @produces("application/json")
+  async setCampaignTags(
+    @pathParam("id") id: string,
+    @body payload: SetCampaignTagsRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setCampaignTags(
+      id,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to update campaign tags",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Campaign tags updated",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/affiliates/:affiliateId/pixel")
+  @produces("application/json")
+  async setAffiliateSoldPixel(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: SetAffiliateSoldPixelRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setAffiliateSoldPixel(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to set affiliate sold pixel config",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Affiliate sold pixel config updated",
       data: result.data,
     };
   }
@@ -942,6 +1033,603 @@ export class CampaignController extends Controller {
     };
   }
 
+  // ── Per-Affiliate Logic Rule Overrides ────────────────────────────────────
+
+  @GET("/:id/affiliates/:affiliateId/logic-rules")
+  @produces("application/json")
+  async listAffiliateLogicRules(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.listAffiliateLogicRules(
+      id,
+      affiliateId,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to list affiliate logic rules",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate logic rules retrieved",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/affiliates/:affiliateId/logic-rules")
+  @produces("application/json")
+  async createAffiliateLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: CreateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createAffiliateLogicRule(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to create affiliate logic rule",
+        error: result.error,
+      };
+    }
+    this.response.status(201);
+    return {
+      success: true,
+      message: "Affiliate logic rule created",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/affiliates/:affiliateId/logic-rules/:ruleId")
+  @produces("application/json")
+  async updateAffiliateLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @pathParam("ruleId") ruleId: string,
+    @body payload: UpdateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateAffiliateLogicRule(
+      id,
+      affiliateId,
+      ruleId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update affiliate logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate logic rule updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/:id/affiliates/:affiliateId/logic-rules/:ruleId")
+  @produces("application/json")
+  async deleteAffiliateLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @pathParam("ruleId") ruleId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteAffiliateLogicRule(
+      id,
+      affiliateId,
+      ruleId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete affiliate logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate logic rule deleted",
+      data: result.data,
+    };
+  }
+
+  // ── Per-Affiliate Pixel Criteria ──────────────────────────────────────────
+
+  @GET("/:id/affiliates/:affiliateId/pixel-criteria")
+  @produces("application/json")
+  async listAffiliatePixelCriteria(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.listAffiliatePixelCriteria(
+      id,
+      affiliateId,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to list affiliate pixel criteria",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate pixel criteria retrieved",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/affiliates/:affiliateId/pixel-criteria")
+  @produces("application/json")
+  async createAffiliatePixelCriterion(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: CreateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createAffiliatePixelCriterion(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to create affiliate pixel criterion",
+        error: result.error,
+      };
+    }
+    this.response.status(201);
+    return {
+      success: true,
+      message: "Affiliate pixel criterion created",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/affiliates/:affiliateId/pixel-criteria/:ruleId")
+  @produces("application/json")
+  async updateAffiliatePixelCriterion(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @pathParam("ruleId") ruleId: string,
+    @body payload: UpdateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateAffiliatePixelCriterion(
+      id,
+      affiliateId,
+      ruleId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update affiliate pixel criterion",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate pixel criterion updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/:id/affiliates/:affiliateId/pixel-criteria/:ruleId")
+  @produces("application/json")
+  async deleteAffiliatePixelCriterion(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @pathParam("ruleId") ruleId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteAffiliatePixelCriterion(
+      id,
+      affiliateId,
+      ruleId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete affiliate pixel criterion",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate pixel criterion deleted",
+      data: result.data,
+    };
+  }
+
+  // ── Per-Affiliate Sold Criteria ───────────────────────────────────────────
+
+  @GET("/:id/affiliates/:affiliateId/sold-criteria")
+  @produces("application/json")
+  async listAffiliateSoldCriteria(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.listAffiliateSoldCriteria(
+      id,
+      affiliateId,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to list affiliate sold criteria",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate sold criteria retrieved",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/affiliates/:affiliateId/sold-criteria")
+  @produces("application/json")
+  async createAffiliateSoldCriterion(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: CreateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createAffiliateSoldCriterion(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to create affiliate sold criterion",
+        error: result.error,
+      };
+    }
+    this.response.status(201);
+    return {
+      success: true,
+      message: "Affiliate sold criterion created",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/affiliates/:affiliateId/sold-criteria/:ruleId")
+  @produces("application/json")
+  async updateAffiliateSoldCriterion(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @pathParam("ruleId") ruleId: string,
+    @body payload: UpdateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateAffiliateSoldCriterion(
+      id,
+      affiliateId,
+      ruleId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update affiliate sold criterion",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate sold criterion updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/:id/affiliates/:affiliateId/sold-criteria/:ruleId")
+  @produces("application/json")
+  async deleteAffiliateSoldCriterion(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @pathParam("ruleId") ruleId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteAffiliateSoldCriterion(
+      id,
+      affiliateId,
+      ruleId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete affiliate sold criterion",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Affiliate sold criterion deleted",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/affiliates/:affiliateId/cherry-pick-override")
+  @produces("application/json")
+  async updateAffiliateCherryPickOverride(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: { value: boolean | null },
+  ): Promise<RestApiResponse> {
+    if (
+      payload?.value !== true &&
+      payload?.value !== false &&
+      payload?.value !== null
+    ) {
+      this.response.status(400);
+      return {
+        success: false,
+        message: "value must be true, false, or null",
+      };
+    }
+    const result = await this.campaignService.updateAffiliateCherryPickOverride(
+      id,
+      affiliateId,
+      payload.value,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update cherry pick override",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Cherry pick override updated",
+      data: this.enrichCampaignForResponse(result.data!),
+    };
+  }
+
+  @POST("/:id/affiliates/:affiliateId/logic/apply-catalog")
+  @produces("application/json")
+  async applyLogicCatalogToAffiliate(
+    @pathParam("id") id: string,
+    @pathParam("affiliateId") affiliateId: string,
+    @body payload: ApplyLogicCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.applyLogicCatalogToAffiliate(
+      id,
+      affiliateId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to apply logic catalog to affiliate",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog applied to affiliate",
+      data: result.data,
+    };
+  }
+
+  // ── Per-Client Logic Rule Overrides ──────────────────────────────────────
+
+  @GET("/:id/clients/:clientId/logic-rules")
+  @produces("application/json")
+  async listClientLogicRules(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.listClientLogicRules(
+      id,
+      clientId,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to list client logic rules",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Client logic rules retrieved",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/clients/:clientId/logic-rules")
+  @produces("application/json")
+  async createClientLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @body payload: CreateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createClientLogicRule(
+      id,
+      clientId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to create client logic rule",
+        error: result.error,
+      };
+    }
+    this.response.status(201);
+    return {
+      success: true,
+      message: "Client logic rule created",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/clients/:clientId/logic-rules/:ruleId")
+  @produces("application/json")
+  async updateClientLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @pathParam("ruleId") ruleId: string,
+    @body payload: UpdateLogicRuleRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateClientLogicRule(
+      id,
+      clientId,
+      ruleId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update client logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Client logic rule updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/:id/clients/:clientId/logic-rules/:ruleId")
+  @produces("application/json")
+  async deleteClientLogicRule(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @pathParam("ruleId") ruleId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteClientLogicRule(
+      id,
+      clientId,
+      ruleId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete client logic rule",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Client logic rule deleted",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/clients/:clientId/logic/apply-catalog")
+  @produces("application/json")
+  async applyLogicCatalogToClient(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @body payload: ApplyLogicCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.applyLogicCatalogToClient(
+      id,
+      clientId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to apply logic catalog to client",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog applied to client",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/clients/:clientId/logic/sync-to-campaign")
+  @produces("application/json")
+  async syncClientLogicToCampaign(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.syncClientLogicToCampaign(
+      id,
+      clientId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to sync client logic to campaign",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Client logic synced to campaign",
+      data: result.data,
+    };
+  }
+
   // ── Criteria Catalog ────────────────────────────────────────────────────
 
   /**
@@ -1120,15 +1808,50 @@ export class CampaignController extends Controller {
   }
 
   /**
+   * DELETE /criteria-catalog/:setId/versions/:version
+   * Delete a specific version of a criteria catalog set.
+   */
+  @DELETE("/criteria-catalog/:setId/versions/:version")
+  @produces("application/json")
+  async deleteCriteriaCatalogVersion(
+    @pathParam("setId") setId: string,
+    @pathParam("version") version: string,
+  ): Promise<RestApiResponse> {
+    const versionNum = parseInt(version, 10);
+    if (isNaN(versionNum) || versionNum < 1) {
+      this.response.status(400);
+      return { success: false, message: "version must be a positive integer" };
+    }
+    const result = await this.campaignService.deleteCriteriaCatalogVersion(
+      setId,
+      versionNum,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete criteria catalog version",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Criteria catalog version deleted",
+    };
+  }
+
+  /**
    * DELETE /criteria-catalog/:setId
-   * Deactivate a criteria catalog set.
+   * Delete a criteria catalog set and all its versions.
    */
   @DELETE("/criteria-catalog/:setId")
   @produces("application/json")
-  async deactivateCriteriaCatalogSet(
+  async deleteCriteriaCatalogSet(
     @pathParam("setId") setId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.deactivateCriteriaCatalogSet(
+    const result = await this.campaignService.deleteCriteriaCatalogSet(
       setId,
       this.getActor(),
     );
@@ -1137,14 +1860,223 @@ export class CampaignController extends Controller {
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to deactivate criteria catalog set",
+        message: "Failed to delete criteria catalog set",
         error: result.error,
       };
     }
     return {
       success: true,
-      message: "Criteria catalog set deactivated",
+      message: "Criteria catalog set deleted",
+    };
+  }
+
+  /**
+   * POST /:id/logic/apply-catalog
+   * Apply a specific logic catalog version to this campaign.
+   */
+  @POST("/:id/logic/apply-catalog")
+  @produces("application/json")
+  async applyLogicCatalog(
+    @pathParam("id") id: string,
+    @body payload: ApplyLogicCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.applyLogicCatalogToCampaign(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to apply logic catalog",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog applied",
       data: result.data,
+    };
+  }
+
+  @GET("/logic-catalog")
+  @produces("application/json")
+  async listLogicCatalog(): Promise<RestApiResponse> {
+    const result = await this.campaignService.listLogicCatalog();
+    if (!result.result) {
+      this.response.status(500);
+      return {
+        success: false,
+        message: "Failed to list logic catalog",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog sets retrieved",
+      data: result.data,
+    };
+  }
+
+  @POST("/logic-catalog")
+  @produces("application/json")
+  async createLogicCatalogSet(
+    @body payload: CreateLogicCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createLogicCatalogSet(
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      this.response.status(400);
+      return {
+        success: false,
+        message: "Failed to create logic catalog set",
+        error: result.error,
+      };
+    }
+    this.response.status(201);
+    return {
+      success: true,
+      message: "Logic catalog set created",
+      data: result.data,
+    };
+  }
+
+  @GET("/logic-catalog/:setId")
+  @produces("application/json")
+  async getLogicCatalogSet(
+    @pathParam("setId") setId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getLogicCatalogSet(setId);
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Logic catalog set not found",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog set retrieved",
+      data: result.data,
+    };
+  }
+
+  @GET("/logic-catalog/:setId/versions/:version")
+  @produces("application/json")
+  async getLogicCatalogVersion(
+    @pathParam("setId") setId: string,
+    @pathParam("version") version: string,
+  ): Promise<RestApiResponse> {
+    const versionNum = parseInt(version, 10);
+    if (isNaN(versionNum) || versionNum < 1) {
+      this.response.status(400);
+      return { success: false, message: "version must be a positive integer" };
+    }
+    const result = await this.campaignService.getLogicCatalogVersion(
+      setId,
+      versionNum,
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Logic catalog version not found",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog version retrieved",
+      data: result.data,
+    };
+  }
+
+  @PUT("/logic-catalog/:setId")
+  @produces("application/json")
+  async updateLogicCatalogSet(
+    @pathParam("setId") setId: string,
+    @body payload: UpdateLogicCatalogRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateLogicCatalogSet(
+      setId,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to update logic catalog set",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog set updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/logic-catalog/:setId/versions/:version")
+  @produces("application/json")
+  async deleteLogicCatalogVersion(
+    @pathParam("setId") setId: string,
+    @pathParam("version") version: string,
+  ): Promise<RestApiResponse> {
+    const versionNum = parseInt(version, 10);
+    if (isNaN(versionNum) || versionNum < 1) {
+      this.response.status(400);
+      return { success: false, message: "version must be a positive integer" };
+    }
+    const result = await this.campaignService.deleteLogicCatalogVersion(
+      setId,
+      versionNum,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete logic catalog version",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog version deleted",
+    };
+  }
+
+  @DELETE("/logic-catalog/:setId")
+  @produces("application/json")
+  async deleteLogicCatalogSet(
+    @pathParam("setId") setId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteLogicCatalogSet(
+      setId,
+      this.getActor(),
+    );
+    if (!result.result) {
+      const isNotFound = result.error?.includes("not found");
+      this.response.status(isNotFound ? 404 : 400);
+      return {
+        success: false,
+        message: "Failed to delete logic catalog set",
+        error: result.error,
+      };
+    }
+    return {
+      success: true,
+      message: "Logic catalog set deleted",
     };
   }
 }

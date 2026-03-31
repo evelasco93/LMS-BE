@@ -43,6 +43,7 @@ export class LeadsController extends Controller {
     @queryParam("limit") limit?: string,
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
     @queryParam("includeDeleted") includeDeleted?: string,
+    @queryParam("include_trace") include_trace?: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.listLeads({
       campaign_id,
@@ -51,6 +52,7 @@ export class LeadsController extends Controller {
       lastEvaluatedKey,
       includeDeleted:
         includeDeleted === "true" || includeDeleted === "1" || false,
+      include_trace: include_trace === "true" || include_trace === "1" || false,
     } satisfies ListLeadsQuery);
 
     if (!result.result) {
@@ -72,8 +74,14 @@ export class LeadsController extends Controller {
 
   @GET("/:id")
   @produces("application/json")
-  async getLead(@pathParam("id") id: string): Promise<RestApiResponse> {
-    const result = await this.service.getLead(id);
+  async getLead(
+    @pathParam("id") id: string,
+    @queryParam("include_trace") include_trace?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.getLead(
+      id,
+      include_trace === "true" || include_trace === "1",
+    );
 
     if (!result.result || !result.data) {
       return {
@@ -133,20 +141,6 @@ export class LeadsController extends Controller {
   ): Promise<LeadIntakeResponse> {
     return this.service.createLead(
       payload,
-      false,
-      this.getActor(),
-      this.request.headers as Record<string, string | string[] | undefined>,
-    );
-  }
-
-  @POST("/test")
-  @produces("application/json")
-  async createTestLead(
-    @body payload: CreateLeadRequest,
-  ): Promise<LeadIntakeResponse> {
-    return this.service.createLead(
-      payload,
-      true,
       this.getActor(),
       this.request.headers as Record<string, string | string[] | undefined>,
     );

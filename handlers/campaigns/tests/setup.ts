@@ -34,6 +34,13 @@ export function createMockConstants() {
     CAMPAIGNS_TABLE_NAME: "test-campaigns-table",
     CLIENTS_TABLE_NAME: "test-clients-table",
     AFFILIATES_TABLE_NAME: "test-affiliates-table",
+    TENANT_SETTINGS_TABLE_NAME: "test-tenant-settings-table",
+  };
+}
+
+export function createMockAuditWriterService() {
+  return {
+    writeAuditEvent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -45,14 +52,19 @@ beforeEach(() => {
   const mockDynamoDBUtil = createMockDynamoDBUtil();
   const mockLogger = createMockLogger();
   const mockConstants = createMockConstants();
+  const mockAuditWriterService = createMockAuditWriterService();
 
   testContainer.bind("DynamoDBUtil").toConstantValue(mockDynamoDBUtil);
   testContainer.bind("Logger").toConstantValue(mockLogger);
   testContainer.bind("CampaignConstants").toConstantValue(mockConstants);
+  testContainer
+    .bind("AuditWriterService")
+    .toConstantValue(mockAuditWriterService);
 
   process.env.CAMPAIGNS_TABLE_NAME = "test-campaigns-table";
   process.env.CLIENTS_TABLE_NAME = "test-clients-table";
   process.env.AFFILIATES_TABLE_NAME = "test-affiliates-table";
+  process.env.TENANT_SETTINGS_TABLE_NAME = "test-tenant-settings-table";
 });
 
 export function getMockDynamoDBUtil() {

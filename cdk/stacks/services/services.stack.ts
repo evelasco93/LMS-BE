@@ -13,6 +13,7 @@ import { QaIpqsServiceStack } from "./qa-ipqs-service.stack";
 import { QaCriteriaValidationServiceStack } from "./qa-criteria-validation-service.stack";
 import { QaLogicRulesServiceStack } from "./qa-logic-rules-service.stack";
 import { AuditServiceStack } from "./audit-service.stack";
+import { CherryPickServiceStack } from "./cherry-pick-service.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 
 export class ServicesStack extends Stack {
@@ -28,6 +29,7 @@ export class ServicesStack extends Stack {
   public readonly qaCriteriaValidationLambda: IFunction;
   public readonly qaLogicRulesLambda: IFunction;
   public readonly auditLambda: IFunction;
+  public readonly cherryPickLambda: IFunction;
 
   constructor(scope: Construct, id: string, props: IServicesStackProps) {
     super(scope, id, props);
@@ -167,6 +169,17 @@ export class ServicesStack extends Stack {
     );
     this.auditLambda = auditServiceStack.lambda;
 
+    const cherryPickServiceStack = new CherryPickServiceStack(
+      this,
+      `${config.appPrefix}-CherryPickService`,
+      {
+        lambdaConfig: servicesConfig.cherryPick.lambda,
+        roleName: servicesConfig.cherryPick.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.cherryPickLambda = cherryPickServiceStack.lambda;
+
     new CfnOutput(this, `${config.appPrefix}-CampaignsLambdaArn`, {
       value: this.campaignsLambda.functionArn,
       description: "Campaigns Lambda Function ARN",
@@ -237,6 +250,12 @@ export class ServicesStack extends Stack {
       value: this.auditLambda.functionArn,
       description: "Audit Lambda Function ARN",
       exportName: `${config.appPrefix}-audit-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-CherryPickLambdaArn`, {
+      value: this.cherryPickLambda.functionArn,
+      description: "Cherry Pick Lambda Function ARN",
+      exportName: `${config.appPrefix}-cherry-pick-lambda-arn`,
     });
 
     if (config.tags) {

@@ -51,6 +51,7 @@ export interface IServicesStackConfig {
   qaCriteriaValidation: IServiceConfig;
   qaLogicRules: IServiceConfig;
   audit: IServiceConfig;
+  cherryPick: IServiceConfig;
 }
 
 /**

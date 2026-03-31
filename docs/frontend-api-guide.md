@@ -372,6 +372,26 @@ All responses share one shape: `result` is always present.
 
 `POST /leads` and `POST /leads/test` are intentionally **not** exposed on the internal API.
 
+### Cherry-pick operations (internal API)
+
+Cherry-pick routes are internal-only and require Bearer auth:
+
+- `GET /cherry-pick/eligible-clients?lead_id={leadId}` — list LIVE client destinations eligible for that lead
+- `PATCH /cherry-pick/{leadId}/pickability` — set `{ "cherry_pickable": true|false }`
+- `POST /cherry-pick/{leadId}/execute` — deliver lead to a selected client with optional skip flags:
+  - `skip_trusted_form_claim`
+  - `skip_duplicate_check`
+  - `skip_ipqs_phone`
+  - `skip_ipqs_email`
+  - `skip_ipqs_ip`
+
+When cherry-pick executes, the lead is explicitly updated with:
+
+- `cherry_picked=true`
+- `cherry_pickable=false`
+- `cherry_pick_meta` (target client, executed by/at, delivery_result)
+- `sold`, `sold_to_client_id`, `rejected`, `rejection_reason`, `rejection_errors`, `delivery_result`
+
 ### Intake logs (`GET /leads/intake-logs`)
 
 Use this endpoint to power intake troubleshooting and audit screens. Each record is written for every inbound lead submission attempt (accepted, rejected, and test), including request context.
@@ -2034,14 +2054,20 @@ interface LeadDeliveryResult {
 
 On the lead object:
 
-| Field               | Type                                      | Description                              |
-| ------------------- | ----------------------------------------- | ---------------------------------------- |
-| `sold`              | `boolean`                                 | `true` if the buyer accepted the lead    |
-| `sold_status`       | `"sold" \| "not_sold" \| "not_delivered"` | Derived delivery status for UI rendering |
-| `sold_to_client_id` | `string \| undefined`                     | ID of the client that purchased the lead |
-| `delivery_result`   | `LeadDeliveryResult \| undefined`         | Full delivery attempt details            |
+| Field                    | Type                                      | Description                                        |
+| ------------------------ | ----------------------------------------- | -------------------------------------------------- |
+| `sold`                   | `boolean`                                 | `true` if the buyer accepted the lead              |
+| `sold_status`            | `"sold" \| "not_sold" \| "not_delivered"` | Derived delivery status for UI rendering           |
+| `sold_to_client_id`      | `string \| undefined`                     | ID of the client that purchased the lead           |
+| `delivery_result`        | `LeadDeliveryResult \| undefined`         | Full delivery attempt details                      |
+| `affiliate_pixel_result` | `AffiliatePixelResult \| undefined`       | Affiliate sold-pixel webhook dispatch telemetry    |
+| `cherry_pickable`        | `boolean \| undefined`                    | Whether operator can cherry-pick this lead         |
+| `cherry_picked`          | `boolean \| undefined`                    | Whether a cherry-pick has already been executed    |
+| `cherry_pick_meta`       | `CherryPickMeta \| undefined`             | Cherry-pick execution metadata and delivery result |
 
 `delivery_result.distribution_mode` and `delivery_result.client_weight_at_delivery` are always present on any delivery attempt. This allows historical fairness auditing even when weights or modes are later changed — the values at the time of routing are frozen into the lead record.
+
+`affiliate_pixel_result` is written for sold leads after affiliate pixel dispatch is attempted. It includes: destination URL, final URL called, method, payload/query sent, response status/body, success flag, error (if any), and `fired_at`.
 
 ### Routing mode changes
 
@@ -2053,39 +2079,44 @@ Complete reference of all audit events written by the system. Every event is sto
 
 #### Campaign events
 
-| `action`                         | When                                                       | `changes[]` fields tracked                                          |
-| -------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| `created`                        | New campaign created                                       | _(empty — no prior state)_                                          |
-| `updated`                        | Campaign name changed                                      | `name`                                                              |
-| `plugins_updated`                | QA plugin settings changed                                 | Every mutated plugin field (e.g. `duplicate_check.enabled`)         |
-| `distribution_updated`           | Distribution mode/enabled changed via `PUT …/distribution` | `distribution` (full object from → to)                              |
-| `delivery_config_updated`        | Delivery config saved via `PUT …/delivery`                 | `clients.{id}.delivery_config`, `clients.{id}.weight` (if provided) |
-| `lead_cap_updated`               | Affiliate cap set or removed via `PUT …/cap`               | `affiliates.{id}.lead_cap`                                          |
-| `criteria_field_added`           | Criteria field(s) created                                  | `field_name`, `field_label`, `data_type` from null                  |
-| `criteria_field_updated`         | Criteria field property changed                            | Changed properties only (e.g. `required`, `options`)                |
-| `criteria_field_deleted`         | Criteria field removed                                     | `field_name` to null                                                |
-| `criteria_fields_reordered`      | Criteria field order changed                               | `order` for each moved field                                        |
-| `logic_rule_added`               | Logic rule created                                         | `name`, `action`, `enabled`, `groups`                               |
-| `logic_rule_updated`             | Logic rule mutated                                         | Changed scalar fields + condition diffs                             |
-| `logic_rule_deleted`             | Logic rule removed                                         | `rule_id` to null                                                   |
-| `posting_instructions_generated` | Posting instructions document generated                    | _(empty)_                                                           |
-| `client_linked`                  | Client added to campaign                                   | `clients.{id}.client_id`, `clients.{id}.status` from null           |
-| `client_status_updated`          | Client status changed (e.g. TEST → LIVE)                   | `clients.{id}.status` from → to                                     |
-| `client_deleted`                 | Client removed from campaign                               | `clients.{id}.client_id`, `clients.{id}.status` to null             |
-| `affiliate_linked`               | Affiliate added to campaign                                | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` from null  |
-| `affiliate_status_updated`       | Affiliate status changed (e.g. TEST → LIVE)                | `affiliates.{id}.status` from → to                                  |
-| `affiliate_deleted`              | Affiliate removed from campaign                            | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` to null    |
-| `affiliate_key_rotated`          | Affiliate campaign_key rotated                             | `affiliates.{id}.campaign_key` old → new value                      |
+| `action`                         | When                                                                         | `changes[]` fields tracked                                          |
+| -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `created`                        | New campaign created                                                         | _(empty — no prior state)_                                          |
+| `updated`                        | Campaign name changed                                                        | `name`                                                              |
+| `plugins_updated`                | QA plugin settings changed                                                   | Every mutated plugin field (e.g. `duplicate_check.enabled`)         |
+| `distribution_updated`           | Distribution mode/enabled changed via `PUT …/distribution`                   | `distribution` (full object from → to)                              |
+| `delivery_config_updated`        | Delivery config saved via `PUT …/delivery`                                   | `clients.{id}.delivery_config`, `clients.{id}.weight` (if provided) |
+| `lead_cap_updated`               | Affiliate cap set or removed via `PUT …/cap`                                 | `affiliates.{id}.lead_cap`                                          |
+| `criteria_field_added`           | Criteria field(s) created                                                    | `field_name`, `field_label`, `data_type` from null                  |
+| `criteria_field_updated`         | Criteria field property changed                                              | Changed properties only (e.g. `required`, `options`)                |
+| `criteria_field_deleted`         | Criteria field removed                                                       | `field_name` to null                                                |
+| `criteria_fields_reordered`      | Criteria field order changed                                                 | `order` for each moved field                                        |
+| `logic_rule_added`               | Logic rule created                                                           | `name`, `action`, `enabled`, `groups`                               |
+| `logic_rule_updated`             | Logic rule mutated                                                           | Changed scalar fields + condition diffs                             |
+| `logic_rule_deleted`             | Logic rule removed                                                           | `rule_id` to null                                                   |
+| `posting_instructions_generated` | Posting instructions document generated                                      | _(empty)_                                                           |
+| `client_linked`                  | Client added to campaign                                                     | `clients.{id}.client_id`, `clients.{id}.status` from null           |
+| `client_status_updated`          | Client status changed (e.g. TEST → LIVE)                                     | `clients.{id}.status` from → to                                     |
+| `client_deleted`                 | Client removed from campaign                                                 | `clients.{id}.client_id`, `clients.{id}.status` to null             |
+| `affiliate_linked`               | Affiliate added to campaign                                                  | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` from null  |
+| `affiliate_status_updated`       | Affiliate status changed (e.g. TEST → LIVE)                                  | `affiliates.{id}.status` from → to                                  |
+| `affiliate_pixel_updated`        | Affiliate sold pixel config saved via `PUT …/affiliates/{affiliateId}/pixel` | `affiliates.{id}.sold_pixel_config` from → to                       |
+| `affiliate_deleted`              | Affiliate removed from campaign                                              | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` to null    |
+| `affiliate_key_rotated`          | Affiliate campaign_key rotated                                               | `affiliates.{id}.campaign_key` old → new value                      |
 
 #### Lead events
 
-| `action`           | When                                                                                  | `changes[]` fields tracked                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `value_mapped`     | During intake — a field value was transformed via a criteria mapping                  | `payload.{field}` from → to                                                                                              |
-| `updated`          | Manual lead payload edit via `PATCH /leads/{id}`                                      | Each `payload.*` key that differed                                                                                       |
-| `cert_claimed`     | TrustedForm cert successfully claimed before delivery                                 | `trusted_form_result.cert_id`, `.success`, `.previously_retained`                                                        |
-| `delivery_skipped` | Delivery skipped because TrustedForm claim failed and `require_successful_claim` gate | `delivery_skipped_reason`, `rejected`, `rejection_reason`                                                                |
-| `lead_delivered`   | After every delivery attempt (accepted or declined)                                   | `sold`, `sold_to_client_id`, `cert_id`, `delivery_result` (includes `distribution_mode` and `client_weight_at_delivery`) |
+| `action`                          | When                                                                                  | `changes[]` fields tracked                                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `value_mapped`                    | During intake — a field value was transformed via a criteria mapping                  | `payload.{field}` from → to                                                                                              |
+| `updated`                         | Manual lead payload edit via `PATCH /leads/{id}`                                      | Each `payload.*` key that differed                                                                                       |
+| `cert_claimed`                    | TrustedForm cert successfully claimed before delivery                                 | `trusted_form_result.cert_id`, `.success`, `.previously_retained`                                                        |
+| `delivery_skipped`                | Delivery skipped because TrustedForm claim failed and `require_successful_claim` gate | `delivery_skipped_reason`, `rejected`, `rejection_reason`                                                                |
+| `lead_delivered`                  | After every delivery attempt (accepted or declined)                                   | `sold`, `sold_to_client_id`, `cert_id`, `delivery_result` (includes `distribution_mode` and `client_weight_at_delivery`) |
+| `affiliate_pixel_fired`           | Affiliate sold pixel webhook dispatched and returned 2xx                              | `affiliate_pixel_result` full object                                                                                     |
+| `affiliate_pixel_failed`          | Affiliate sold pixel webhook attempt failed (timeout/network/non-2xx)                 | `affiliate_pixel_result` full object                                                                                     |
+| `cherry_pick_pickability_updated` | Operator toggled lead pickability                                                     | `cherry_pickable` from → to                                                                                              |
+| `cherry_pick_executed`            | Operator executed cherry-pick delivery                                                | `cherry_picked`, `cherry_pickable`, `cherry_pick_meta`, `sold`, `sold_to_client_id`, `rejected`, `rejection_reason`      |
 
 #### Client / Affiliate / User events
 
@@ -2150,32 +2181,32 @@ The Criteria Catalog is a versioned library of **named criteria sets**. Instead 
 
 **CriteriaCatalogSet** (the "parent" record)
 
-| Field            | Type      | Notes                                              |
-| ---------------- | --------- | -------------------------------------------------- |
-| `id`             | `string`  | CCS-prefixed ID (e.g. `CCSA1B2C3D4`)              |
-| `record_type`    | `string`  | Always `"catalog_set"`                             |
-| `name`           | `string`  | Human-readable name                                |
-| `description`    | `string?` |                                                    |
-| `latest_version` | `integer` | Auto-incremented; starts at 1                      |
-| `active`         | `boolean` | `false` after deactivation                         |
-| `created_at`     | ISO 8601  |                                                    |
-| `updated_at`     | ISO 8601  |                                                    |
-| `created_by`     | Actor     |                                                    |
-| `updated_by`     | Actor     |                                                    |
+| Field            | Type      | Notes                                |
+| ---------------- | --------- | ------------------------------------ |
+| `id`             | `string`  | CCS-prefixed ID (e.g. `CCSA1B2C3D4`) |
+| `record_type`    | `string`  | Always `"catalog_set"`               |
+| `name`           | `string`  | Human-readable name                  |
+| `description`    | `string?` |                                      |
+| `latest_version` | `integer` | Auto-incremented; starts at 1        |
+| `active`         | `boolean` | `false` after deactivation           |
+| `created_at`     | ISO 8601  |                                      |
+| `updated_at`     | ISO 8601  |                                      |
+| `created_by`     | Actor     |                                      |
+| `updated_by`     | Actor     |                                      |
 
 **CriteriaCatalogVersion** (immutable snapshot)
 
-| Field            | Type       | Notes                                                |
-| ---------------- | ---------- | ---------------------------------------------------- |
-| `id`             | `string`   | `{setId}#v{version}` (e.g. `CCSA1B2C3D4#v2`)       |
-| `record_type`    | `string`   | Always `"catalog_version"`                           |
-| `criteria_set_id`| `string`   | Parent set ID                                        |
-| `version`        | `integer`  | Version number within the parent set                 |
-| `name`           | `string`   | Denormalised from parent set at creation time        |
-| `fields`         | `array`    | Full snapshot of criteria fields for this version    |
-| `campaigns_using`| `string[]` | Campaign IDs that have applied this version          |
-| `created_at`     | ISO 8601   |                                                      |
-| `created_by`     | Actor      |                                                      |
+| Field             | Type       | Notes                                             |
+| ----------------- | ---------- | ------------------------------------------------- |
+| `id`              | `string`   | `{setId}#v{version}` (e.g. `CCSA1B2C3D4#v2`)      |
+| `record_type`     | `string`   | Always `"catalog_version"`                        |
+| `criteria_set_id` | `string`   | Parent set ID                                     |
+| `version`         | `integer`  | Version number within the parent set              |
+| `name`            | `string`   | Denormalised from parent set at creation time     |
+| `fields`          | `array`    | Full snapshot of criteria fields for this version |
+| `campaigns_using` | `string[]` | Campaign IDs that have applied this version       |
+| `created_at`      | ISO 8601   |                                                   |
+| `created_by`      | Actor      |                                                   |
 
 ### Endpoints
 
@@ -2187,11 +2218,14 @@ Authorization: Bearer <token>
 ```
 
 Response:
+
 ```json
 {
   "success": true,
   "data": {
-    "items": [ /* CriteriaCatalogSet[] */ ]
+    "items": [
+      /* CriteriaCatalogSet[] */
+    ]
   }
 }
 ```
@@ -2274,12 +2308,12 @@ Response: the updated `Campaign` object.
 
 ### Audit trail
 
-| `action`                   | `entity_type`      | When                                           |
-| -------------------------- | ------------------ | ---------------------------------------------- |
-| `criteria_catalog_created` | `criteria_catalog` | New catalog set (+ v1) created                 |
-| `criteria_catalog_updated` | `criteria_catalog` | Set fields or metadata updated (new version)   |
-| `criteria_catalog_updated` | `criteria_catalog` | Set deactivated                                |
-| `criteria_catalog_assigned`| `criteria_catalog` | A catalog version applied to a campaign        |
+| `action`                    | `entity_type`      | When                                         |
+| --------------------------- | ------------------ | -------------------------------------------- |
+| `criteria_catalog_created`  | `criteria_catalog` | New catalog set (+ v1) created               |
+| `criteria_catalog_updated`  | `criteria_catalog` | Set fields or metadata updated (new version) |
+| `criteria_catalog_updated`  | `criteria_catalog` | Set deactivated                              |
+| `criteria_catalog_assigned` | `criteria_catalog` | A catalog version applied to a campaign      |
 
 ---
 
@@ -2305,48 +2339,48 @@ Per-user, per-table UI configuration. Lets each user persist their own column vi
 
 **`TableColumnConfig`**:
 
-| Field    | Type       | Notes                            |
-| -------- | ---------- | -------------------------------- |
-| `key`    | `string`   | Column identifier (e.g. `email`) |
-| `visible`| `boolean`  |                                  |
-| `order`  | `integer`  | 0-based render position          |
-| `width`  | `integer?` | Width in pixels (optional)       |
+| Field     | Type       | Notes                            |
+| --------- | ---------- | -------------------------------- |
+| `key`     | `string`   | Column identifier (e.g. `email`) |
+| `visible` | `boolean`  |                                  |
+| `order`   | `integer`  | 0-based render position          |
+| `width`   | `integer?` | Width in pixels (optional)       |
 
 **`TableSortConfig`**:
 
-| Field       | Type              | Notes            |
-| ----------- | ----------------- | ---------------- |
-| `field`     | `string`          | Column key       |
-| `direction` | `"asc" \| "desc"` |                  |
+| Field       | Type              | Notes      |
+| ----------- | ----------------- | ---------- |
+| `field`     | `string`          | Column key |
+| `direction` | `"asc" \| "desc"` |            |
 
 **`TableFilterConfig`**:
 
-| Field      | Type     | Notes                         |
-| ---------- | -------- | ----------------------------- |
-| `field`    | `string` | Column key                    |
-| `value`    | any      | Filter value                  |
-| `operator` | `string?`| E.g. `"contains"`, `"equals"` |
+| Field      | Type      | Notes                         |
+| ---------- | --------- | ----------------------------- |
+| `field`    | `string`  | Column key                    |
+| `value`    | any       | Filter value                  |
+| `operator` | `string?` | E.g. `"contains"`, `"equals"` |
 
 **`UserTablePreference`** — the stored record:
 
-| Field        | Type         | Notes                              |
-| ------------ | ------------ | ---------------------------------- |
-| `user_id`    | `string`     | Cognito `sub` of the owning user   |
-| `table_id`   | `string`     | Table identifier (e.g. `leads_view`) |
-| `config`     | `TableConfig`|                                    |
-| `updated_at` | ISO 8601     |                                    |
-| `updated_by` | Actor        |                                    |
+| Field        | Type          | Notes                                |
+| ------------ | ------------- | ------------------------------------ |
+| `user_id`    | `string`      | Cognito `sub` of the owning user     |
+| `table_id`   | `string`      | Table identifier (e.g. `leads_view`) |
+| `config`     | `TableConfig` |                                      |
+| `updated_at` | ISO 8601      |                                      |
+| `updated_by` | Actor         |                                      |
 
 ### `tableId` naming convention
 
 Use a consistent identifier for each distinct UI table, e.g.:
 
-| Table        | `tableId`          |
-| ------------ | ------------------ |
-| Leads list   | `leads_view`       |
-| Campaigns    | `campaigns_view`   |
-| Clients      | `clients_view`     |
-| Affiliates   | `affiliates_view`  |
+| Table      | `tableId`         |
+| ---------- | ----------------- |
+| Leads list | `leads_view`      |
+| Campaigns  | `campaigns_view`  |
+| Clients    | `clients_view`    |
+| Affiliates | `affiliates_view` |
 
 You can use any string — the backend treats it as an opaque key.
 
@@ -2396,10 +2430,10 @@ Removes the stored preference. The frontend should fall back to default column c
 
 ### Audit trail
 
-| `action`                   | `entity_type`          | When                             |
-| -------------------------- | ---------------------- | -------------------------------- |
-| `table_preference_saved`   | `user_table_preference`| Preference created or updated    |
-| `table_preference_deleted` | `user_table_preference`| Preference deleted               |
+| `action`                   | `entity_type`           | When                          |
+| -------------------------- | ----------------------- | ----------------------------- |
+| `table_preference_saved`   | `user_table_preference` | Preference created or updated |
+| `table_preference_deleted` | `user_table_preference` | Preference deleted            |
 
 ### Recommended frontend pattern
 

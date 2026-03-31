@@ -6,7 +6,10 @@ export type AuditEntityType =
   | "credential"
   | "credential_schema"
   | "plugin_setting"
-  | "user";
+  | "user"
+  | "criteria_catalog"
+  | "logic_catalog"
+  | "user_table_preference";
 
 export type AuditAction =
   | "created"
@@ -47,6 +50,9 @@ export type AuditAction =
   | "client_deleted"
   | "affiliate_linked"
   | "affiliate_status_updated"
+  | "affiliate_pixel_updated"
+  | "affiliate_pixel_fired"
+  | "affiliate_pixel_failed"
   | "affiliate_deleted"
   | "affiliate_key_rotated"
   | "original_source_set"
@@ -54,8 +60,27 @@ export type AuditAction =
   | "criteria_catalog_created"
   | "criteria_catalog_updated"
   | "criteria_catalog_assigned"
+  | "criteria_catalog_deleted"
+  | "criteria_catalog_version_deleted"
+  | "cherry_pick_executed"
+  | "cherry_pick_pickability_updated"
   | "table_preference_saved"
-  | "table_preference_deleted";
+  | "table_preference_deleted"
+  | "campaign_tags_updated"
+  | "affiliate_validation_bypass_updated"
+  | "affiliate_logic_rule_added"
+  | "affiliate_logic_rule_updated"
+  | "affiliate_logic_rule_deleted"
+  | "affiliate_logic_catalog_applied"
+  | "client_logic_rule_added"
+  | "client_logic_rule_updated"
+  | "client_logic_rule_deleted"
+  | "client_logic_catalog_applied"
+  | "logic_catalog_created"
+  | "logic_catalog_updated"
+  | "logic_catalog_deleted"
+  | "logic_catalog_version_deleted"
+  | "logic_catalog_assigned";
 
 export interface AuditChange {
   field: string;

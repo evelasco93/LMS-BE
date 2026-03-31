@@ -2,6 +2,7 @@ import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
 import { RequestActor } from "@shared/utils/request-audit.util";
 import {
+  IAffiliateSoldPixelConfig,
   IClientDeliveryConfig,
   ILeadDistributionConfig,
 } from "./IClientDelivery.interface";
@@ -14,14 +15,67 @@ export interface IEditHistoryEntry {
   changed_by?: RequestActor;
 }
 
+export interface ICampaignValidationBypassConfig {
+  /** Skip TrustedForm claim/validation checks when true. */
+  trusted_form_claim?: boolean;
+  /** Skip duplicate-check gating when true. */
+  duplicate_check?: boolean;
+  /** Skip IPQS phone gating when true. */
+  ipqs_phone?: boolean;
+  /** Skip IPQS email gating when true. */
+  ipqs_email?: boolean;
+  /** Skip IPQS IP gating when true. */
+  ipqs_ip?: boolean;
+  /** Emergency switch to bypass all validation gates. */
+  all?: boolean;
+}
+
+export type ParticipantLogicMode = "pinned" | "inherit_campaign";
+
+export interface ICampaignClientOverride {
+  criteria_set_id?: string;
+  criteria_set_version?: number;
+  logic_set_id?: string;
+  logic_set_version?: number;
+  /** Explicit mode governing how this participant resolves logic rules. */
+  logic_mode?: ParticipantLogicMode;
+  /** Inline logic rule overrides scoped to this client on this campaign. */
+  logic_rules?: ILogicRule[];
+  validation_bypass?: ICampaignValidationBypassConfig;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ICampaignAffiliateOverride {
+  criteria_set_id?: string;
+  criteria_set_version?: number;
+  logic_set_id?: string;
+  logic_set_version?: number;
+  /** Explicit mode governing how this participant resolves logic rules. */
+  logic_mode?: ParticipantLogicMode;
+  /** Inline logic rule overrides scoped to this affiliate on this campaign. */
+  logic_rules?: ILogicRule[];
+  validation_bypass?: ICampaignValidationBypassConfig;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ICampaignAffiliate {
   affiliate_id: string;
   campaign_key: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
+  /** Optional fire-and-forget sold pixel webhook fired only when a lead is sold. */
+  sold_pixel_config?: IAffiliateSoldPixelConfig;
+  /** Per-affiliate rules evaluated against lead payload before firing the sold pixel. Empty = always fire. */
+  pixel_criteria?: ILogicRule[];
+  /** Per-affiliate rules evaluated post-delivery to refine whether a lead counts as "sold". Empty = use webhook result only. */
+  sold_criteria?: ILogicRule[];
+  /** Override campaign default_cherry_pickable for this affiliate. Absent = use campaign default. */
+  cherry_pick_override?: boolean;
+  /** Affiliate-scoped QA validation bypass flags. */
+  validation_bypass?: ICampaignValidationBypassConfig;
   /** Maximum number of live leads this affiliate may send to this campaign. Absent = uncapped */
   lead_cap?: number;
-  /** Running count of non-test, non-rejected leads sent by this affiliate. Incremented atomically */
+  /** Running count of sold leads for this affiliate. Incremented atomically post-delivery */
   leads_sent?: number;
   /** Derived on read: remaining live leads before cap is reached. null means uncapped */
   leads_remaining?: number | null;
@@ -291,8 +345,22 @@ export interface ICampaign {
   criteria_set_id?: string;
   /** The catalog version whose fields are reflected in base_criteria */
   criteria_set_version?: number;
+  /** ID of the logic catalog set this campaign's logic_rules was last sourced from */
+  logic_set_id?: string;
+  /** The logic catalog version currently reflected in logic_rules */
+  logic_set_version?: number;
+  /** Optional human-readable logic version marker retained for compatibility. */
+  logic_version?: string;
+  /** Campaign-level keyword tags (simple label strings). */
+  tags?: string[];
+  /** Client-scoped override map keyed by client_id. */
+  client_overrides?: Record<string, ICampaignClientOverride>;
+  /** Affiliate-scoped override map keyed by affiliate_id. */
+  affiliate_overrides?: Record<string, ICampaignAffiliateOverride>;
   /** Logic rules applied after criteria validation — first matching rule determines pass/fail */
   logic_rules?: ILogicRule[];
+  /** When true, rejected (non-test) leads are auto-marked cherry_pickable. Default: false */
+  default_cherry_pickable?: boolean;
   /** Lead distribution configuration (round_robin or weighted across LIVE clients) */
   distribution?: ILeadDistributionConfig;
   /** Tracks the last client that received a lead for round-robin cycling */

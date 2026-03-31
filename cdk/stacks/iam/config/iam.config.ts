@@ -418,5 +418,46 @@ export const iamConfig: IIamStackConfig = {
         },
       ],
     },
+    cherryPick: {
+      name: nameBuilder.role("cherry-pick-lambda"),
+      description: "Execution role for Cherry Pick Lambda",
+      servicePrincipal: "lambda.amazonaws.com",
+      managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
+      inlinePolicies: [
+        {
+          name: "LeadsReadWrite",
+          actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+          resources: [leadsTableArn],
+        },
+        {
+          name: "CampaignsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:Scan"],
+          resources: [campaignsTableArn],
+        },
+        {
+          name: "ClientsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:BatchGetItem"],
+          resources: [clientsTableArn],
+        },
+        {
+          name: "TenantSettingsRead",
+          actions: ["dynamodb:Query"],
+          resources: [
+            tenantSettingsTableArn,
+            `${tenantSettingsTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "AuditLogsWrite",
+          actions: ["dynamodb:PutItem"],
+          resources: [auditLogsTableArn],
+        },
+        {
+          name: "TrustedFormInvoke",
+          actions: ["lambda:InvokeFunction"],
+          resources: [qaTrustedFormArn],
+        },
+      ],
+    },
   },
 };

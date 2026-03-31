@@ -79,6 +79,7 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
+        LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: `${nameBuilder.table("leads")}-campaign-created-at-index`,
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
         LEAD_INTAKE_LOGS_TABLE_NAME: nameBuilder.table("lead-intake-logs"),
@@ -259,5 +260,26 @@ export const servicesConfig: IServicesStackConfig = {
     },
     tableName: nameBuilder.table("audit-logs"),
     tableArn: arnBuilder.dynamoTable(nameBuilder.table("audit-logs")),
+  },
+  cherryPick: {
+    lambda: {
+      functionName: nameBuilder.lambda("cherry-pick"),
+      entry: path.join(__dirname, "../../../../handlers/cherry-pick/main.ts"),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        LEADS_TABLE_NAME: nameBuilder.table("leads"),
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
+        AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
+        TRUSTED_FORM_LAMBDA_NAME: nameBuilder.lambda("qa-trusted-form"),
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("cherry-pick-lambda"),
+    },
+    tableName: nameBuilder.table("leads"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("leads")),
   },
 };

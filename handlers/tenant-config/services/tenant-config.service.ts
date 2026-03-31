@@ -15,6 +15,7 @@ import {
   ICredentialSchemaRecord,
   IPluginSettingRecord,
   IPluginView,
+  ITagDefinitionRecord,
 } from "../interfaces/ITenantConfig.interface";
 import {
   CreateCredentialRequest,
@@ -23,6 +24,8 @@ import {
   UpdateCredentialSchemaRequest,
   SetPluginSettingRequest,
   UpdatePluginSettingRequest,
+  CreateTagDefinitionRequest,
+  UpdateTagDefinitionRequest,
 } from "../types/tenant-config-request.types";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
@@ -1324,7 +1327,251 @@ export class TenantConfigService {
     }
   }
 
+  // ── Tag Definitions ──────────────────────────────────────────────────────
+
+  async listTagDefinitions(
+    includeDeleted = false,
+  ): Promise<ServiceResult<ITagDefinitionRecord[]>> {
+    try {
+      const records = await this.dynamoDBUtil.queryAll<ITagDefinitionRecord>({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        IndexName: this.typeIndex,
+        KeyConditionExpression: "#t = :type",
+        ExpressionAttributeNames: { "#t": "type" },
+        ExpressionAttributeValues: {
+          ":type": "tag_definition",
+          ...(includeDeleted ? {} : { ":f": false }),
+        },
+        ...(includeDeleted
+          ? {}
+          : {
+              FilterExpression:
+                "attribute_not_exists(is_deleted) OR is_deleted = :f",
+            }),
+      });
+
+      return {
+        result: true,
+        data: records.sort((a, b) => a.label.localeCompare(b.label)),
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to list tag definitions", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to list tag definitions",
+      };
+    }
+  }
+
+  async createTagDefinition(
+    request: CreateTagDefinitionRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ITagDefinitionRecord>> {
+    try {
+      const label = request.label?.trim();
+      if (!label) return { result: false, error: "label is required" };
+
+      const existing = await this.listTagDefinitions(true);
+      if (!existing.result) {
+        return { result: false, error: existing.error };
+      }
+      const duplicate = (existing.data ?? []).find(
+        (item) =>
+          item.label.toLowerCase() === label.toLowerCase() && !item.is_deleted,
+      );
+      if (duplicate) {
+        return {
+          result: false,
+          error: `Tag "${label}" already exists`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const color = request.color?.trim() || undefined;
+      const record: ITagDefinitionRecord = {
+        id: IdGenerator.generate("TG"),
+        type: "tag_definition",
+        label,
+        ...(color && { color }),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: record,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: record.id,
+        entity_type: "tag_definition",
+        action: "created",
+        changes: [],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: record };
+    } catch (error: any) {
+      this.logger.error("Failed to create tag definition", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to create tag definition",
+      };
+    }
+  }
+
+  async updateTagDefinition(
+    id: string,
+    request: UpdateTagDefinitionRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ITagDefinitionRecord>> {
+    try {
+      const existing = await this.getTagDefinitionById(id);
+      if (!existing)
+        return { result: false, error: "Tag definition not found" };
+      if (existing.is_deleted) {
+        return {
+          result: false,
+          error: "Cannot update a deleted tag definition",
+        };
+      }
+
+      const label = request.label?.trim();
+      const color = request.color?.trim();
+
+      // At least one field must be provided
+      if (!label && color === undefined) {
+        return { result: false, error: "label is required" };
+      }
+
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [];
+
+      if (label && label !== existing.label) {
+        changes.push({
+          field: "label",
+          from: existing.label,
+          to: label,
+        });
+      }
+
+      if (color !== undefined && color !== (existing.color ?? "")) {
+        changes.push({
+          field: "color",
+          from: existing.color ?? "",
+          to: color,
+        });
+      }
+
+      const updated: ITagDefinitionRecord = {
+        ...existing,
+        ...(label && { label }),
+        ...(color !== undefined && { color: color || undefined }),
+        updated_at: now,
+        updated_by: actor,
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+        Item: updated,
+      });
+
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "tag_definition",
+        action: "updated",
+        changes,
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update tag definition", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to update tag definition",
+      };
+    }
+  }
+
+  async deleteTagDefinition(
+    id: string,
+    options: { permanent?: boolean } = {},
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const existing = await this.getTagDefinitionById(id);
+      if (!existing)
+        return { result: false, error: "Tag definition not found" };
+
+      const now = new Date().toISOString();
+      if (options.permanent) {
+        await this.dynamoDBUtil.delete({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Key: { id },
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "tag_definition",
+          action: "hard_deleted",
+          changes: [],
+          actor,
+          changed_at: now,
+        });
+      } else {
+        const updated: ITagDefinitionRecord = {
+          ...existing,
+          is_deleted: true,
+          active: false,
+          deleted_at: now,
+          deleted_by: actor ?? null,
+          updated_at: now,
+          updated_by: actor,
+        };
+        await this.dynamoDBUtil.put({
+          TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+          Item: updated,
+        });
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "tag_definition",
+          action: "soft_deleted",
+          changes: [{ field: "is_deleted", from: false, to: true }],
+          actor,
+          changed_at: now,
+        });
+      }
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete tag definition", error);
+      return {
+        result: false,
+        error: error?.message || "Failed to delete tag definition",
+      };
+    }
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────────
+
+  private async getTagDefinitionById(
+    id: string,
+  ): Promise<ITagDefinitionRecord | null> {
+    const result = await this.dynamoDBUtil.get<ITagDefinitionRecord>({
+      TableName: this.constants.TENANT_SETTINGS_TABLE_NAME,
+      Key: { id },
+    });
+    if (!result || result.type !== "tag_definition") return null;
+    return result;
+  }
 
   /**
    * Scans the campaigns table for any campaign that has `plugins.{provider}.enabled = true`

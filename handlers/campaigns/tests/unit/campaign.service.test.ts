@@ -278,6 +278,41 @@ describe("CampaignService", () => {
       );
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
+
+    it("deep-merges partial ipqs criteria updates", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...emptyCampaign,
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await campaignService.updatePlugins(emptyCampaign.id, {
+        ipqs: {
+          phone: {
+            criteria: {
+              country: { enabled: true, allowed: ["US"] },
+            },
+          },
+        } as any,
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.plugins.ipqs.phone.criteria.country).toEqual({
+        enabled: true,
+        allowed: ["US"],
+      });
+      expect(result.data?.plugins.ipqs.phone.criteria.valid).toEqual(
+        emptyCampaign.plugins.ipqs.phone.criteria.valid,
+      );
+      expect(result.data?.plugins.ipqs.phone.criteria.fraud_score).toEqual(
+        emptyCampaign.plugins.ipqs.phone.criteria.fraud_score,
+      );
+      expect(result.data?.plugins.ipqs.email.criteria).toEqual(
+        emptyCampaign.plugins.ipqs.email.criteria,
+      );
+      expect(result.data?.plugins.ipqs.ip.criteria).toEqual(
+        emptyCampaign.plugins.ipqs.ip.criteria,
+      );
+    });
   });
 
   describe("updateStatus", () => {

@@ -54,18 +54,8 @@ done
 LEAD_TYPE=$(prompt "Lead type (test/live)" "test")
 LEAD_TYPE=$(echo "$LEAD_TYPE" | tr 'A-Z' 'a-z')
 
-case "$LEAD_TYPE" in
-    test)
-        ENDPOINT="/leads/test"
-        ;;
-    live)
-        ENDPOINT="/leads"
-        ;;
-    *)
-        echo "Invalid lead type. Choose 'test' or 'live'."
-        exit 1
-        ;;
-esac
+# Unified endpoint — test mode is now determined by affiliate status
+ENDPOINT="/leads"
 
 default_payload='{"email":"lead@example.com","name":"Sample Lead"}'
 read -r -p "Payload JSON [$default_payload]: " INPUT_PAYLOAD

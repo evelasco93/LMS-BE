@@ -7,6 +7,8 @@ export interface IWebhookFieldMapping {
   /** Destination key in the outbound payload sent to the client webhook */
   key: string;
   value_source: "field" | "static";
+  /** Optional per-field destination for sold pixels (query or body). */
+  parameter_target?: "query" | "body";
   /** Required when value_source === "field". Must match a field_name in campaign base_criteria */
   field_name?: string;
   /** Required when value_source === "static" */
@@ -70,14 +72,67 @@ export interface ILeadDistributionConfig {
   enabled: boolean;
 }
 
+export interface IResolvedWebhookPayloadEntry {
+  key: string;
+  parameter_target: "query" | "body";
+  value_source: "field" | "static";
+  field_name?: string;
+  static_value?: string;
+  value: unknown;
+}
+
+export interface ILeadDeliveryPayloadSnapshot {
+  configured_webhook_url: string;
+  final_webhook_url: string;
+  webhook_method: IClientDeliveryConfig["method"];
+  attempt: number;
+  headers: Record<string, string>;
+  query_params?: Record<string, unknown>;
+  body_payload?: Record<string, unknown>;
+  body_raw?: string;
+  effective_mapped_payload: IResolvedWebhookPayloadEntry[];
+}
+
+/**
+ * Configuration for firing an affiliate conversion pixel when a lead is sold.
+ * This call is fire-and-forget and does not impact affiliate intake latency.
+ */
+export interface IAffiliateSoldPixelConfig {
+  /** Master toggle. Pixel is only fired when enabled and the lead is sold. */
+  enabled: boolean;
+  /** Destination URL for the outbound affiliate pixel webhook. */
+  url: string;
+  /** HTTP method used for the pixel webhook request. */
+  method: "POST" | "GET" | "PUT" | "PATCH";
+  /** Optional headers (for auth/custom metadata). */
+  headers?: Record<string, string>;
+  /** Mapping entries used to compose body/query values from lead/static fields. */
+  payload_mapping: IWebhookFieldMapping[];
+  /**
+   * Deprecated fallback for mappings without parameter_target.
+   * New clients should set payload_mapping[].parameter_target per row.
+   */
+  parameter_mode?: "query" | "body";
+}
+
 /**
  * Persisted result of a single webhook delivery attempt stored on the lead record.
  */
 export interface ILeadDeliveryResult {
   client_id: string;
   delivered_at: string;
+  /** Number of webhook attempts performed (includes retries) */
+  attempts: number;
   webhook_url: string;
+  /** Resolved URL actually called, including query params when present */
+  final_webhook_url?: string;
   webhook_method: string;
+  /** Query string values sent to the destination webhook */
+  sent_query_params?: Record<string, unknown>;
+  /** Request body payload sent to the destination webhook */
+  sent_body_payload?: Record<string, unknown>;
+  /** Full outbound request snapshot for the final webhook attempt */
+  sent_payload_snapshot?: ILeadDeliveryPayloadSnapshot;
   /** HTTP status code returned by the client webhook (absent on network/timeout error) */
   webhook_response_status?: number;
   /** Parsed response body from the client webhook */

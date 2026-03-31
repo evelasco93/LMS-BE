@@ -24,6 +24,15 @@ export interface IpqsPluginConfig {
   ip?: IpqsCheckConfig;
 }
 
+export interface ValidationBypassDirectives {
+  duplicate_check?: boolean;
+  trusted_form?: boolean;
+  ipqs_phone?: boolean;
+  ipqs_email?: boolean;
+  ipqs_ip?: boolean;
+  all?: boolean;
+}
+
 export interface CampaignPluginsConfig {
   duplicate_check?: DuplicateCheckPluginConfig;
   trusted_form?: TrustedFormPluginConfig;
@@ -86,19 +95,24 @@ export interface OrchestratorResponse extends DuplicateCheckResult {
   halt_plugin?: string;
   /** Affiliate-readable reason for the halt (sourced from rejection-messages constants) */
   halt_reason?: string;
+  /** Effective bypass directives that were applied during this evaluation. */
+  bypass_applied?: ValidationBypassDirectives;
   plugin_results: {
     duplicate_check: {
       enabled: boolean;
+      bypassed?: boolean;
       duplicate: boolean;
       matched_lead_ids: string[];
     };
     trusted_form?: {
       enabled: boolean;
+      bypassed?: boolean;
       success?: boolean;
       error?: string;
     };
     ipqs?: {
       enabled: boolean;
+      bypassed?: boolean;
       success?: boolean;
       error?: string;
     };
