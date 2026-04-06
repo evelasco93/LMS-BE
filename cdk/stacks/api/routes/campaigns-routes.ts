@@ -186,6 +186,44 @@ export class CampaignsRoutes extends Construct {
       [writeScope],
     );
 
+    // Per-affiliate pixel criteria
+    const campaignAffiliatePixelCriteriaResource =
+      campaignAffiliateResource.addResource("pixel-criteria");
+    protect(campaignAffiliatePixelCriteriaResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignAffiliatePixelCriteriaResource, "POST", integration, [
+      writeScope,
+    ]);
+
+    const campaignAffiliatePixelCriterionResource =
+      campaignAffiliatePixelCriteriaResource.addResource("{ruleId}");
+    protect(campaignAffiliatePixelCriterionResource, "PUT", integration, [
+      writeScope,
+    ]);
+    protect(campaignAffiliatePixelCriterionResource, "DELETE", integration, [
+      writeScope,
+    ]);
+
+    // Per-affiliate sold criteria
+    const campaignAffiliateSoldCriteriaResource =
+      campaignAffiliateResource.addResource("sold-criteria");
+    protect(campaignAffiliateSoldCriteriaResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignAffiliateSoldCriteriaResource, "POST", integration, [
+      writeScope,
+    ]);
+
+    const campaignAffiliateSoldCriterionResource =
+      campaignAffiliateSoldCriteriaResource.addResource("{ruleId}");
+    protect(campaignAffiliateSoldCriterionResource, "PUT", integration, [
+      writeScope,
+    ]);
+    protect(campaignAffiliateSoldCriterionResource, "DELETE", integration, [
+      writeScope,
+    ]);
+
     // ── Campaign criteria ─────────────────────────────────────────────────────
     const campaignCriteriaResource = campaignResource.addResource("criteria");
     protect(campaignCriteriaResource, "GET", integration, [readScope]);

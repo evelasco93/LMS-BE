@@ -313,7 +313,6 @@ export class CampaignController extends Controller {
       message: "Affiliate status updated",
       data: result.data?.campaign,
       submit_url: result.data?.submit_url,
-      submit_url_test: result.data?.submit_url_test,
     };
   }
 
@@ -530,7 +529,6 @@ export class CampaignController extends Controller {
       message: "Campaign retrieved successfully",
       data: result.data?.campaign,
       submit_url: result.data?.submit_url,
-      submit_url_test: result.data?.submit_url_test,
     };
   }
 

@@ -1,8 +1,4 @@
 import { injectable, inject } from "inversify";
-import {
-  APIGatewayClient,
-  GetRestApisCommand,
-} from "@aws-sdk/client-api-gateway";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { LambdaInvokeUtil } from "@shared/services/lambda-invoke.util";
@@ -53,8 +49,6 @@ import { resolveStateMappings } from "@shared/constants";
 
 @injectable()
 export class LeadsService {
-  private externalLeadsBaseUrlCache?: string;
-
   constructor(
     @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
     @inject("Logger") private readonly logger: Logger,
@@ -160,13 +154,22 @@ export class LeadsService {
         affiliate.status ?? CampaignParticipantStatus.LIVE;
 
       // ── Derive test mode ──────────────────────────────────────────────────
-      // Test mode is determined by affiliate status (TEST) or by auto-detecting
-      // the word "test" (case-insensitive) in any payload field value.
+      // Test mode is determined by:
+      //   1. Affiliate status is TEST
+      //   2. The word "test" (case-insensitive) in any payload field value
+      //   3. An explicit "test" key in the payload set to a truthy value (1, "1", true, "true")
       const isTestByStatus = affiliateStatus === CampaignParticipantStatus.TEST;
       const isTestByPayload = Object.values(normalizedLeadPayload).some(
         (v) => typeof v === "string" && /\btest\b/i.test(v),
       );
-      const isTest = isTestByStatus || isTestByPayload;
+      const testKeyValue = normalizedLeadPayload["test"];
+      const isTestByKey =
+        testKeyValue !== undefined &&
+        (testKeyValue === 1 ||
+          testKeyValue === "1" ||
+          testKeyValue === true ||
+          testKeyValue === "true");
+      const isTest = isTestByStatus || isTestByPayload || isTestByKey;
 
       // Affiliate-driven status gate.
       if (affiliateStatus === CampaignParticipantStatus.DISABLED) {
@@ -1376,44 +1379,6 @@ export class LeadsService {
       return "Campaign is in draft; move to TEST before live leads";
     }
     return null;
-  }
-
-  private async resolveExternalLeadsBaseUrl(): Promise<string> {
-    if (this.constants.EXTERNAL_LEADS_API_URL) {
-      return this.constants.EXTERNAL_LEADS_API_URL.replace(/\/+$/, "");
-    }
-
-    if (this.externalLeadsBaseUrlCache) {
-      return this.externalLeadsBaseUrlCache;
-    }
-
-    const apiName = this.constants.EXTERNAL_LEADS_API_NAME;
-    const stage = this.constants.EXTERNAL_LEADS_API_STAGE;
-    const region = this.constants.AWS_REGION;
-
-    if (!apiName || !stage) {
-      this.externalLeadsBaseUrlCache = "";
-      return this.externalLeadsBaseUrlCache;
-    }
-
-    const client = new APIGatewayClient({ region });
-    let position: string | undefined;
-
-    do {
-      const response = await client.send(
-        new GetRestApisCommand({ limit: 500, position }),
-      );
-      const api = response.items?.find((item) => item.name === apiName);
-      if (api?.id) {
-        const safeStage = stage.replace(/^\/+|\/+$/g, "");
-        this.externalLeadsBaseUrlCache = `https://${api.id}.execute-api.${region}.amazonaws.com/${safeStage}/v2/leads`;
-        return this.externalLeadsBaseUrlCache;
-      }
-      position = response.position;
-    } while (position);
-
-    this.externalLeadsBaseUrlCache = "";
-    return this.externalLeadsBaseUrlCache;
   }
 
   private resolveSoldStatus(

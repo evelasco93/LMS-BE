@@ -9,7 +9,6 @@ export type RestApiResponse<T = any> = {
   message?: string;
   data?: T;
   submit_url?: string;
-  submit_url_test?: string;
   error?: string;
   count?: number;
   lastEvaluatedKey?: string;

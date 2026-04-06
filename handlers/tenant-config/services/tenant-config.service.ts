@@ -631,6 +631,26 @@ export class TenantConfigService {
           to: JSON.stringify(request.fields),
         });
       }
+      if (
+        request.credential_type !== undefined &&
+        request.credential_type !== existing.credential_type
+      ) {
+        changes.push({
+          field: "credential_type",
+          from: existing.credential_type,
+          to: request.credential_type,
+        });
+      }
+      if (
+        request.provider !== undefined &&
+        request.provider !== existing.provider
+      ) {
+        changes.push({
+          field: "provider",
+          from: existing.provider,
+          to: request.provider,
+        });
+      }
 
       const updated: ICredentialSchemaRecord = {
         ...existing,
@@ -640,6 +660,10 @@ export class TenantConfigService {
             ? request.description?.trim() || undefined
             : existing.description,
         fields: request.fields ?? existing.fields,
+        credential_type:
+          (request.credential_type as ICredentialSchemaRecord["credential_type"]) ??
+          existing.credential_type,
+        provider: request.provider?.trim().toLowerCase() ?? existing.provider,
         updated_at: now,
         updated_by: actor,
       };

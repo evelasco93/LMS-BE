@@ -1,8 +1,4 @@
 import { injectable, inject } from "inversify";
-import {
-  APIGatewayClient,
-  GetRestApisCommand,
-} from "@aws-sdk/client-api-gateway";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { AuditWriterService } from "@shared/services";
@@ -84,8 +80,6 @@ import { ITagDefinitionRecord } from "../../tenant-config/interfaces/ITenantConf
 
 @injectable()
 export class CampaignService {
-  private leadsBaseUrlCache?: string;
-
   constructor(
     @inject("DynamoDBUtil") private readonly dynamoDBUtil: DynamoDBUtil,
     @inject("Logger") private readonly logger: Logger,
@@ -441,7 +435,6 @@ export class CampaignService {
       campaign: ICampaign;
       campaign_key: string;
       submit_url: string;
-      submit_url_test: string;
     }>
   > {
     try {
@@ -546,14 +539,12 @@ export class CampaignService {
         changed_at: now,
       });
 
-      const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
           campaign: this.enrichCampaignForResponse(campaign),
           campaign_key,
-          submit_url: leadsBase,
-          submit_url_test: `${leadsBase}/test`,
+          submit_url: this.constants.LEADS_BASE_URL,
         },
       };
     } catch (error: any) {
@@ -678,6 +669,17 @@ export class CampaignService {
               enabled: true,
             },
           };
+        }
+
+        // Auto-enable lead routing (round-robin) and cherry-pick on ACTIVE
+        if (!campaign.distribution?.enabled) {
+          campaign.distribution = {
+            mode: "round_robin",
+            enabled: true,
+          };
+        }
+        if (!campaign.default_cherry_pickable) {
+          campaign.default_cherry_pickable = true;
         }
       }
 
@@ -1147,7 +1149,6 @@ export class CampaignService {
       campaign: ICampaign;
       campaign_key: string;
       submit_url: string;
-      submit_url_test: string;
     }>
   > {
     try {
@@ -1202,14 +1203,12 @@ export class CampaignService {
         affiliateId,
       });
 
-      const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
           campaign: this.enrichCampaignForResponse(campaign),
           campaign_key,
-          submit_url: leadsBase,
-          submit_url_test: `${leadsBase}/test`,
+          submit_url: this.constants.LEADS_BASE_URL,
         },
       };
     } catch (error: any) {
@@ -1230,7 +1229,6 @@ export class CampaignService {
     ServiceResult<{
       campaign: ICampaign;
       submit_url: string;
-      submit_url_test: string;
     }>
   > {
     const result = await this.mutateAffiliate(
@@ -1253,13 +1251,11 @@ export class CampaignService {
       },
     );
     if (!result.result) return { result: false, error: result.error };
-    const leadsBase = await this.resolveLeadsBaseUrl();
     return {
       result: true,
       data: {
         campaign: this.enrichCampaignForResponse(result.data!),
-        submit_url: leadsBase,
-        submit_url_test: `${leadsBase}/test`,
+        submit_url: this.constants.LEADS_BASE_URL,
       },
     };
   }
@@ -2339,7 +2335,6 @@ export class CampaignService {
     ServiceResult<{
       campaign: ICampaign;
       submit_url: string;
-      submit_url_test: string;
     }>
   > {
     try {
@@ -2347,13 +2342,11 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign with id ${id} not found` };
       }
-      const leadsBase = await this.resolveLeadsBaseUrl();
       return {
         result: true,
         data: {
           campaign: this.enrichCampaignForResponse(campaign),
-          submit_url: leadsBase,
-          submit_url_test: `${leadsBase}/test`,
+          submit_url: this.constants.LEADS_BASE_URL,
         },
       };
     } catch (error: any) {
@@ -5407,7 +5400,6 @@ export class CampaignService {
           order: f.order ?? 0,
         }));
 
-      const leadsBase = await this.resolveLeadsBaseUrl();
       const now = new Date().toISOString();
 
       await this.auditWriterService.writeAuditEvent({
@@ -5434,8 +5426,7 @@ export class CampaignService {
             id: campaign.id,
             name: campaign.name,
             status: campaign.status,
-            submit_url: leadsBase,
-            submit_url_test: `${leadsBase}/test`,
+            submit_url: this.constants.LEADS_BASE_URL,
           },
           affiliate: {
             id: affiliateRecord.id,
@@ -5454,51 +5445,6 @@ export class CampaignService {
         error: error.message || "Failed to generate posting instructions",
       };
     }
-  }
-
-  private async resolveLeadsBaseUrl(): Promise<string> {
-    if (this.constants.LEADS_BASE_URL) {
-      return this.constants.LEADS_BASE_URL.replace(/\/+$/, "");
-    }
-
-    if (this.leadsBaseUrlCache) {
-      return this.leadsBaseUrlCache;
-    }
-
-    const apiName = this.constants.EXTERNAL_LEADS_API_NAME;
-    const stage = this.constants.EXTERNAL_LEADS_API_STAGE;
-    const region = this.constants.AWS_REGION;
-
-    if (!apiName || !stage) {
-      this.logger.warn(
-        "External leads API discovery not configured; using relative leads URL",
-      );
-      this.leadsBaseUrlCache = "/leads";
-      return this.leadsBaseUrlCache;
-    }
-
-    const client = new APIGatewayClient({ region });
-    let position: string | undefined;
-
-    do {
-      const response = await client.send(
-        new GetRestApisCommand({ limit: 500, position }),
-      );
-      const api = response.items?.find((item) => item.name === apiName);
-      if (api?.id) {
-        const safeStage = stage.replace(/^\/+|\/+$/g, "");
-        this.leadsBaseUrlCache = `https://${api.id}.execute-api.${region}.amazonaws.com/${safeStage}/v2/leads`;
-        return this.leadsBaseUrlCache;
-      }
-      position = response.position;
-    } while (position);
-
-    this.logger.warn(
-      "External leads API not found by name; using relative leads URL",
-      { apiName },
-    );
-    this.leadsBaseUrlCache = "/leads";
-    return this.leadsBaseUrlCache;
   }
 
   // ── Criteria Catalog ──────────────────────────────────────────────────────

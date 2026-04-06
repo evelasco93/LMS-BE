@@ -43,6 +43,8 @@ export type UpdateCredentialSchemaRequest = {
   name?: string;
   description?: string;
   fields?: IPluginSchemaField[];
+  credential_type?: string;
+  provider?: string;
 };
 
 // ── Plugin Settings ───────────────────────────────────────────────────────────
