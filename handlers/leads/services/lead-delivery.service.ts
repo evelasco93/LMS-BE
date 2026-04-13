@@ -494,14 +494,10 @@ export class LeadDeliveryService {
 
   /**
    * Evaluates a set of logic rules against `payload`.
-   * Rules are evaluated in order; the first match determines the result:
-   *   - action "pass" → true (lead allowed for this client)
-   *   - action "fail" → false (lead excluded for this client)
-   * If no rules match:
-   *   - If there are any "pass" (whitelist) rules, unmatched → false (whitelist mode)
-   *   - Otherwise → true (no restrictions)
-   *
-   * Group semantics: OR across groups, AND across conditions within a group.
+   * Rules are evaluated with OR — the lead passes if ANY enabled rule matches.
+   * Each rule's conditions are evaluated with AND — all must match.
+   * If zero rules exist, the lead passes by default.
+   * If no rules match, the lead is rejected.
    */
   passesLogicRules(
     rules: ILogicRule[],
@@ -511,8 +507,7 @@ export class LeadDeliveryService {
     if (enabled.length === 0) return true;
 
     for (const rule of enabled) {
-      const matches = rule.groups.some((group) =>
-        group.conditions.every((cond) => {
+      const matches = rule.conditions.every((cond) => {
           const raw = payload[cond.field_name];
           const fieldVal = (
             raw === undefined || raw === null ? "" : String(raw)
@@ -553,18 +548,13 @@ export class LeadDeliveryService {
             default:
               return true;
           }
-        }),
-      );
+        });
 
-      if (matches) {
-        return rule.action === "pass";
-      }
+      if (matches) return true;
     }
 
-    // No rule matched. If there are whitelist (pass) rules, this is a deny-by-default
-    // mode — the client is not eligible for leads that don’t satisfy any pass rule.
-    const hasPassRules = enabled.some((r) => r.action === "pass");
-    return !hasPassRules;
+    // No rule matched — lead is rejected
+    return false;
   }
 
   /**

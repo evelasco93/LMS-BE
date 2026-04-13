@@ -2,6 +2,8 @@
 
 This doc summarizes how the LMS API behaves so the frontend can model the UI. API reference source: [api/openapi.json](api/openapi.json).
 
+> **Terminology note:** The backend API uses `affiliate`, `criteria`, `logic`, and `pixel` in endpoint paths, field names, and response bodies. The frontend displays these as **Source**, **Fields**, **Rules**, and **Webhook** respectively. This guide uses the backend terminology to match the actual API contracts.
+
 ## High-level flow
 
 - Create client(s) and affiliate(s).
@@ -727,31 +729,29 @@ The preset covers all 50 US states. It runs in addition to any custom `value_map
 
 All criteria mutations are recorded in the centralized audit log with `entity_type: "campaign"` and the campaign's `id` as `entity_id`. Use `GET /audit/{campaignId}` to see the full change history for a campaign, including all criteria and logic rule events.
 
-| Action                      | Trigger                                          | `changes[]` content                                                                                                       |
-| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `criteria_field_added`      | `POST /criteria` or `POST /criteria/base-fields` | `field_id`, `field_name`, `field_label`, `data_type` (from `null`)                                                        |
-| `criteria_field_updated`    | `PUT /criteria/{fieldId}`                        | One entry per changed property: `{fieldId}.{property}` with `from`/`to` values                                            |
-| `criteria_field_deleted`    | `DELETE /criteria/{fieldId}`                     | `field_id`, `field_name`, `field_label` (to `null`)                                                                       |
-| `criteria_fields_reordered` | `PUT /criteria/reorder`                          | `order`: previous and new field ID arrays                                                                                 |
-| `logic_rule_added`          | `POST /logic-rules`                              | `rule_id`, `name`, `action` (from `null`)                                                                                 |
-| `logic_rule_updated`        | `PUT /logic-rules/{ruleId}`                      | One entry per changed scalar (`name`, `action`, `enabled`) + condition-level diffs for `groups` changes — see table below |
-| `logic_rule_deleted`        | `DELETE /logic-rules/{ruleId}`                   | `rule_id`, `name`, `action` (to `null`)                                                                                   |
-| `plugins_updated`           | `PUT /campaigns/{id}/plugins`                    | One entry per mutated plugin field — see table below                                                                      |
+| Action                      | Trigger                                          | `changes[]` content                                                                                                 |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `criteria_field_added`      | `POST /criteria` or `POST /criteria/base-fields` | `field_id`, `field_name`, `field_label`, `data_type` (from `null`)                                                  |
+| `criteria_field_updated`    | `PUT /criteria/{fieldId}`                        | One entry per changed property: `{fieldId}.{property}` with `from`/`to` values                                      |
+| `criteria_field_deleted`    | `DELETE /criteria/{fieldId}`                     | `field_id`, `field_name`, `field_label` (to `null`)                                                                 |
+| `criteria_fields_reordered` | `PUT /criteria/reorder`                          | `order`: previous and new field ID arrays                                                                           |
+| `logic_rule_added`          | `POST /logic-rules`                              | `rule_id`, `name` (from `null`)                                                                                     |
+| `logic_rule_updated`        | `PUT /logic-rules/{ruleId}`                      | One entry per changed scalar (`name`, `enabled`) + condition-level diffs for `conditions` changes — see table below |
+| `logic_rule_deleted`        | `DELETE /logic-rules/{ruleId}`                   | `rule_id`, `name` (to `null`)                                                                                       |
+| `plugins_updated`           | `PUT /campaigns/{id}/plugins`                    | One entry per mutated plugin field — see table below                                                                |
 
 ### Logic rule update audit trail
 
-`logic_rule_updated` records are written whenever `PUT /logic-rules/{ruleId}` changes anything. Scalar fields produce one entry each; `groups` changes produce per-condition entries.
+`logic_rule_updated` records are written whenever `PUT /logic-rules/{ruleId}` changes anything. Scalar fields produce one entry each; `conditions` changes produce per-condition entries.
 
 Condition matching is **content-based** (fingerprinted by `field_name + operator + value`). The frontend does not need to send condition `id` fields — only content matters. This prevents false "all removed + all added" events when condition IDs are omitted on update.
 
-| `changes[].field`   | When emitted                                                      | `from` / `to` format                     |
-| ------------------- | ----------------------------------------------------------------- | ---------------------------------------- |
-| `name`              | Rule name changed                                                 | Previous / new string                    |
-| `action`            | Rule action changed (`pass` ↔ `fail`)                             | `"pass"` or `"fail"`                     |
-| `enabled`           | Rule enabled toggled                                              | `true` or `false`                        |
-| `condition.added`   | A net-new condition was added (by content)                        | `null` → `"field_name operator [value]"` |
-| `condition.removed` | A net-removed condition was deleted (by content)                  | `"field_name operator [value]"` → `null` |
-| `groups.structure`  | Only the grouping/ordering changed (no condition content changes) | `[["field op val"…], …]` before → after  |
+| `changes[].field`   | When emitted                                     | `from` / `to` format                     |
+| ------------------- | ------------------------------------------------ | ---------------------------------------- |
+| `name`              | Rule name changed                                | Previous / new string                    |
+| `enabled`           | Rule enabled toggled                             | `true` or `false`                        |
+| `condition.added`   | A net-new condition was added (by content)       | `null` → `"field_name operator [value]"` |
+| `condition.removed` | A net-removed condition was deleted (by content) | `"field_name operator [value]"` → `null` |
 
 The condition summary string format is `"{field_name} {operator} {value}"` — e.g. `"state is_not California"`. For multi-value `is`/`is_not` operators the values are joined with `, `.
 
@@ -2091,7 +2091,7 @@ Complete reference of all audit events written by the system. Every event is sto
 | `criteria_field_updated`         | Criteria field property changed                                              | Changed properties only (e.g. `required`, `options`)                |
 | `criteria_field_deleted`         | Criteria field removed                                                       | `field_name` to null                                                |
 | `criteria_fields_reordered`      | Criteria field order changed                                                 | `order` for each moved field                                        |
-| `logic_rule_added`               | Logic rule created                                                           | `name`, `action`, `enabled`, `groups`                               |
+| `logic_rule_added`               | Logic rule created                                                           | `name`, `enabled`, `conditions`                                     |
 | `logic_rule_updated`             | Logic rule mutated                                                           | Changed scalar fields + condition diffs                             |
 | `logic_rule_deleted`             | Logic rule removed                                                           | `rule_id` to null                                                   |
 | `posting_instructions_generated` | Posting instructions document generated                                      | _(empty)_                                                           |

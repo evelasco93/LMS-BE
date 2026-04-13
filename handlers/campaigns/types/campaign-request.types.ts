@@ -8,7 +8,6 @@ import {
   IIpqsPluginConfig,
   ITrustedFormPluginConfig,
   IValueMapping,
-  LogicRuleAction,
   LogicRuleOperator,
 } from "../interfaces/ICampaign.interface";
 
@@ -98,15 +97,10 @@ export type CreateLogicRuleConditionRequest = {
   value?: string | string[];
 };
 
-export type CreateLogicRuleGroupRequest = {
-  conditions: CreateLogicRuleConditionRequest[];
-};
-
 export type CreateLogicRuleRequest = {
   name: string;
-  action: LogicRuleAction;
   enabled?: boolean;
-  groups: CreateLogicRuleGroupRequest[];
+  conditions: CreateLogicRuleConditionRequest[];
 };
 
 export type UpdateLogicRuleConditionRequest = {
@@ -116,16 +110,10 @@ export type UpdateLogicRuleConditionRequest = {
   value?: string | string[];
 };
 
-export type UpdateLogicRuleGroupRequest = {
-  id?: string;
-  conditions: UpdateLogicRuleConditionRequest[];
-};
-
 export type UpdateLogicRuleRequest = {
   name?: string;
-  action?: LogicRuleAction;
   enabled?: boolean;
-  groups?: UpdateLogicRuleGroupRequest[];
+  conditions?: UpdateLogicRuleConditionRequest[];
 };
 
 // ── Posting Instructions ──────────────────────────────────────────────────────

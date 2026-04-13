@@ -215,7 +215,8 @@ export type BaseCriteriaDataType =
   | "Text"
   | "Number"
   | "Date"
-  | "Boolean";
+  | "Boolean"
+  | "Yes/No";
 
 export interface IFieldOption {
   /** Internal value sent in the lead payload */
@@ -284,8 +285,6 @@ export type LogicRuleOperator =
   | "is_empty"
   | "is_not_empty";
 
-export type LogicRuleAction = "pass" | "fail";
-
 export interface ILogicRuleCondition {
   id: string;
   /** Must match a field_name in the campaign's base_criteria */
@@ -299,29 +298,18 @@ export interface ILogicRuleCondition {
   value?: string | string[];
 }
 
-export interface ILogicRuleGroup {
-  id: string;
-  /** Conditions within a group are evaluated with AND — all must match for the group to match */
-  conditions: ILogicRuleCondition[];
-}
-
 export interface ILogicRule {
   id: string;
-  /** Human-readable name shown in the Logic Builder UI */
+  /** Human-readable name shown in the Rules UI */
   name: string;
-  /**
-   * What happens when this rule matches a lead:
-   * - "pass" — lead is allowed through (short-circuit, remaining rules not evaluated)
-   * - "fail" — lead is rejected
-   */
-  action: LogicRuleAction;
   /** When false, this rule is ignored during lead evaluation */
   enabled: boolean;
   /**
-   * Groups are evaluated with OR — a rule matches when any group matches.
-   * Each group's conditions are evaluated with AND.
+   * Conditions within a rule are evaluated with AND — all must match.
+   * Multiple rules are evaluated with OR — a lead passes if ANY enabled rule matches.
+   * If no rules match, the lead is rejected.
    */
-  groups: ILogicRuleGroup[];
+  conditions: ILogicRuleCondition[];
   created_at: string;
   updated_at: string;
   created_by?: RequestActor;
@@ -357,7 +345,7 @@ export interface ICampaign {
   client_overrides?: Record<string, ICampaignClientOverride>;
   /** Affiliate-scoped override map keyed by affiliate_id. */
   affiliate_overrides?: Record<string, ICampaignAffiliateOverride>;
-  /** Logic rules applied after criteria validation — first matching rule determines pass/fail */
+  /** Logic rules applied after criteria validation \u2014 lead passes if ANY enabled rule matches, rejected if none match */
   logic_rules?: ILogicRule[];
   /** When true, rejected (non-test) leads are auto-marked cherry_pickable. Default: false */
   default_cherry_pickable?: boolean;

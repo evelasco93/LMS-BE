@@ -2480,6 +2480,7 @@ export class CampaignService {
     "Number",
     "Date",
     "Boolean",
+    "Yes/No",
   ];
 
   async getCriteria(
@@ -3247,16 +3248,12 @@ export class CampaignService {
       const rule: ILogicRule = {
         id: IdGenerator.generate("LR"),
         name: request.name.trim(),
-        action: request.action,
         enabled: request.enabled ?? true,
-        groups: request.groups.map((g) => ({
-          id: IdGenerator.generate("LG"),
-          conditions: g.conditions.map((c) => ({
-            id: IdGenerator.generate("LC"),
-            field_name: c.field_name,
-            operator: c.operator,
-            ...(c.value !== undefined ? { value: c.value } : {}),
-          })),
+        conditions: request.conditions.map((c) => ({
+          id: IdGenerator.generate("LC"),
+          field_name: c.field_name,
+          operator: c.operator,
+          ...(c.value !== undefined ? { value: c.value } : {}),
         })),
         created_at: now,
         updated_at: now,
@@ -3279,7 +3276,6 @@ export class CampaignService {
         changes: [
           { field: "rule_id", from: null, to: rule.id },
           { field: "name", from: null, to: rule.name },
-          { field: "action", from: null, to: rule.action },
         ],
         actor,
         changed_at: now,
@@ -3315,11 +3311,10 @@ export class CampaignService {
         return { result: false, error: `Logic rule ${ruleId} not found` };
       }
 
-      if (request.groups !== undefined) {
+      if (request.conditions !== undefined) {
         const validationError = this.validateLogicRuleRequest({
           name: request.name ?? "x",
-          action: request.action ?? "fail",
-          groups: request.groups,
+          conditions: request.conditions,
         });
         if (validationError) return { result: false, error: validationError };
       }
@@ -3330,21 +3325,17 @@ export class CampaignService {
       const updated: ILogicRule = {
         ...existing,
         name: request.name !== undefined ? request.name.trim() : existing.name,
-        action: request.action !== undefined ? request.action : existing.action,
         enabled:
           request.enabled !== undefined ? request.enabled : existing.enabled,
-        groups:
-          request.groups !== undefined
-            ? request.groups.map((g) => ({
-                id: g.id ?? IdGenerator.generate("LG"),
-                conditions: g.conditions.map((c) => ({
-                  id: c.id ?? IdGenerator.generate("LC"),
-                  field_name: c.field_name,
-                  operator: c.operator,
-                  ...(c.value !== undefined ? { value: c.value } : {}),
-                })),
+        conditions:
+          request.conditions !== undefined
+            ? request.conditions.map((c) => ({
+                id: c.id ?? IdGenerator.generate("LC"),
+                field_name: c.field_name,
+                operator: c.operator,
+                ...(c.value !== undefined ? { value: c.value } : {}),
               }))
-            : existing.groups,
+            : existing.conditions,
         updated_at: now,
         updated_by: actor,
       };
@@ -3371,13 +3362,6 @@ export class CampaignService {
           to: request.name.trim(),
         });
       }
-      if (request.action !== undefined && request.action !== existing.action) {
-        logicRuleChanges.push({
-          field: "action",
-          from: existing.action,
-          to: request.action,
-        });
-      }
       if (
         request.enabled !== undefined &&
         request.enabled !== existing.enabled
@@ -3388,7 +3372,7 @@ export class CampaignService {
           to: request.enabled,
         });
       }
-      if (request.groups !== undefined) {
+      if (request.conditions !== undefined) {
         // Match conditions by content (field_name + operator + value) rather than by ID.
         // The frontend may not send condition IDs on update, which would cause all conditions
         // to receive new IDs — making ID-based diff falsely report every unchanged condition
@@ -3406,22 +3390,18 @@ export class CampaignService {
         // Multiset: count occurrences of each content signature before and after
         const beforeCounts = new Map<string, number>();
         const beforeCondBySig = new Map<string, ILogicRuleCondition>();
-        for (const g of existing.groups) {
-          for (const c of g.conditions) {
-            const sig = condSig(c);
-            beforeCounts.set(sig, (beforeCounts.get(sig) ?? 0) + 1);
-            beforeCondBySig.set(sig, c);
-          }
+        for (const c of existing.conditions) {
+          const sig = condSig(c);
+          beforeCounts.set(sig, (beforeCounts.get(sig) ?? 0) + 1);
+          beforeCondBySig.set(sig, c);
         }
 
         const afterCounts = new Map<string, number>();
         const afterCondBySig = new Map<string, ILogicRuleCondition>();
-        for (const g of updated.groups) {
-          for (const c of g.conditions) {
-            const sig = condSig(c);
-            afterCounts.set(sig, (afterCounts.get(sig) ?? 0) + 1);
-            afterCondBySig.set(sig, c);
-          }
+        for (const c of updated.conditions) {
+          const sig = condSig(c);
+          afterCounts.set(sig, (afterCounts.get(sig) ?? 0) + 1);
+          afterCondBySig.set(sig, c);
         }
 
         const allSigs = new Set([
@@ -3447,26 +3427,6 @@ export class CampaignService {
               to: fmtCond(afterCondBySig.get(sig)!),
             });
           }
-        }
-
-        // If the only thing that changed was grouping / ordering (same conditions, different
-        // arrangement across groups), record a structure diff using human-readable strings
-        const beforeGroups = existing.groups.map((g) =>
-          g.conditions.map((c) => fmtCond(c)),
-        );
-        const afterGroups = updated.groups.map((g) =>
-          g.conditions.map((c) => fmtCond(c)),
-        );
-        if (
-          logicRuleChanges.filter((c) => c.field.startsWith("condition."))
-            .length === 0 &&
-          JSON.stringify(beforeGroups) !== JSON.stringify(afterGroups)
-        ) {
-          logicRuleChanges.push({
-            field: "groups.structure",
-            from: beforeGroups,
-            to: afterGroups,
-          });
         }
       }
       await this.auditWriterService.writeAuditEvent({
@@ -3522,7 +3482,6 @@ export class CampaignService {
         changes: [
           { field: "rule_id", from: ruleToDelete.id, to: null },
           { field: "name", from: ruleToDelete.name, to: null },
-          { field: "action", from: ruleToDelete.action, to: null },
         ],
         actor,
         changed_at: now,
@@ -3594,16 +3553,12 @@ export class CampaignService {
       const rule: ILogicRule = {
         id: IdGenerator.generate("LR"),
         name: request.name.trim(),
-        action: request.action,
         enabled: request.enabled ?? true,
-        groups: request.groups.map((g) => ({
-          id: IdGenerator.generate("LG"),
-          conditions: g.conditions.map((c) => ({
-            id: IdGenerator.generate("LC"),
-            field_name: c.field_name,
-            operator: c.operator,
-            ...(c.value !== undefined ? { value: c.value } : {}),
-          })),
+        conditions: request.conditions.map((c) => ({
+          id: IdGenerator.generate("LC"),
+          field_name: c.field_name,
+          operator: c.operator,
+          ...(c.value !== undefined ? { value: c.value } : {}),
         })),
         created_at: now,
         updated_at: now,
@@ -3633,7 +3588,6 @@ export class CampaignService {
           { field: "affiliate_id", from: null, to: affiliateId },
           { field: "rule_id", from: null, to: rule.id },
           { field: "name", from: null, to: rule.name },
-          { field: "action", from: null, to: rule.action },
         ],
         actor,
         changed_at: now,
@@ -3671,11 +3625,10 @@ export class CampaignService {
           error: `Logic rule ${ruleId} not found for affiliate ${affiliateId}`,
         };
 
-      if (request.groups !== undefined) {
+      if (request.conditions !== undefined) {
         const validationError = this.validateLogicRuleRequest({
           name: request.name ?? "x",
-          action: request.action ?? "fail",
-          groups: request.groups,
+          conditions: request.conditions,
         });
         if (validationError) return { result: false, error: validationError };
       }
@@ -3686,24 +3639,19 @@ export class CampaignService {
         ...existingRule,
         name:
           request.name !== undefined ? request.name.trim() : existingRule.name,
-        action:
-          request.action !== undefined ? request.action : existingRule.action,
         enabled:
           request.enabled !== undefined
             ? request.enabled
             : existingRule.enabled,
-        groups:
-          request.groups !== undefined
-            ? request.groups.map((g) => ({
-                id: g.id ?? IdGenerator.generate("LG"),
-                conditions: g.conditions.map((c) => ({
-                  id: c.id ?? IdGenerator.generate("LC"),
-                  field_name: c.field_name,
-                  operator: c.operator,
-                  ...(c.value !== undefined ? { value: c.value } : {}),
-                })),
+        conditions:
+          request.conditions !== undefined
+            ? request.conditions.map((c) => ({
+                id: c.id ?? IdGenerator.generate("LC"),
+                field_name: c.field_name,
+                operator: c.operator,
+                ...(c.value !== undefined ? { value: c.value } : {}),
               }))
-            : existingRule.groups,
+            : existingRule.conditions,
         updated_at: now,
         updated_by: actor,
       };
@@ -3852,16 +3800,12 @@ export class CampaignService {
       const rule: ILogicRule = {
         id: IdGenerator.generate("LR"),
         name: request.name.trim(),
-        action: request.action,
         enabled: request.enabled ?? true,
-        groups: request.groups.map((g) => ({
-          id: IdGenerator.generate("LG"),
-          conditions: g.conditions.map((c) => ({
-            id: IdGenerator.generate("LC"),
-            field_name: c.field_name,
-            operator: c.operator,
-            ...(c.value !== undefined ? { value: c.value } : {}),
-          })),
+        conditions: request.conditions.map((c) => ({
+          id: IdGenerator.generate("LC"),
+          field_name: c.field_name,
+          operator: c.operator,
+          ...(c.value !== undefined ? { value: c.value } : {}),
         })),
         created_at: now,
         updated_at: now,
@@ -3933,18 +3877,14 @@ export class CampaignService {
       const updated: ILogicRule = {
         ...existing,
         ...(request.name !== undefined ? { name: request.name.trim() } : {}),
-        ...(request.action !== undefined ? { action: request.action } : {}),
         ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
-        ...(request.groups !== undefined
+        ...(request.conditions !== undefined
           ? {
-              groups: request.groups.map((g) => ({
-                id: g.id ?? IdGenerator.generate("LG"),
-                conditions: g.conditions.map((c) => ({
-                  id: c.id ?? IdGenerator.generate("LC"),
-                  field_name: c.field_name,
-                  operator: c.operator,
-                  ...(c.value !== undefined ? { value: c.value } : {}),
-                })),
+              conditions: request.conditions.map((c) => ({
+                id: c.id ?? IdGenerator.generate("LC"),
+                field_name: c.field_name,
+                operator: c.operator,
+                ...(c.value !== undefined ? { value: c.value } : {}),
               })),
             }
           : {}),
@@ -4095,16 +4035,12 @@ export class CampaignService {
       const rule: ILogicRule = {
         id: IdGenerator.generate("LR"),
         name: request.name.trim(),
-        action: request.action,
         enabled: request.enabled ?? true,
-        groups: request.groups.map((g) => ({
-          id: IdGenerator.generate("LG"),
-          conditions: g.conditions.map((c) => ({
-            id: IdGenerator.generate("LC"),
-            field_name: c.field_name,
-            operator: c.operator,
-            ...(c.value !== undefined ? { value: c.value } : {}),
-          })),
+        conditions: request.conditions.map((c) => ({
+          id: IdGenerator.generate("LC"),
+          field_name: c.field_name,
+          operator: c.operator,
+          ...(c.value !== undefined ? { value: c.value } : {}),
         })),
         created_at: now,
         updated_at: now,
@@ -4176,18 +4112,14 @@ export class CampaignService {
       const updated: ILogicRule = {
         ...existing,
         ...(request.name !== undefined ? { name: request.name.trim() } : {}),
-        ...(request.action !== undefined ? { action: request.action } : {}),
         ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
-        ...(request.groups !== undefined
+        ...(request.conditions !== undefined
           ? {
-              groups: request.groups.map((g) => ({
-                id: g.id ?? IdGenerator.generate("LG"),
-                conditions: g.conditions.map((c) => ({
-                  id: c.id ?? IdGenerator.generate("LC"),
-                  field_name: c.field_name,
-                  operator: c.operator,
-                  ...(c.value !== undefined ? { value: c.value } : {}),
-                })),
+              conditions: request.conditions.map((c) => ({
+                id: c.id ?? IdGenerator.generate("LC"),
+                field_name: c.field_name,
+                operator: c.operator,
+                ...(c.value !== undefined ? { value: c.value } : {}),
               })),
             }
           : {}),
@@ -4454,16 +4386,12 @@ export class CampaignService {
       const rule: ILogicRule = {
         id: IdGenerator.generate("LR"),
         name: request.name.trim(),
-        action: request.action,
         enabled: request.enabled ?? true,
-        groups: request.groups.map((g) => ({
-          id: IdGenerator.generate("LG"),
-          conditions: g.conditions.map((c) => ({
-            id: IdGenerator.generate("LC"),
-            field_name: c.field_name,
-            operator: c.operator,
-            ...(c.value !== undefined ? { value: c.value } : {}),
-          })),
+        conditions: request.conditions.map((c) => ({
+          id: IdGenerator.generate("LC"),
+          field_name: c.field_name,
+          operator: c.operator,
+          ...(c.value !== undefined ? { value: c.value } : {}),
         })),
         created_at: now,
         updated_at: now,
@@ -4493,7 +4421,6 @@ export class CampaignService {
           { field: "client_id", from: null, to: clientId },
           { field: "rule_id", from: null, to: rule.id },
           { field: "name", from: null, to: rule.name },
-          { field: "action", from: null, to: rule.action },
         ],
         actor,
         changed_at: now,
@@ -4531,11 +4458,10 @@ export class CampaignService {
           error: `Logic rule ${ruleId} not found for client ${clientId}`,
         };
 
-      if (request.groups !== undefined) {
+      if (request.conditions !== undefined) {
         const validationError = this.validateLogicRuleRequest({
           name: request.name ?? "x",
-          action: request.action ?? "fail",
-          groups: request.groups,
+          conditions: request.conditions,
         });
         if (validationError) return { result: false, error: validationError };
       }
@@ -4546,24 +4472,19 @@ export class CampaignService {
         ...existingRule,
         name:
           request.name !== undefined ? request.name.trim() : existingRule.name,
-        action:
-          request.action !== undefined ? request.action : existingRule.action,
         enabled:
           request.enabled !== undefined
             ? request.enabled
             : existingRule.enabled,
-        groups:
-          request.groups !== undefined
-            ? request.groups.map((g) => ({
-                id: g.id ?? IdGenerator.generate("LG"),
-                conditions: g.conditions.map((c) => ({
-                  id: c.id ?? IdGenerator.generate("LC"),
-                  field_name: c.field_name,
-                  operator: c.operator,
-                  ...(c.value !== undefined ? { value: c.value } : {}),
-                })),
+        conditions:
+          request.conditions !== undefined
+            ? request.conditions.map((c) => ({
+                id: c.id ?? IdGenerator.generate("LC"),
+                field_name: c.field_name,
+                operator: c.operator,
+                ...(c.value !== undefined ? { value: c.value } : {}),
               }))
-            : existingRule.groups,
+            : existingRule.conditions,
         updated_at: now,
         updated_by: actor,
       };
@@ -4774,17 +4695,15 @@ export class CampaignService {
       const existing = overrides[clientId] ?? {};
       const clientRules = existing.logic_rules ?? [];
 
-      // Build a set of "field signature → action" from campaign rules for matching
-      const campaignSignatures = new Map<string, string>();
+      // Build a set of field signatures from campaign rules for matching
+      const campaignSignatures = new Set<string>();
       for (const rule of campaignRules) {
         const fieldNames = new Set<string>();
-        for (const group of rule.groups) {
-          for (const cond of group.conditions) {
-            fieldNames.add(cond.field_name);
-          }
+        for (const cond of rule.conditions) {
+          fieldNames.add(cond.field_name);
         }
         const sig = [...fieldNames].sort().join("|");
-        campaignSignatures.set(sig, rule.action);
+        campaignSignatures.add(sig);
       }
 
       // Partition client rules: keep overrides + unique, remove redundant extensions
@@ -4792,18 +4711,15 @@ export class CampaignService {
       let removedCount = 0;
       for (const rule of clientRules) {
         const fieldNames = new Set<string>();
-        for (const group of rule.groups) {
-          for (const cond of group.conditions) {
-            fieldNames.add(cond.field_name);
-          }
+        for (const cond of rule.conditions) {
+          fieldNames.add(cond.field_name);
         }
         const sig = [...fieldNames].sort().join("|");
-        const campaignAction = campaignSignatures.get(sig);
-        if (campaignAction !== undefined && campaignAction === rule.action) {
-          // Redundant extension — same fields AND same action → remove
+        if (campaignSignatures.has(sig)) {
+          // Redundant extension — same fields → remove
           removedCount++;
         } else {
-          // True override (different action) or unique rule → keep
+          // Unique rule → keep
           keptRules.push(rule);
         }
       }
@@ -4859,47 +4775,39 @@ export class CampaignService {
   }
 
   private validateLogicRuleRequest(
-    request: Pick<CreateLogicRuleRequest, "name" | "action" | "groups">,
+    request: Pick<CreateLogicRuleRequest, "name" | "conditions">,
   ): string | null {
-    if (!request.name?.trim()) return "name is required";
-    if (!["pass", "fail"].includes(request.action))
-      return "action must be 'pass' or 'fail'";
-    if (!Array.isArray(request.groups) || request.groups.length === 0)
-      return "groups must be a non-empty array";
+    if (!request.name?.trim()) return "Rule name is required";
+    if (!Array.isArray(request.conditions) || request.conditions.length === 0)
+      return "At least one condition is required";
 
-    for (let gi = 0; gi < request.groups.length; gi++) {
-      const group = request.groups[gi];
-      if (!Array.isArray(group.conditions) || group.conditions.length === 0)
-        return `groups[${gi}].conditions must be a non-empty array`;
+    const validOperators = [
+      "is",
+      "is_not",
+      "contains",
+      "does_not_contain",
+      "starts_with",
+      "ends_with",
+      "greater_than",
+      "less_than",
+      "is_empty",
+      "is_not_empty",
+    ];
 
-      const validOperators = [
-        "is",
-        "is_not",
-        "contains",
-        "does_not_contain",
-        "starts_with",
-        "ends_with",
-        "greater_than",
-        "less_than",
-        "is_empty",
-        "is_not_empty",
-      ];
-
-      for (let ci = 0; ci < group.conditions.length; ci++) {
-        const cond = group.conditions[ci];
-        if (!cond.field_name?.trim())
-          return `groups[${gi}].conditions[${ci}].field_name is required`;
-        if (!validOperators.includes(cond.operator))
-          return `groups[${gi}].conditions[${ci}].operator '${cond.operator}' is invalid`;
-        const noValueNeeded = ["is_empty", "is_not_empty"].includes(
-          cond.operator,
-        );
-        if (
-          !noValueNeeded &&
-          (cond.value === undefined || cond.value === null || cond.value === "")
-        ) {
-          return `groups[${gi}].conditions[${ci}].value is required for operator '${cond.operator}'`;
-        }
+    for (let i = 0; i < request.conditions.length; i++) {
+      const cond = request.conditions[i];
+      if (!cond.field_name?.trim())
+        return `Condition ${i + 1}: field key is required`;
+      if (!validOperators.includes(cond.operator))
+        return `Condition ${i + 1}: operator '${cond.operator}' is not valid`;
+      const noValueNeeded = ["is_empty", "is_not_empty"].includes(
+        cond.operator,
+      );
+      if (
+        !noValueNeeded &&
+        (cond.value === undefined || cond.value === null || cond.value === "")
+      ) {
+        return `Condition ${i + 1}: a value is required for operator '${cond.operator}'`;
       }
     }
     return null;
@@ -6052,8 +5960,7 @@ export class CampaignService {
         const rule = rulesInput[i];
         const validationError = this.validateLogicRuleRequest({
           name: rule.name,
-          action: rule.action,
-          groups: rule.groups as any,
+          conditions: rule.conditions as any,
         });
         if (validationError) {
           return {
@@ -6145,8 +6052,7 @@ export class CampaignService {
         const rule = request.rules[i];
         const validationError = this.validateLogicRuleRequest({
           name: rule.name,
-          action: rule.action,
-          groups: rule.groups as any,
+          conditions: rule.conditions as any,
         });
         if (validationError) {
           return {
@@ -6439,23 +6345,19 @@ export class CampaignService {
   }
 
   private buildLogicCatalogRules(
-    rules: Array<Pick<ILogicRule, "name" | "action" | "enabled" | "groups">>,
+    rules: Array<Pick<ILogicRule, "name" | "enabled" | "conditions">>,
     actor: RequestActor | undefined,
     now: string,
   ): ILogicRule[] {
     return rules.map((rule) => ({
       id: IdGenerator.generate("LR"),
       name: rule.name.trim(),
-      action: rule.action,
       enabled: rule.enabled ?? true,
-      groups: (rule.groups ?? []).map((group) => ({
-        id: IdGenerator.generate("LG"),
-        conditions: (group.conditions ?? []).map((condition) => ({
-          id: IdGenerator.generate("LC"),
-          field_name: condition.field_name,
-          operator: condition.operator,
-          ...(condition.value !== undefined ? { value: condition.value } : {}),
-        })),
+      conditions: (rule.conditions ?? []).map((condition) => ({
+        id: IdGenerator.generate("LC"),
+        field_name: condition.field_name,
+        operator: condition.operator,
+        ...(condition.value !== undefined ? { value: condition.value } : {}),
       })),
       created_at: now,
       updated_at: now,

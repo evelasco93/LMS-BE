@@ -22,17 +22,26 @@ export interface CriteriaValidationResponse {
   rejection_reason?: string;
 }
 
+export interface LogicRuleConditionFailure {
+  field: string;
+  operator: string;
+  expected: string | string[];
+  received: string;
+}
+
+export interface FailedRuleDetail {
+  rule_id: string;
+  rule_name: string;
+  failed_conditions: LogicRuleConditionFailure[];
+}
+
 export interface LogicRulesResponse {
   passed: boolean;
   rejection_reason?: string;
-  condition_failures?: Array<{
-    field: string;
-    operator: string;
-    expected: string | string[];
-    received: string;
-  }>;
+  condition_failures?: LogicRuleConditionFailure[];
   matched_rule_id?: string;
   matched_rule_name?: string;
+  failed_rules?: FailedRuleDetail[];
 }
 
 export interface QaOrchestratorResult {

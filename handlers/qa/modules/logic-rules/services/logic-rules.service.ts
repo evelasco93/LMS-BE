@@ -3,6 +3,7 @@ import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { Logger } from "@shared/services/logger.util";
 import { LogicRulesConstants } from "../constants/logic-rules.constants";
 import {
+  FailedRuleDetail,
   LogicRuleConditionFailure,
   LogicRulesResponse,
 } from "../interfaces/ILogicRules.interface";
@@ -28,17 +29,11 @@ interface ILogicRuleCondition {
   value?: string | string[];
 }
 
-interface ILogicRuleGroup {
-  id: string;
-  conditions: ILogicRuleCondition[];
-}
-
 interface ILogicRule {
   id: string;
   name: string;
-  action: "pass" | "fail";
   enabled: boolean;
-  groups: ILogicRuleGroup[];
+  conditions: ILogicRuleCondition[];
 }
 
 interface CampaignRecord {
@@ -99,80 +94,60 @@ export class LogicRulesService {
       const payload = event.payload ?? {};
 
       for (const rule of enabledRules) {
-        const ruleMatches = this.evaluateRule(rule, payload);
+        const allMatch = this.evaluateRule(rule, payload);
 
-        if (ruleMatches) {
-          if (rule.action === "pass") {
-            this.logger.info("LogicRules: pass rule matched — lead allowed", {
-              campaignId: event.campaign_id,
-              ruleId: rule.id,
-              ruleName: rule.name,
-            });
-            return {
-              result: true,
-              data: {
-                passed: true,
-                matched_rule_id: rule.id,
-                matched_rule_name: rule.name,
-              },
-            };
-          } else {
-            // Fail rule matched — collect the conditions that triggered it,
-            // with operators inverted so formatting reads "must not equal X"
-            const failures = this.collectMatchedConditions(rule, payload);
-            const rejectionReason = this.buildRejectionMessage(
-              failures,
-              rule.name,
-            );
-            this.logger.info("LogicRules: fail rule matched — lead rejected", {
-              campaignId: event.campaign_id,
-              ruleId: rule.id,
-              ruleName: rule.name,
-            });
-            return {
-              result: true,
-              data: {
-                passed: false,
-                rejection_reason: rejectionReason,
-                condition_failures: failures,
-                matched_rule_id: rule.id,
-                matched_rule_name: rule.name,
-              },
-            };
-          }
+        if (allMatch) {
+          this.logger.info("LogicRules: rule matched — lead passes", {
+            campaignId: event.campaign_id,
+            ruleId: rule.id,
+            ruleName: rule.name,
+          });
+          return {
+            result: true,
+            data: {
+              passed: true,
+              matched_rule_id: rule.id,
+              matched_rule_name: rule.name,
+            },
+          };
         }
       }
 
-      // No rules matched.
-      // If there are any enabled "pass" rules, those define a whitelist — a
-      // lead that didn't satisfy any of them must be rejected.
-      // Collect every condition from every pass rule that the lead failed.
-      const passRules = enabledRules.filter((r) => r.action === "pass");
-      if (passRules.length > 0) {
-        const allFailures: LogicRuleConditionFailure[] = passRules.flatMap(
-          (rule) => this.collectConditionFailures(rule, payload),
-        );
-        // Deduplicate by field+operator+expected to avoid repeating the same
-        // requirement from multiple rules.
-        const seen = new Set<string>();
-        const uniqueFailures = allFailures.filter((f) => {
-          const key = `${f.field}:${f.operator}:${JSON.stringify(f.expected)}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        const rejectionReason = this.buildRejectionMessage(uniqueFailures);
-        return {
-          result: true,
-          data: {
-            passed: false,
-            rejection_reason: rejectionReason,
-            condition_failures: uniqueFailures,
-          },
-        };
-      }
+      // No rules matched — lead is rejected.
+      // Collect failed conditions from each rule for detailed rejection info.
+      const failedRules: FailedRuleDetail[] = enabledRules.map((rule) => ({
+        rule_id: rule.id,
+        rule_name: rule.name,
+        failed_conditions: this.collectConditionFailures(rule, payload),
+      }));
 
-      return { result: true, data: { passed: true } };
+      const allFailures: LogicRuleConditionFailure[] = failedRules.flatMap(
+        (r) => r.failed_conditions,
+      );
+      // Deduplicate by field+operator+expected
+      const seen = new Set<string>();
+      const uniqueFailures = allFailures.filter((f) => {
+        const key = `${f.field}:${f.operator}:${JSON.stringify(f.expected)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const rejectionReason = this.buildRejectionMessage(uniqueFailures);
+
+      this.logger.info("LogicRules: no rule matched — lead rejected", {
+        campaignId: event.campaign_id,
+        ruleCount: enabledRules.length,
+      });
+
+      return {
+        result: true,
+        data: {
+          passed: false,
+          rejection_reason: rejectionReason,
+          condition_failures: uniqueFailures,
+          failed_rules: failedRules,
+        },
+      };
     } catch (error: any) {
       this.logger.error("LogicRules: execution failed", error);
       return {
@@ -182,94 +157,35 @@ export class LogicRulesService {
     }
   }
 
-  /**
-   * Collects all conditions in a rule that the lead does NOT satisfy.
-   * Used to build a detailed rejection message.
-   */
-  /**
-   * For fail rules: collects conditions that evaluated to TRUE (triggered the
-   * rejection) with operators inverted so downstream formatting reads as
-   * "must not equal X" rather than "must equal X".
-   */
-  private collectMatchedConditions(
-    rule: ILogicRule,
-    payload: Record<string, unknown>,
-  ): LogicRuleConditionFailure[] {
-    const INVERT: Record<string, string> = {
-      is: "is_not",
-      is_not: "is",
-      contains: "does_not_contain",
-      does_not_contain: "contains",
-      starts_with: "does_not_start_with",
-      ends_with: "does_not_end_with",
-      greater_than: "less_than",
-      less_than: "greater_than",
-      is_empty: "is_not_empty",
-      is_not_empty: "is_empty",
-    };
-    const matches: LogicRuleConditionFailure[] = [];
-    for (const group of rule.groups ?? []) {
-      for (const condition of group.conditions ?? []) {
-        if (this.evaluateCondition(condition, payload)) {
-          const raw = payload[condition.field_name];
-          const received = raw === undefined || raw === null ? "" : String(raw);
-          const conditionValue = condition.value;
-          const rawValues: string[] = Array.isArray(conditionValue)
-            ? conditionValue.map((v) => String(v).trim())
-            : conditionValue !== undefined
-              ? [String(conditionValue).trim()]
-              : [];
-          const expected: string[] = rawValues.flatMap((v) =>
-            v.includes(",")
-              ? v
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-              : [v],
-          );
-          matches.push({
-            field: condition.field_name,
-            operator: INVERT[condition.operator] ?? condition.operator,
-            expected: expected.length === 1 ? expected[0] : expected,
-            received,
-          });
-        }
-      }
-    }
-    return matches;
-  }
-
   private collectConditionFailures(
     rule: ILogicRule,
     payload: Record<string, unknown>,
   ): LogicRuleConditionFailure[] {
     const failures: LogicRuleConditionFailure[] = [];
-    for (const group of rule.groups ?? []) {
-      for (const condition of group.conditions ?? []) {
-        if (!this.evaluateCondition(condition, payload)) {
-          const raw = payload[condition.field_name];
-          const received = raw === undefined || raw === null ? "" : String(raw);
-          const conditionValue = condition.value;
-          const rawValues: string[] = Array.isArray(conditionValue)
-            ? conditionValue.map((v) => String(v).trim())
-            : conditionValue !== undefined
-              ? [String(conditionValue).trim()]
-              : [];
-          const expected: string[] = rawValues.flatMap((v) =>
-            v.includes(",")
-              ? v
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-              : [v],
-          );
-          failures.push({
-            field: condition.field_name,
-            operator: condition.operator,
-            expected: expected.length === 1 ? expected[0] : expected,
-            received,
-          });
-        }
+    for (const condition of rule.conditions ?? []) {
+      if (!this.evaluateCondition(condition, payload)) {
+        const raw = payload[condition.field_name];
+        const received = raw === undefined || raw === null ? "" : String(raw);
+        const conditionValue = condition.value;
+        const rawValues: string[] = Array.isArray(conditionValue)
+          ? conditionValue.map((v) => String(v).trim())
+          : conditionValue !== undefined
+            ? [String(conditionValue).trim()]
+            : [];
+        const expected: string[] = rawValues.flatMap((v) =>
+          v.includes(",")
+            ? v
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : [v],
+        );
+        failures.push({
+          field: condition.field_name,
+          operator: condition.operator,
+          expected: expected.length === 1 ? expected[0] : expected,
+          received,
+        });
       }
     }
     return failures;
@@ -278,14 +194,9 @@ export class LogicRulesService {
   /**
    * Builds a human-readable rejection message from a list of condition failures.
    */
-  private buildRejectionMessage(
-    failures: LogicRuleConditionFailure[],
-    ruleName?: string,
-  ): string {
+  private buildRejectionMessage(failures: LogicRuleConditionFailure[]): string {
     if (failures.length === 0) {
-      return ruleName
-        ? `Lead does not meet campaign requirements: ${ruleName}.`
-        : "Lead does not meet campaign intake requirements.";
+      return "Lead does not meet campaign intake requirements.";
     }
     const details = failures.map((f) => {
       const field = f.field.replace(/_/g, " ");
@@ -301,10 +212,6 @@ export class LogicRulesService {
           return `'${field}' must contain '${expected}' (received '${f.received}')`;
         case "does_not_contain":
           return `'${field}' must not contain '${expected}' (received '${f.received}')`;
-        case "does_not_start_with":
-          return `'${field}' must not start with '${expected}' (received '${f.received}')`;
-        case "does_not_end_with":
-          return `'${field}' must not end with '${expected}' (received '${f.received}')`;
         case "starts_with":
           return `'${field}' must start with '${expected}' (received '${f.received}')`;
         case "ends_with":
@@ -321,32 +228,22 @@ export class LogicRulesService {
           return `'${field}' did not meet the required condition`;
       }
     });
-    const prefix = ruleName
-      ? `Lead rejected by rule '${ruleName}': `
-      : "Lead does not meet campaign intake requirements: ";
-    return prefix + details.join("; ") + ".";
+    return (
+      "Lead does not meet campaign intake requirements: " +
+      details.join("; ") +
+      "."
+    );
   }
 
   /**
-   * A rule matches when any of its groups match (OR between groups).
+   * A rule matches when ALL of its conditions match (AND between conditions).
    */
   private evaluateRule(
     rule: ILogicRule,
     payload: Record<string, unknown>,
   ): boolean {
-    if (!rule.groups || rule.groups.length === 0) return false;
-    return rule.groups.some((group) => this.evaluateGroup(group, payload));
-  }
-
-  /**
-   * A group matches when all of its conditions match (AND between conditions).
-   */
-  private evaluateGroup(
-    group: ILogicRuleGroup,
-    payload: Record<string, unknown>,
-  ): boolean {
-    if (!group.conditions || group.conditions.length === 0) return false;
-    return group.conditions.every((condition) =>
+    if (!rule.conditions || rule.conditions.length === 0) return false;
+    return rule.conditions.every((condition) =>
       this.evaluateCondition(condition, payload),
     );
   }

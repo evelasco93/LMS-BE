@@ -488,6 +488,9 @@ export class LeadsService {
                 rejection_reason: logicRejectionReason,
                 matched_rule_id: logicRulesResult.matched_rule_id,
                 matched_rule_name: logicRulesResult.matched_rule_name,
+                ...(logicRulesResult.failed_rules
+                  ? { failed_rules: logicRulesResult.failed_rules }
+                  : {}),
               },
               ...(logicRejectionErrors.length > 0
                 ? { rejection_errors: logicRejectionErrors }
@@ -570,7 +573,7 @@ export class LeadsService {
         const pickable =
           affiliateEntry?.cherry_pick_override ??
           campaign.default_cherry_pickable ??
-          false;
+          true;
         if (pickable) {
           lead.cherry_pickable = true;
         }
