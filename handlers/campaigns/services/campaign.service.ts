@@ -35,6 +35,7 @@ import {
 import {
   IClientDeliveryConfig,
   ILeadDistributionConfig,
+  IDestination,
 } from "../interfaces/IClientDelivery.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
@@ -64,6 +65,8 @@ import {
   CreateCriteriaCatalogRequest,
   UpdateCriteriaCatalogRequest,
   ApplyCriteriaCatalogRequest,
+  CreateDestinationRequest,
+  UpdateDestinationRequest,
 } from "../types/campaign-request.types";
 import {
   ICriteriaCatalogSet,
@@ -1549,6 +1552,322 @@ export class CampaignService {
     }
   }
 
+  // ── Destination CRUD ────────────────────────────────────────────────────────
+
+  async listDestinations(
+    campaignId: string,
+    clientId: string,
+  ): Promise<ServiceResult<IDestination[]>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+      return { result: true, data: client.destinations ?? [] };
+    } catch (error: any) {
+      this.logger.error("Failed to list destinations", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list destinations",
+      };
+    }
+  }
+
+  async getDestination(
+    campaignId: string,
+    clientId: string,
+    destId: string,
+  ): Promise<ServiceResult<IDestination>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+      const dest = (client.destinations ?? []).find((d) => d.id === destId);
+      if (!dest) {
+        return { result: false, error: `Destination ${destId} not found` };
+      }
+      return { result: true, data: dest };
+    } catch (error: any) {
+      this.logger.error("Failed to get destination", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get destination",
+      };
+    }
+  }
+
+  async addDestination(
+    campaignId: string,
+    clientId: string,
+    request: CreateDestinationRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IDestination>> {
+    if (!request.url?.trim()) {
+      return { result: false, error: "url is required" };
+    }
+    try {
+      new URL(request.url);
+    } catch {
+      return { result: false, error: "url must be a valid URL" };
+    }
+    if (
+      !Array.isArray(request.payload_mapping) ||
+      request.payload_mapping.length === 0
+    ) {
+      return {
+        result: false,
+        error: "payload_mapping must have at least one entry",
+      };
+    }
+    if (
+      !Array.isArray(request.acceptance_rules) ||
+      request.acceptance_rules.length === 0
+    ) {
+      return {
+        result: false,
+        error: "acceptance_rules must have at least one entry",
+      };
+    }
+
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+
+      if (!client.destinations) client.destinations = [];
+
+      const dest: IDestination = {
+        id: IdGenerator.generate("DST"),
+        name: request.name ?? "Default",
+        type: request.type ?? "webhook",
+        url: request.url.trim(),
+        method: request.method,
+        ...(request.headers ? { headers: request.headers } : {}),
+        payload_mapping: request.payload_mapping,
+        acceptance_rules: request.acceptance_rules,
+        ...(request.state_mapping_override
+          ? { state_mapping_override: request.state_mapping_override }
+          : {}),
+        is_primary: request.is_primary ?? client.destinations.length === 0,
+        claim_trusted_form: request.claim_trusted_form ?? true,
+        ...(request.require_successful_claim !== undefined
+          ? { require_successful_claim: request.require_successful_claim }
+          : {}),
+      };
+
+      // If this destination is marked primary, unmark all others
+      if (dest.is_primary) {
+        for (const d of client.destinations) d.is_primary = false;
+      }
+
+      client.destinations.push(dest);
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "destination_added",
+        changes: [
+          {
+            field: `clients.${clientId}.destinations`,
+            from: null,
+            to: dest.id,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: dest };
+    } catch (error: any) {
+      this.logger.error("Failed to add destination", error);
+      return {
+        result: false,
+        error: error.message || "Failed to add destination",
+      };
+    }
+  }
+
+  async updateDestination(
+    campaignId: string,
+    clientId: string,
+    destId: string,
+    request: UpdateDestinationRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IDestination>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+
+      const dest = (client.destinations ?? []).find((d) => d.id === destId);
+      if (!dest) {
+        return { result: false, error: `Destination ${destId} not found` };
+      }
+
+      if (request.name !== undefined) dest.name = request.name;
+      if (request.type !== undefined) dest.type = request.type;
+      if (request.url !== undefined) dest.url = request.url.trim();
+      if (request.method !== undefined) dest.method = request.method;
+      if (request.headers !== undefined) dest.headers = request.headers;
+      if (request.payload_mapping !== undefined)
+        dest.payload_mapping = request.payload_mapping;
+      if (request.acceptance_rules !== undefined)
+        dest.acceptance_rules = request.acceptance_rules;
+      if (request.state_mapping_override !== undefined)
+        dest.state_mapping_override = request.state_mapping_override;
+      if (request.claim_trusted_form !== undefined)
+        dest.claim_trusted_form = request.claim_trusted_form;
+      if (request.require_successful_claim !== undefined)
+        dest.require_successful_claim = request.require_successful_claim;
+
+      if (request.is_primary === true) {
+        for (const d of client.destinations ?? []) d.is_primary = false;
+        dest.is_primary = true;
+      } else if (request.is_primary === false) {
+        dest.is_primary = false;
+      }
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "destination_updated",
+        changes: [
+          {
+            field: `clients.${clientId}.destinations.${destId}`,
+            from: null,
+            to: "updated",
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: dest };
+    } catch (error: any) {
+      this.logger.error("Failed to update destination", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update destination",
+      };
+    }
+  }
+
+  async deleteDestination(
+    campaignId: string,
+    clientId: string,
+    destId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+
+      const idx = (client.destinations ?? []).findIndex((d) => d.id === destId);
+      if (idx === -1) {
+        return { result: false, error: `Destination ${destId} not found` };
+      }
+
+      client.destinations!.splice(idx, 1);
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "destination_deleted",
+        changes: [
+          {
+            field: `clients.${clientId}.destinations.${destId}`,
+            from: destId,
+            to: null,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete destination", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete destination",
+      };
+    }
+  }
+
   async setDistribution(
     campaignId: string,
     request: SetDistributionRequest,
@@ -1677,13 +1996,13 @@ export class CampaignService {
     if (campaign.criteria_set_id) {
       catalogIds.push({
         id: campaign.criteria_set_id,
-        table: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        table: this.constants.PRESETS_TABLE_NAME,
       });
     }
     if (campaign.logic_set_id) {
       catalogIds.push({
         id: campaign.logic_set_id,
-        table: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        table: this.constants.PRESETS_TABLE_NAME,
       });
     }
 
@@ -2560,6 +2879,9 @@ export class CampaignService {
         field_name: def.field_name,
         data_type: def.data_type,
         required: def.required,
+        system_field: def.system_field,
+        ...(def.options ? { options: [...def.options] } : {}),
+        ...(def.state_mapping ? { state_mapping: def.state_mapping } : {}),
         client_override: false,
         affiliate_override: false,
         created_at: now,
@@ -2989,6 +3311,11 @@ export class CampaignService {
       }
 
       const removed = existing[fieldIndex];
+
+      if (removed.system_field) {
+        return { result: false, error: "System fields cannot be deleted" };
+      }
+
       const updatedCriteria = existing
         .filter((f) => f.id !== fieldId)
         .map((f, i) => ({ ...f, order: i + 1 }));
@@ -4259,7 +4586,7 @@ export class CampaignService {
       const [campaign, catalogVersion] = await Promise.all([
         this.getCampaignById(campaignId),
         this.dynamoDBUtil.get<ILogicCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id: versionId },
         }),
       ]);
@@ -4591,7 +4918,7 @@ export class CampaignService {
       const [campaign, catalogVersion] = await Promise.all([
         this.getCampaignById(campaignId),
         this.dynamoDBUtil.get<ILogicCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id: versionId },
         }),
       ]);
@@ -5362,7 +5689,7 @@ export class CampaignService {
   > {
     try {
       const scanResult = await this.dynamoDBUtil.scanAll<ICriteriaCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         FilterExpression: "record_type = :rt",
         ExpressionAttributeValues: { ":rt": "catalog_set" },
       });
@@ -5384,7 +5711,7 @@ export class CampaignService {
   > {
     try {
       const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id },
       });
       if (!set || set.record_type !== "catalog_set") {
@@ -5393,7 +5720,7 @@ export class CampaignService {
 
       const versions =
         await this.dynamoDBUtil.queryAll<ICriteriaCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           IndexName: "criteria_set_id-index",
           KeyConditionExpression: "criteria_set_id = :sid",
           ExpressionAttributeValues: { ":sid": id },
@@ -5416,7 +5743,7 @@ export class CampaignService {
     try {
       const versionId = `${criteriaSetId}#v${version}`;
       const record = await this.dynamoDBUtil.get<ICriteriaCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id: versionId },
       });
       if (!record || record.record_type !== "catalog_version") {
@@ -5489,11 +5816,11 @@ export class CampaignService {
 
       await Promise.all([
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: set,
         }),
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: version,
         }),
       ]);
@@ -5530,7 +5857,7 @@ export class CampaignService {
   > {
     try {
       const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id },
       });
       if (!set || set.record_type !== "catalog_set") {
@@ -5585,11 +5912,11 @@ export class CampaignService {
 
       await Promise.all([
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: set,
         }),
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: newVersion,
         }),
       ]);
@@ -5623,7 +5950,7 @@ export class CampaignService {
   ): Promise<ServiceResult<void>> {
     try {
       const set = await this.dynamoDBUtil.get<ICriteriaCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id },
       });
       if (!set || set.record_type !== "catalog_set") {
@@ -5632,7 +5959,7 @@ export class CampaignService {
 
       const versions =
         await this.dynamoDBUtil.queryAll<ICriteriaCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           IndexName: "criteria_set_id-index",
           KeyConditionExpression: "criteria_set_id = :sid",
           ExpressionAttributeValues: { ":sid": id },
@@ -5650,12 +5977,12 @@ export class CampaignService {
 
       await Promise.all([
         this.dynamoDBUtil.delete({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id },
         }),
         ...versions.map((v) =>
           this.dynamoDBUtil.delete({
-            TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+            TableName: this.constants.PRESETS_TABLE_NAME,
             Key: { id: v.id },
           }),
         ),
@@ -5690,7 +6017,7 @@ export class CampaignService {
     try {
       const versionId = `${criteriaSetId}#v${version}`;
       const record = await this.dynamoDBUtil.get<ICriteriaCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id: versionId },
       });
       if (!record || record.record_type !== "catalog_version") {
@@ -5708,7 +6035,7 @@ export class CampaignService {
       }
 
       await this.dynamoDBUtil.delete({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id: versionId },
       });
 
@@ -5725,7 +6052,7 @@ export class CampaignService {
       // If no versions remain, cascade-delete the parent set.
       const remaining =
         await this.dynamoDBUtil.queryAll<ICriteriaCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           IndexName: "criteria_set_id-index",
           KeyConditionExpression: "criteria_set_id = :sid",
           ExpressionAttributeValues: { ":sid": criteriaSetId },
@@ -5733,7 +6060,7 @@ export class CampaignService {
 
       if (remaining.length === 0) {
         await this.dynamoDBUtil.delete({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id: criteriaSetId },
         });
         await this.auditWriterService.writeAuditEvent({
@@ -5776,7 +6103,7 @@ export class CampaignService {
       const [campaign, catalogVersion] = await Promise.all([
         this.getCampaignById(campaignId),
         this.dynamoDBUtil.get<ICriteriaCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id: versionId },
         }),
       ]);
@@ -5825,7 +6152,7 @@ export class CampaignService {
           Item: campaign,
         }),
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: catalogVersion,
         }),
       ]);
@@ -5861,7 +6188,7 @@ export class CampaignService {
   > {
     try {
       const scanResult = await this.dynamoDBUtil.scanAll<ILogicCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         FilterExpression: "record_type = :rt",
         ExpressionAttributeValues: { ":rt": "logic_set" },
       });
@@ -5883,7 +6210,7 @@ export class CampaignService {
   > {
     try {
       const set = await this.dynamoDBUtil.get<ILogicCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id },
       });
       if (!set || set.record_type !== "logic_set") {
@@ -5891,7 +6218,7 @@ export class CampaignService {
       }
 
       const versions = await this.dynamoDBUtil.scanAll<ILogicCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         FilterExpression: "record_type = :rt AND logic_set_id = :sid",
         ExpressionAttributeValues: {
           ":rt": "logic_version",
@@ -5922,7 +6249,7 @@ export class CampaignService {
     try {
       const versionId = `${logicSetId}#v${version}`;
       const record = await this.dynamoDBUtil.get<ILogicCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id: versionId },
       });
       if (!record || record.record_type !== "logic_version") {
@@ -6001,11 +6328,11 @@ export class CampaignService {
 
       await Promise.all([
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: set,
         }),
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: version,
         }),
       ]);
@@ -6041,7 +6368,7 @@ export class CampaignService {
   > {
     try {
       const set = await this.dynamoDBUtil.get<ILogicCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id },
       });
       if (!set || set.record_type !== "logic_set") {
@@ -6101,11 +6428,11 @@ export class CampaignService {
 
       await Promise.all([
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: set,
         }),
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: newVersion,
         }),
       ]);
@@ -6135,7 +6462,7 @@ export class CampaignService {
   ): Promise<ServiceResult<void>> {
     try {
       const set = await this.dynamoDBUtil.get<ILogicCatalogSet>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id },
       });
       if (!set || set.record_type !== "logic_set") {
@@ -6143,7 +6470,7 @@ export class CampaignService {
       }
 
       const versions = await this.dynamoDBUtil.scanAll<ILogicCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         FilterExpression: "record_type = :rt AND logic_set_id = :sid",
         ExpressionAttributeValues: {
           ":rt": "logic_version",
@@ -6163,12 +6490,12 @@ export class CampaignService {
 
       await Promise.all([
         this.dynamoDBUtil.delete({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id },
         }),
         ...versions.map((v) =>
           this.dynamoDBUtil.delete({
-            TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+            TableName: this.constants.PRESETS_TABLE_NAME,
             Key: { id: v.id },
           }),
         ),
@@ -6202,7 +6529,7 @@ export class CampaignService {
     try {
       const versionId = `${logicSetId}#v${version}`;
       const record = await this.dynamoDBUtil.get<ILogicCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id: versionId },
       });
       if (!record || record.record_type !== "logic_version") {
@@ -6220,7 +6547,7 @@ export class CampaignService {
       }
 
       await this.dynamoDBUtil.delete({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         Key: { id: versionId },
       });
 
@@ -6235,7 +6562,7 @@ export class CampaignService {
       });
 
       const remaining = await this.dynamoDBUtil.scanAll<ILogicCatalogVersion>({
-        TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+        TableName: this.constants.PRESETS_TABLE_NAME,
         FilterExpression: "record_type = :rt AND logic_set_id = :sid",
         ExpressionAttributeValues: {
           ":rt": "logic_version",
@@ -6245,7 +6572,7 @@ export class CampaignService {
 
       if (remaining.length === 0) {
         await this.dynamoDBUtil.delete({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id: logicSetId },
         });
       }
@@ -6271,7 +6598,7 @@ export class CampaignService {
       const [campaign, catalogVersion] = await Promise.all([
         this.getCampaignById(campaignId),
         this.dynamoDBUtil.get<ILogicCatalogVersion>({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Key: { id: versionId },
         }),
       ]);
@@ -6320,7 +6647,7 @@ export class CampaignService {
           Item: campaign,
         }),
         this.dynamoDBUtil.put({
-          TableName: this.constants.CRITERIA_CATALOG_TABLE_NAME,
+          TableName: this.constants.PRESETS_TABLE_NAME,
           Item: catalogVersion,
         }),
       ]);

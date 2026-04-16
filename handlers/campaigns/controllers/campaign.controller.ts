@@ -30,6 +30,8 @@ import {
   UpdateLogicRuleRequest,
   GeneratePostingInstructionsRequest,
   SetClientDeliveryRequest,
+  CreateDestinationRequest,
+  UpdateDestinationRequest,
   SetDistributionRequest,
   SetAffiliateCapRequest,
   SetAffiliateValidationBypassRequest,
@@ -228,6 +230,148 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Client delivery config updated",
+      data: result.data,
+    };
+  }
+
+  // ── Destination CRUD ──────────────────────────────────────────────────────
+
+  @GET("/:id/clients/:clientId/destinations")
+  @produces("application/json")
+  async listDestinations(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.listDestinations(id, clientId);
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to list destinations",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Destinations retrieved",
+      data: result.data,
+    };
+  }
+
+  @GET("/:id/clients/:clientId/destinations/:destId")
+  @produces("application/json")
+  async getDestination(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @pathParam("destId") destId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getDestination(
+      id,
+      clientId,
+      destId,
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to get destination",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Destination retrieved",
+      data: result.data,
+    };
+  }
+
+  @POST("/:id/clients/:clientId/destinations")
+  @produces("application/json")
+  async addDestination(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @body payload: CreateDestinationRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.addDestination(
+      id,
+      clientId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to add destination",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Destination added",
+      data: result.data,
+    };
+  }
+
+  @PUT("/:id/clients/:clientId/destinations/:destId")
+  @produces("application/json")
+  async updateDestination(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @pathParam("destId") destId: string,
+    @body payload: UpdateDestinationRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateDestination(
+      id,
+      clientId,
+      destId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to update destination",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Destination updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/:id/clients/:clientId/destinations/:destId")
+  @produces("application/json")
+  async deleteDestination(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @pathParam("destId") destId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteDestination(
+      id,
+      clientId,
+      destId,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to delete destination",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Destination deleted",
       data: result.data,
     };
   }

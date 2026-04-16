@@ -8,36 +8,39 @@ import {
 import { Construct } from "constructs";
 import { ITableConfig } from "./types/data.types";
 
-export interface ICriteriaCatalogDataStackProps extends NestedStackProps {
+export interface IPresetsDataStackProps extends NestedStackProps {
   tableConfig: ITableConfig;
   removalPolicy?: RemovalPolicy;
   logicalIdPrefix: string;
 }
 
 /**
- * Nested stack for the criteria-catalog table.
+ * Nested stack for the presets table.
  *
- * Single-table design — two record types discriminated by `record_type`:
- *   record_type = "catalog_set"     → CCS-prefixed PK: catalog set metadata
+ * Single-table design — multiple record types discriminated by `record_type`:
+ *   record_type = "catalog_set"     → CCS-prefixed PK: criteria catalog set metadata
  *   record_type = "catalog_version" → PK: "{setId}#v{n}", version snapshot
+ *   record_type = "logic_set"       → Logic catalog set metadata
+ *   record_type = "logic_version"   → Logic catalog version snapshot
+ *   record_type = "tenant_preset"   → Tenant-scoped list presets
  *
  * One GSI:
  *   criteria_set_id-index → partition key: criteria_set_id (STRING)
  *     Used to list all versions belonging to a given catalog set.
  */
-export class CriteriaCatalogDataStack extends NestedStack {
+export class PresetsDataStack extends NestedStack {
   public readonly table: Table;
 
   constructor(
     scope: Construct,
     id: string,
-    props: ICriteriaCatalogDataStackProps,
+    props: IPresetsDataStackProps,
   ) {
     super(scope, id, props);
 
     const { tableConfig, removalPolicy, logicalIdPrefix } = props;
 
-    this.table = new Table(this, `${logicalIdPrefix}-CriteriaCatalogTable`, {
+    this.table = new Table(this, `${logicalIdPrefix}-PresetsTable`, {
       tableName: tableConfig.tableName,
       partitionKey: {
         name: tableConfig.partitionKey.name,

@@ -158,6 +158,7 @@ export {
   IWebhookFieldMapping,
   IWebhookAcceptanceRule,
   ILeadDistributionConfig,
+  IDestination,
 } from "../interfaces/IClientDelivery.interface";
 
 /** Body for PUT /campaigns/{id}/clients/{clientId}/delivery */
@@ -209,3 +210,32 @@ export type {
   UpdateLogicCatalogRequest,
   ApplyLogicCatalogRequest,
 } from "../interfaces/ICriteriaCatalog.interface";
+
+// ── Destinations ──────────────────────────────────────────────────────────────
+
+import type { DestinationType } from "../interfaces/IClientDelivery.interface";
+import type {
+  IWebhookFieldMapping as WFM,
+  IWebhookAcceptanceRule as WAR,
+} from "../interfaces/IClientDelivery.interface";
+
+/** Body for POST /campaigns/{id}/clients/{clientId}/destinations */
+export type CreateDestinationRequest = {
+  name: string;
+  type: DestinationType;
+  url: string;
+  method: "POST" | "GET" | "PUT" | "PATCH";
+  headers?: Record<string, string>;
+  payload_mapping: WFM[];
+  acceptance_rules: WAR[];
+  state_mapping_override?: Record<
+    string,
+    "abbr_to_name" | "name_to_abbr" | null
+  >;
+  is_primary?: boolean;
+  claim_trusted_form?: boolean;
+  require_successful_claim?: boolean;
+};
+
+/** Body for PUT /campaigns/{id}/clients/{clientId}/destinations/{destId} */
+export type UpdateDestinationRequest = Partial<CreateDestinationRequest>;

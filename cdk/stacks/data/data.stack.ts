@@ -10,8 +10,9 @@ import { LeadsDataStack } from "./leads-data.stack";
 import { TenantSettingsDataStack } from "./tenant-settings-data.stack";
 import { AuditLogsDataStack } from "./audit-logs-data.stack";
 import { LeadIntakeLogsDataStack } from "./lead-intake-logs-data.stack";
-import { CriteriaCatalogDataStack } from "./criteria-catalog-data.stack";
+import { PresetsDataStack } from "./presets-data.stack";
 import { UserTablePreferencesDataStack } from "./user-table-preferences-data.stack";
+import { PlatformPresetsDataStack } from "./platform-presets-data.stack";
 
 /**
  * Main Data Stack
@@ -29,10 +30,12 @@ export class DataStack extends Stack {
   public readonly auditLogsBucket: Bucket;
   /** Raw HTTP intake log — one record per POST /leads submission attempt */
   public readonly leadIntakeLogsTable: Table;
-  /** Versioned criteria catalog sets */
-  public readonly criteriaCatalogTable: Table;
+  /** Versioned presets (criteria catalog, logic catalog, tenant presets) */
+  public readonly presetsTable: Table;
   /** Per-user, per-table UI configuration */
   public readonly userTablePreferencesTable: Table;
+  /** Platform-level preset definitions (US States, Yes/No, etc.) */
+  public readonly platformPresetsTable: Table;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -112,15 +115,15 @@ export class DataStack extends Stack {
     );
     this.leadIntakeLogsTable = leadIntakeLogsDataStack.table;
 
-    const criteriaCatalogDataStack = new CriteriaCatalogDataStack(
+    const presetsDataStack = new PresetsDataStack(
       this,
-      `${config.appPrefix}-CriteriaCatalogData`,
+      `${config.appPrefix}-PresetsData`,
       {
-        tableConfig: dataConfig.tables.criteriaCatalog,
+        tableConfig: dataConfig.tables.presets,
         logicalIdPrefix: config.appPrefix,
       },
     );
-    this.criteriaCatalogTable = criteriaCatalogDataStack.table;
+    this.presetsTable = presetsDataStack.table;
 
     const userTablePreferencesDataStack = new UserTablePreferencesDataStack(
       this,
@@ -131,6 +134,16 @@ export class DataStack extends Stack {
       },
     );
     this.userTablePreferencesTable = userTablePreferencesDataStack.table;
+
+    const platformPresetsDataStack = new PlatformPresetsDataStack(
+      this,
+      `${config.appPrefix}-PlatformPresetsData`,
+      {
+        tableConfig: dataConfig.tables.platformPresets,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.platformPresetsTable = platformPresetsDataStack.table;
 
     new CfnOutput(this, `${config.appPrefix}-TenantSettingsTableName`, {
       value: this.tenantSettingsTable.tableName,

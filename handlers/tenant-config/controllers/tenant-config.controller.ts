@@ -22,6 +22,10 @@ import {
   UpdatePluginSettingRequest,
   CreateTagDefinitionRequest,
   UpdateTagDefinitionRequest,
+  UpdatePlatformPresetRequest,
+  CreatePlatformPresetRequest,
+  CreateTenantPresetRequest,
+  UpdateTenantPresetRequest,
 } from "../types/tenant-config-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
@@ -653,5 +657,184 @@ export class TenantConfigController extends Controller {
           ? "Tag definition permanently deleted"
           : "Tag definition deleted",
     };
+  }
+
+  // ── Platform Presets ────────────────────────────────────────────────────────
+
+  @GET("/platform-presets")
+  @produces("application/json")
+  async listPlatformPresets(): Promise<RestApiResponse> {
+    const result = await this.service.listPlatformPresets();
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to list platform presets",
+        error: result.error,
+      };
+    return { success: true, data: result.data };
+  }
+
+  @GET("/platform-presets/:id")
+  @produces("application/json")
+  async getPlatformPreset(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.getPlatformPreset(id);
+    if (!result.result)
+      return {
+        success: false,
+        message: "Platform preset not found",
+        error: result.error,
+      };
+    return { success: true, data: result.data };
+  }
+
+  @POST("/platform-presets")
+  @produces("application/json")
+  async createPlatformPreset(
+    @body payload: CreatePlatformPresetRequest,
+  ): Promise<RestApiResponse> {
+    if (!payload.name || !payload.data_type)
+      return {
+        success: false,
+        message: "name and data_type are required",
+      };
+    const result = await this.service.createPlatformPreset(
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to create platform preset",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Platform preset created",
+      data: result.data,
+    };
+  }
+
+  @PUT("/platform-presets/:id")
+  @produces("application/json")
+  async updatePlatformPreset(
+    @pathParam("id") id: string,
+    @body payload: UpdatePlatformPresetRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.updatePlatformPreset(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to update platform preset",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Platform preset updated",
+      data: result.data,
+    };
+  }
+
+  // ── Tenant Presets ──────────────────────────────────────────────────────────
+
+  @GET("/presets")
+  @produces("application/json")
+  async listTenantPresets(
+    @queryParam("tags") tags?: string,
+  ): Promise<RestApiResponse> {
+    const tagList = tags ? tags.split(",").map((t) => t.trim()) : undefined;
+    const result = await this.service.listTenantPresets(tagList);
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to list tenant presets",
+        error: result.error,
+      };
+    return { success: true, data: result.data };
+  }
+
+  @POST("/presets")
+  @produces("application/json")
+  async createTenantPreset(
+    @body payload: CreateTenantPresetRequest,
+  ): Promise<RestApiResponse> {
+    if (!payload.name || !payload.data_type) {
+      return {
+        success: false,
+        message: "name and data_type are required",
+      };
+    }
+    const result = await this.service.createTenantPreset(
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to create tenant preset",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Tenant preset created",
+      data: result.data,
+    };
+  }
+
+  @GET("/presets/:id")
+  @produces("application/json")
+  async getTenantPreset(@pathParam("id") id: string): Promise<RestApiResponse> {
+    const result = await this.service.getTenantPreset(id);
+    if (!result.result)
+      return {
+        success: false,
+        message: "Tenant preset not found",
+        error: result.error,
+      };
+    return { success: true, data: result.data };
+  }
+
+  @PUT("/presets/:id")
+  @produces("application/json")
+  async updateTenantPreset(
+    @pathParam("id") id: string,
+    @body payload: UpdateTenantPresetRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.updateTenantPreset(
+      id,
+      payload,
+      this.getActor(),
+    );
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to update tenant preset",
+        error: result.error,
+      };
+    return {
+      success: true,
+      message: "Tenant preset updated",
+      data: result.data,
+    };
+  }
+
+  @DELETE("/presets/:id")
+  @produces("application/json")
+  async deleteTenantPreset(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.service.deleteTenantPreset(id, this.getActor());
+    if (!result.result)
+      return {
+        success: false,
+        message: "Failed to delete tenant preset",
+        error: result.error,
+      };
+    return { success: true, message: "Tenant preset deleted" };
   }
 }

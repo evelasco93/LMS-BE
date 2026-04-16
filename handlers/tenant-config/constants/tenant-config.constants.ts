@@ -38,6 +38,8 @@ export class TenantConfigConstants {
   /** Optional: when set, disabling a plugin cascades disabled=false to all campaigns */
   public readonly CAMPAIGNS_TABLE_NAME: string;
   public readonly AUDIT_LOGS_TABLE_NAME: string;
+  public readonly PRESETS_TABLE_NAME: string;
+  public readonly PLATFORM_PRESETS_TABLE_NAME: string;
 
   constructor() {
     this.TENANT_SETTINGS_TABLE_NAME =
@@ -46,6 +48,10 @@ export class TenantConfigConstants {
       process.env.CREDENTIALS_ENCRYPTION_KEY ?? "";
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
     this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
+    this.PRESETS_TABLE_NAME =
+      process.env.PRESETS_TABLE_NAME ?? "";
+    this.PLATFORM_PRESETS_TABLE_NAME =
+      process.env.PLATFORM_PRESETS_TABLE_NAME ?? "";
 
     if (!this.TENANT_SETTINGS_TABLE_NAME) {
       throw new Error("TENANT_SETTINGS_TABLE_NAME env var is required");

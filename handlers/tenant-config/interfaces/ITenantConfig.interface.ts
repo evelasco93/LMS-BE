@@ -1,4 +1,9 @@
 import type { RequestActor } from "@shared/utils/request-audit.util";
+import type {
+  BaseCriteriaDataType,
+  CasingMode,
+  IFieldOption,
+} from "../../campaigns/interfaces/ICampaign.interface";
 
 export type CredentialType = "api_key" | "basic_auth" | "bearer_token";
 
@@ -183,3 +188,62 @@ export type IPluginView = IPluginSettingRecord & {
   /** Human-readable description of the plugin shown in the Settings UI */
   description: string;
 };
+
+// ── Platform Presets ──────────────────────────────────────────────────────────
+
+export type PlatformPresetScope = "platform" | "system";
+
+/**
+ * A platform-level preset stored in the platform-presets DynamoDB table.
+ * Platform presets are shared across all tenants and cannot be deleted (only edited).
+ */
+export interface IPlatformPresetRecord {
+  id: string;
+  scope: PlatformPresetScope;
+  name: string;
+  description?: string;
+  data_type: BaseCriteriaDataType | "FieldSet";
+  options?: IFieldOption[];
+  fields?: {
+    field_label: string;
+    field_name: string;
+    data_type: BaseCriteriaDataType;
+    required: boolean;
+    description?: string;
+  }[];
+  locked?: boolean;
+  casing?: CasingMode;
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+}
+
+// ── Tenant Presets ────────────────────────────────────────────────────────────
+
+/**
+ * A tenant-scoped preset stored in the criteria-catalog DynamoDB table.
+ * Re-uses the existing table with a `record_type: "tenant_preset"` discriminator.
+ */
+export interface ITenantPresetRecord {
+  id: string;
+  record_type: "tenant_preset";
+  /** Set to "tenant_preset" — used as GSI partition key for listing */
+  criteria_set_id: "tenant_preset";
+  name: string;
+  description?: string;
+  tags?: string[];
+  data_type: BaseCriteriaDataType;
+  options?: IFieldOption[];
+  casing?: CasingMode;
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+  is_deleted: boolean;
+  active: boolean;
+  deleted_at: string | null;
+  deleted_by: RequestActor | null;
+}

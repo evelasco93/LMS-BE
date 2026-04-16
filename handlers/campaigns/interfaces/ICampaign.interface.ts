@@ -4,6 +4,7 @@ import { RequestActor } from "@shared/utils/request-audit.util";
 import {
   IAffiliateSoldPixelConfig,
   IClientDeliveryConfig,
+  IDestination,
   ILeadDistributionConfig,
 } from "./IClientDelivery.interface";
 
@@ -87,8 +88,10 @@ export interface ICampaignClient {
   client_id: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
-  /** Webhook delivery configuration. Required before status can be set to LIVE */
+  /** @deprecated Use `destinations` instead. Retained for backward compatibility during migration. */
   delivery_config?: IClientDeliveryConfig;
+  /** Named delivery destinations. Replaces single `delivery_config`. */
+  destinations?: IDestination[];
   /** Weight used for weighted distribution (higher = more leads). Default: 1 */
   weight?: number;
   /** Running count of leads successfully delivered to this client. Used for weighted distribution */
@@ -211,12 +214,23 @@ export interface ICampaignPlugins {
 
 export type BaseCriteriaDataType =
   | "List"
-  | "US State"
   | "Text"
   | "Number"
   | "Date"
-  | "Boolean"
-  | "Yes/No";
+  | "Boolean";
+
+/**
+ * Legacy data types preserved for backward compatibility with existing DB records.
+ * On read they are normalised to "List".
+ */
+export type LegacyCriteriaDataType = "US State" | "Yes/No";
+
+export type CasingMode =
+  | "default"
+  | "title_case"
+  | "capitalize_first"
+  | "lowercase"
+  | "uppercase";
 
 export interface IFieldOption {
   /** Internal value sent in the lead payload */
@@ -261,6 +275,10 @@ export interface IBaseCriteriaField {
    * Uses built-in presets — no need to supply a manual `value_mappings` array.
    */
   state_mapping?: "abbr_to_name" | "name_to_abbr";
+  /** Casing transform applied to this field's values. Overrides campaign-level default_field_casing. */
+  casing?: CasingMode;
+  /** When true, this field was auto-added as a system base field and cannot be deleted. */
+  system_field?: boolean;
   /** When true, a linked client may override this field's definition */
   client_override: boolean;
   /** When true, a linked affiliate may override this field's definition */
@@ -349,6 +367,8 @@ export interface ICampaign {
   logic_rules?: ILogicRule[];
   /** When true, rejected (non-test) leads are auto-marked cherry_pickable. Default: false */
   default_cherry_pickable?: boolean;
+  /** Default casing transform applied to all field values unless overridden at field level. */
+  default_field_casing?: CasingMode;
   /** Lead distribution configuration (round_robin or weighted across LIVE clients) */
   distribution?: ILeadDistributionConfig;
   /** Tracks the last client that received a lead for round-robin cycling */

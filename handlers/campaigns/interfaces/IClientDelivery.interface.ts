@@ -28,6 +28,48 @@ export interface IWebhookAcceptanceRule {
   action: "passed" | "failed";
 }
 
+// ── Destination (multi-destination model) ─────────────────────────────────────
+
+export type DestinationType = "webhook" | "email" | "google_sheets";
+
+/**
+ * A named destination within a client's delivery configuration.
+ * Each client can have multiple destinations; exactly one must be marked `is_primary`.
+ * The primary destination determines the overall sold/not-sold outcome.
+ */
+export interface IDestination {
+  /** Unique destination ID (DS-prefixed) */
+  id: string;
+  /** Human-readable name (e.g. "Primary CRM Webhook") */
+  name: string;
+  /** Destination type — currently only "webhook" is supported */
+  type: DestinationType;
+  /** Destination URL for the outbound request */
+  url: string;
+  /** HTTP method */
+  method: "POST" | "GET" | "PUT" | "PATCH";
+  /** Optional request headers */
+  headers?: Record<string, string>;
+  /** Defines how to build the outbound payload — must have at least one entry */
+  payload_mapping: IWebhookFieldMapping[];
+  /** Response acceptance rules — first match wins. Required for primary destination. */
+  acceptance_rules: IWebhookAcceptanceRule[];
+  /**
+   * Per-field state mapping overrides for this destination.
+   * Key = field_name, value = mapping direction. Overrides field-level state_mapping.
+   */
+  state_mapping_override?: Record<
+    string,
+    "abbr_to_name" | "name_to_abbr" | null
+  >;
+  /** When true, this destination determines the overall sold/not-sold outcome */
+  is_primary: boolean;
+  /** TrustedForm claim — hard-coded to true server-side */
+  readonly claim_trusted_form?: true;
+  /** When true, failed TF claim blocks delivery to this destination */
+  require_successful_claim?: boolean;
+}
+
 /**
  * Full webhook delivery configuration for a campaign client.
  * Required before a client can be set to LIVE status.

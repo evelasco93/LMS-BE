@@ -4,8 +4,7 @@ import { RequestActor } from "@shared/utils/request-audit.util";
 export interface IAffiliate {
   id: string;
   name: string;
-  email: string;
-  phone?: string;
+  notes?: string;
   company?: string;
   status: AffiliateStatus;
   affiliate_code?: string;

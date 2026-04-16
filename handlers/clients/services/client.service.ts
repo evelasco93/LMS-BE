@@ -34,7 +34,7 @@ export class ClientService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["name", "email", "phone", "client_code"],
+        ["name", "notes", "client_code"],
       );
       if (!ok) {
         return {
@@ -45,14 +45,6 @@ export class ClientService {
 
       const sanitizedRequest: CreateClientRequest =
         sanitized as CreateClientRequest;
-
-      const existing = await this.getClientByEmail(request.email);
-      if (existing.result && existing.data) {
-        return {
-          result: false,
-          error: `Client with email ${request.email} already exists`,
-        };
-      }
 
       const now = new Date().toISOString();
       const client: IClient = {
@@ -282,22 +274,11 @@ export class ClientService {
         };
       }
 
-      if (request.email && request.email !== existing.data.email) {
-        const emailExists = await this.getClientByEmail(request.email);
-        if (emailExists.result && emailExists.data) {
-          return {
-            result: false,
-            error: `Client with email ${request.email} already exists`,
-          };
-        }
-      }
-
       const now = new Date().toISOString();
       const current = existing.data;
       const tracked: (keyof UpdateClientRequest)[] = [
         "name",
-        "email",
-        "phone",
+        "notes",
         "client_code",
         "status",
       ];
@@ -316,8 +297,7 @@ export class ClientService {
       const updated: IClient = {
         ...current,
         ...(request.name !== undefined ? { name: request.name } : {}),
-        ...(request.email !== undefined ? { email: request.email } : {}),
-        ...(request.phone !== undefined ? { phone: request.phone } : {}),
+        ...(request.notes !== undefined ? { notes: request.notes } : {}),
         ...(request.client_code !== undefined
           ? { client_code: request.client_code }
           : {}),

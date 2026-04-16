@@ -35,7 +35,7 @@ export class AffiliateService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["name", "email", "phone", "company", "affiliate_code"],
+        ["name", "notes", "company", "affiliate_code"],
       );
       if (!ok) {
         return {
@@ -46,14 +46,6 @@ export class AffiliateService {
 
       const sanitizedRequest: CreateAffiliateRequest =
         sanitized as CreateAffiliateRequest;
-
-      const existing = await this.getAffiliateByEmail(request.email);
-      if (existing.result && existing.data) {
-        return {
-          result: false,
-          error: `Affiliate with email ${request.email} already exists`,
-        };
-      }
 
       const now = new Date().toISOString();
       const affiliate: IAffiliate = {
@@ -259,22 +251,11 @@ export class AffiliateService {
         };
       }
 
-      if (request.email && request.email !== existing.data.email) {
-        const emailExists = await this.getAffiliateByEmail(request.email);
-        if (emailExists.result && emailExists.data) {
-          return {
-            result: false,
-            error: `Affiliate with email ${request.email} already exists`,
-          };
-        }
-      }
-
       const now = new Date().toISOString();
       const current = existing.data;
       const tracked: (keyof UpdateAffiliateRequest)[] = [
         "name",
-        "email",
-        "phone",
+        "notes",
         "company",
         "affiliate_code",
         "status",
@@ -294,8 +275,7 @@ export class AffiliateService {
       const updated: IAffiliate = {
         ...current,
         ...(request.name !== undefined ? { name: request.name } : {}),
-        ...(request.email !== undefined ? { email: request.email } : {}),
-        ...(request.phone !== undefined ? { phone: request.phone } : {}),
+        ...(request.notes !== undefined ? { notes: request.notes } : {}),
         ...(request.company !== undefined ? { company: request.company } : {}),
         ...(request.affiliate_code !== undefined
           ? { affiliate_code: request.affiliate_code }

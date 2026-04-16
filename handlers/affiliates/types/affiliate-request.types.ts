@@ -2,16 +2,12 @@ import { AffiliateStatus } from "../enums/affiliate-status.enum";
 
 export type CreateAffiliateRequest = {
   name: string;
-  email: string;
-  phone?: string;
+  notes?: string;
   company?: string;
   affiliate_code?: string;
 };
 
-export type UpdateAffiliateRequest = Partial<
-  Omit<CreateAffiliateRequest, "email">
-> & {
-  email?: string;
+export type UpdateAffiliateRequest = Partial<CreateAffiliateRequest> & {
   status?: AffiliateStatus;
 };
 

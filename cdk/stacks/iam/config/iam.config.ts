@@ -1,5 +1,5 @@
 import { IIamStackConfig } from "../types/iam.types";
-import { nameBuilder, arnBuilder } from "../../../config/base.config";
+import { nameBuilder, arnBuilder, platformNameBuilder } from "../../../config/base.config";
 
 // ── DynamoDB table ARNs ───────────────────────────────────────────────────────
 const clientsTableArn = arnBuilder.dynamoTable(nameBuilder.table("clients"));
@@ -19,11 +19,14 @@ const auditLogsTableArn = arnBuilder.dynamoTable(
 const leadIntakeLogsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("lead-intake-logs"),
 );
-const criteriaCatalogTableArn = arnBuilder.dynamoTable(
-  nameBuilder.table("criteria-catalog"),
+const presetsTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("presets"),
 );
 const userTablePreferencesTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("user-table-preferences"),
+);
+const platformPresetsTableArn = arnBuilder.dynamoTable(
+  platformNameBuilder.table("platform-presets"),
 );
 
 // ── Lambda ARNs ───────────────────────────────────────────────────────────────
@@ -175,7 +178,7 @@ export const iamConfig: IIamStackConfig = {
           resources: ["*"],
         },
         {
-          name: "CriteriaCatalogTableCrud",
+          name: "PresetsTableCrud",
           actions: [
             "dynamodb:GetItem",
             "dynamodb:PutItem",
@@ -185,8 +188,16 @@ export const iamConfig: IIamStackConfig = {
             "dynamodb:Scan",
           ],
           resources: [
-            criteriaCatalogTableArn,
-            `${criteriaCatalogTableArn}/index/*`,
+            presetsTableArn,
+            `${presetsTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "PlatformPresetsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"],
+          resources: [
+            platformPresetsTableArn,
+            `${platformPresetsTableArn}/index/*`,
           ],
         },
       ],
@@ -246,6 +257,14 @@ export const iamConfig: IIamStackConfig = {
           ],
         },
         {
+          name: "PlatformPresetsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:Query"],
+          resources: [
+            platformPresetsTableArn,
+            `${platformPresetsTableArn}/index/*`,
+          ],
+        },
+        {
           name: "ApiGatewayRead",
           actions: ["apigateway:GET"],
           resources: ["*"],
@@ -282,6 +301,35 @@ export const iamConfig: IIamStackConfig = {
           name: "AuditLogsWrite",
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
+        },
+        {
+          name: "PresetsCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:Query",
+            "dynamodb:Scan",
+          ],
+          resources: [
+            presetsTableArn,
+            `${presetsTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "PlatformPresetsCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:Query",
+            "dynamodb:Scan",
+          ],
+          resources: [
+            platformPresetsTableArn,
+            `${platformPresetsTableArn}/index/*`,
+          ],
         },
       ],
     },

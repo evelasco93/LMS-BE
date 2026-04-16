@@ -46,6 +46,7 @@ import {
   LEAD_ACCEPTED_TEST_MESSAGE,
 } from "@shared/constants/rejection-messages.constants";
 import { resolveStateMappings } from "@shared/constants";
+import { applyCasing } from "@shared/utils/casing.util";
 
 @injectable()
 export class LeadsService {
@@ -238,6 +239,17 @@ export class LeadsService {
 
       // ── Persist normalized order_number into the payload ─────────────────
       mappedPayload.order_number = orderNumber;
+
+      // ── Stage 0b: Apply casing rules to text fields ──────────────────────
+      for (const field of campaign.base_criteria ?? []) {
+        const key = field.field_name;
+        if (key && mappedPayload[key] != null) {
+          const mode = field.casing ?? campaign.default_field_casing;
+          if (mode && mode !== "default") {
+            mappedPayload[key] = applyCasing(String(mappedPayload[key]), mode);
+          }
+        }
+      }
 
       // ── Stage 0: Criteria validation (required fields) — runs before duplicate check ─
       const criteriaValidationResult = await this.runCriteriaValidation(

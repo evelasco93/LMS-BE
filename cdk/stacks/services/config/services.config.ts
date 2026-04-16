@@ -3,6 +3,7 @@ import {
   nameBuilder,
   arnBuilder,
   baseConfig,
+  platformNameBuilder,
 } from "../../../config/base.config";
 import * as path from "path";
 
@@ -59,7 +60,8 @@ export const servicesConfig: IServicesStackConfig = {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
-        CRITERIA_CATALOG_TABLE_NAME: nameBuilder.table("criteria-catalog"),
+        PRESETS_TABLE_NAME: nameBuilder.table("presets"),
+        PLATFORM_PRESETS_TABLE_NAME: platformNameBuilder.table("platform-presets"),
         LEADS_BASE_URL: process.env.LEADS_BASE_URL ?? "",
         EXTERNAL_LEADS_API_NAME: nameBuilder.api("external-leads"),
         EXTERNAL_LEADS_API_STAGE: baseConfig.environment,
@@ -83,6 +85,7 @@ export const servicesConfig: IServicesStackConfig = {
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
         LEAD_INTAKE_LOGS_TABLE_NAME: nameBuilder.table("lead-intake-logs"),
+        PLATFORM_PRESETS_TABLE_NAME: platformNameBuilder.table("platform-presets"),
         QA_ORCHESTRATOR_LAMBDA_NAME: nameBuilder.lambda("qa-orchestrator"),
         CRITERIA_VALIDATION_LAMBDA_NAME: nameBuilder.lambda(
           "qa-criteria-validation",
@@ -112,6 +115,8 @@ export const servicesConfig: IServicesStackConfig = {
         CREDENTIALS_ENCRYPTION_KEY:
           "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        PRESETS_TABLE_NAME: nameBuilder.table("presets"),
+        PLATFORM_PRESETS_TABLE_NAME: platformNameBuilder.table("platform-presets"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
         NODE_ENV: "production",
       },

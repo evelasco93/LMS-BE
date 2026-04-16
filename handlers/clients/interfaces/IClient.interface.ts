@@ -5,8 +5,7 @@ import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-partic
 export interface IClient {
   id: string;
   name: string;
-  email: string;
-  phone?: string;
+  notes?: string;
   client_code?: string;
   status: ClientStatus;
   created_at: string;

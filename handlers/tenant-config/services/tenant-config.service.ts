@@ -16,6 +16,8 @@ import {
   IPluginSettingRecord,
   IPluginView,
   ITagDefinitionRecord,
+  IPlatformPresetRecord,
+  ITenantPresetRecord,
 } from "../interfaces/ITenantConfig.interface";
 import {
   CreateCredentialRequest,
@@ -26,6 +28,10 @@ import {
   UpdatePluginSettingRequest,
   CreateTagDefinitionRequest,
   UpdateTagDefinitionRequest,
+  UpdatePlatformPresetRequest,
+  CreatePlatformPresetRequest,
+  CreateTenantPresetRequest,
+  UpdateTenantPresetRequest,
 } from "../types/tenant-config-request.types";
 import { ServiceResult } from "../types/common.types";
 import { RequestActor } from "@shared/utils/request-audit.util";
@@ -1808,5 +1814,388 @@ export class TenantConfigService {
       return { result: true };
     }
     return { result: false, error: `Unsupported credential type: ${type}` };
+  }
+
+  // ── Platform Presets ────────────────────────────────────────────────────────
+
+  async listPlatformPresets(): Promise<ServiceResult<IPlatformPresetRecord[]>> {
+    try {
+      const items = await this.dynamoDBUtil.scanAll<IPlatformPresetRecord>({
+        TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
+      });
+      return { result: true, data: items };
+    } catch (error: any) {
+      this.logger.error("Failed to list platform presets", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list platform presets",
+      };
+    }
+  }
+
+  async createPlatformPreset(
+    payload: CreatePlatformPresetRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPlatformPresetRecord>> {
+    try {
+      const now = new Date().toISOString();
+      const record: IPlatformPresetRecord = {
+        id: IdGenerator.generate("PP"),
+        scope: "platform",
+        name: payload.name,
+        description: payload.description,
+        data_type: payload.data_type,
+        options: payload.options,
+        casing: payload.casing,
+        state_mapping: payload.state_mapping,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
+        Item: record,
+      });
+      await this.auditWriter.write({
+        action: "platform_preset_created",
+        entity_type: "platform_preset",
+        entity_id: record.id,
+        actor,
+        changes: [{ field: "name", from: null, to: record.name }],
+      });
+      return { result: true, data: record };
+    } catch (error: any) {
+      this.logger.error("Failed to create platform preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create platform preset",
+      };
+    }
+  }
+
+  async getPlatformPreset(
+    id: string,
+  ): Promise<ServiceResult<IPlatformPresetRecord>> {
+    try {
+      const item = await this.dynamoDBUtil.get<IPlatformPresetRecord>({
+        TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
+        Key: { id },
+      });
+      if (!item) {
+        return { result: false, error: `Platform preset ${id} not found` };
+      }
+      return { result: true, data: item };
+    } catch (error: any) {
+      this.logger.error("Failed to get platform preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get platform preset",
+      };
+    }
+  }
+
+  async updatePlatformPreset(
+    id: string,
+    payload: UpdatePlatformPresetRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IPlatformPresetRecord>> {
+    try {
+      const existing = await this.dynamoDBUtil.get<IPlatformPresetRecord>({
+        TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
+        Key: { id },
+      });
+      if (!existing) {
+        return { result: false, error: `Platform preset ${id} not found` };
+      }
+
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [];
+
+      if (payload.name !== undefined && payload.name !== existing.name) {
+        changes.push({ field: "name", from: existing.name, to: payload.name });
+        existing.name = payload.name;
+      }
+      if (
+        payload.description !== undefined &&
+        payload.description !== existing.description
+      ) {
+        changes.push({
+          field: "description",
+          from: existing.description,
+          to: payload.description,
+        });
+        existing.description = payload.description;
+      }
+      if (payload.options !== undefined) {
+        changes.push({
+          field: "options",
+          from: existing.options?.length ?? 0,
+          to: payload.options.length,
+        });
+        existing.options = payload.options;
+      }
+      if (payload.casing !== undefined && payload.casing !== existing.casing) {
+        changes.push({
+          field: "casing",
+          from: existing.casing,
+          to: payload.casing,
+        });
+        existing.casing = payload.casing;
+      }
+      if (
+        payload.state_mapping !== undefined &&
+        payload.state_mapping !== existing.state_mapping
+      ) {
+        changes.push({
+          field: "state_mapping",
+          from: existing.state_mapping,
+          to: payload.state_mapping,
+        });
+        existing.state_mapping = payload.state_mapping;
+      }
+
+      existing.updated_at = now;
+      existing.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
+        Item: existing,
+      });
+
+      if (changes.length > 0) {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "platform_preset",
+          action: "updated",
+          changes,
+          actor,
+          changed_at: now,
+        });
+      }
+
+      return { result: true, data: existing };
+    } catch (error: any) {
+      this.logger.error("Failed to update platform preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update platform preset",
+      };
+    }
+  }
+
+  // ── Tenant Presets ──────────────────────────────────────────────────────────
+
+  async listTenantPresets(
+    tags?: string[],
+  ): Promise<ServiceResult<ITenantPresetRecord[]>> {
+    try {
+      const items = await this.dynamoDBUtil.queryAll<ITenantPresetRecord>({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        IndexName: "criteria_set_id-index",
+        KeyConditionExpression: "criteria_set_id = :type",
+        ExpressionAttributeValues: { ":type": "tenant_preset" },
+      });
+
+      let filtered = items.filter((i) => !i.is_deleted);
+      if (tags && tags.length > 0) {
+        filtered = filtered.filter(
+          (i) => i.tags && tags.some((t) => i.tags!.includes(t)),
+        );
+      }
+      return { result: true, data: filtered };
+    } catch (error: any) {
+      this.logger.error("Failed to list tenant presets", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list tenant presets",
+      };
+    }
+  }
+
+  async getTenantPreset(
+    id: string,
+  ): Promise<ServiceResult<ITenantPresetRecord>> {
+    try {
+      const item = await this.dynamoDBUtil.get<ITenantPresetRecord>({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        Key: { id },
+      });
+      if (!item || item.is_deleted) {
+        return { result: false, error: `Tenant preset ${id} not found` };
+      }
+      return { result: true, data: item };
+    } catch (error: any) {
+      this.logger.error("Failed to get tenant preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get tenant preset",
+      };
+    }
+  }
+
+  async createTenantPreset(
+    payload: CreateTenantPresetRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ITenantPresetRecord>> {
+    try {
+      const now = new Date().toISOString();
+      const record: ITenantPresetRecord = {
+        id: IdGenerator.generate("TP"),
+        record_type: "tenant_preset",
+        criteria_set_id: "tenant_preset",
+        name: payload.name,
+        description: payload.description,
+        tags: payload.tags ?? [],
+        data_type: payload.data_type,
+        options: payload.options ?? [],
+        casing: payload.casing,
+        state_mapping: payload.state_mapping ?? null,
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+        is_deleted: false,
+        active: true,
+        deleted_at: null,
+        deleted_by: null,
+      };
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        Item: record,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: record.id,
+        entity_type: "tenant_preset",
+        action: "created",
+        changes: [{ field: "name", from: null, to: record.name }],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: record };
+    } catch (error: any) {
+      this.logger.error("Failed to create tenant preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create tenant preset",
+      };
+    }
+  }
+
+  async updateTenantPreset(
+    id: string,
+    payload: UpdateTenantPresetRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ITenantPresetRecord>> {
+    try {
+      const existing = await this.dynamoDBUtil.get<ITenantPresetRecord>({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        Key: { id },
+      });
+      if (!existing || existing.is_deleted) {
+        return { result: false, error: `Tenant preset ${id} not found` };
+      }
+
+      const now = new Date().toISOString();
+      const changes: AuditChange[] = [];
+
+      if (payload.name !== undefined && payload.name !== existing.name) {
+        changes.push({ field: "name", from: existing.name, to: payload.name });
+        existing.name = payload.name;
+      }
+      if (payload.description !== undefined) {
+        existing.description = payload.description;
+      }
+      if (payload.tags !== undefined) {
+        existing.tags = payload.tags;
+      }
+      if (payload.options !== undefined) {
+        changes.push({
+          field: "options",
+          from: existing.options?.length ?? 0,
+          to: payload.options.length,
+        });
+        existing.options = payload.options;
+      }
+      if (payload.casing !== undefined) {
+        existing.casing = payload.casing;
+      }
+      if (payload.state_mapping !== undefined) {
+        existing.state_mapping = payload.state_mapping;
+      }
+
+      existing.updated_at = now;
+      existing.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        Item: existing,
+      });
+
+      if (changes.length > 0) {
+        await this.auditWriterService.writeAuditEvent({
+          entity_id: id,
+          entity_type: "tenant_preset",
+          action: "updated",
+          changes,
+          actor,
+          changed_at: now,
+        });
+      }
+
+      return { result: true, data: existing };
+    } catch (error: any) {
+      this.logger.error("Failed to update tenant preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update tenant preset",
+      };
+    }
+  }
+
+  async deleteTenantPreset(
+    id: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    try {
+      const existing = await this.dynamoDBUtil.get<ITenantPresetRecord>({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        Key: { id },
+      });
+      if (!existing || existing.is_deleted) {
+        return { result: false, error: `Tenant preset ${id} not found` };
+      }
+
+      const now = new Date().toISOString();
+      existing.is_deleted = true;
+      existing.active = false;
+      existing.deleted_at = now;
+      existing.deleted_by = actor ?? null;
+      existing.updated_at = now;
+      existing.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.PRESETS_TABLE_NAME,
+        Item: existing,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: id,
+        entity_type: "tenant_preset",
+        action: "deleted",
+        changes: [{ field: "is_deleted", from: false, to: true }],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true };
+    } catch (error: any) {
+      this.logger.error("Failed to delete tenant preset", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete tenant preset",
+      };
+    }
   }
 }

@@ -35,4 +35,6 @@ export const baseConfig: IBaseStackConfig = {
 };
 
 export const nameBuilder = new ResourceNameBuilder(system, environment, tenant);
+/** Tenantless name builder for global / platform-scoped resources */
+export const platformNameBuilder = new ResourceNameBuilder(system, environment);
 export const arnBuilder = new ArnBuilder({ region, account });

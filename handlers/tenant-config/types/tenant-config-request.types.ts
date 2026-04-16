@@ -1,7 +1,13 @@
 import {
   CredentialType,
   IPluginSchemaField,
+  PlatformPresetScope,
 } from "../interfaces/ITenantConfig.interface";
+import type {
+  BaseCriteriaDataType,
+  CasingMode,
+  IFieldOption,
+} from "../../campaigns/interfaces/ICampaign.interface";
 
 // ── Credentials ───────────────────────────────────────────────────────────────
 
@@ -72,4 +78,44 @@ export type CreateTagDefinitionRequest = {
 export type UpdateTagDefinitionRequest = {
   label?: string;
   color?: string;
+};
+
+// ── Platform Presets ────────────────────────────────────────────────────────
+
+export type CreatePlatformPresetRequest = {
+  name: string;
+  description?: string;
+  data_type: BaseCriteriaDataType;
+  options?: IFieldOption[];
+  casing?: CasingMode;
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+};
+
+export type UpdatePlatformPresetRequest = {
+  name?: string;
+  description?: string;
+  options?: IFieldOption[];
+  casing?: CasingMode;
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+};
+
+// ── Tenant Presets ──────────────────────────────────────────────────────────
+
+export type CreateTenantPresetRequest = {
+  name: string;
+  description?: string;
+  tags?: string[];
+  data_type: BaseCriteriaDataType;
+  options?: IFieldOption[];
+  casing?: CasingMode;
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
+};
+
+export type UpdateTenantPresetRequest = {
+  name?: string;
+  description?: string;
+  tags?: string[];
+  options?: IFieldOption[];
+  casing?: CasingMode;
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
 };

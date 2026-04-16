@@ -1,5 +1,5 @@
 import { IDataStackConfig } from "../types/data.types";
-import { nameBuilder } from "../../../config/base.config";
+import { nameBuilder, platformNameBuilder } from "../../../config/base.config";
 
 export const dataConfig: IDataStackConfig = {
   tables: {
@@ -7,11 +7,6 @@ export const dataConfig: IDataStackConfig = {
       tableName: nameBuilder.table("clients"),
       partitionKey: { name: "id", type: "S" },
       gsi: [
-        {
-          indexName: nameBuilder.index("clients", "email"),
-          partitionKey: { name: "email", type: "S" },
-          projectionType: "ALL",
-        },
         // NOTE: Can only add one GSI per deployment - uncomment and deploy one at a time
         // {
         //   indexName: nameBuilder.index('clients', 'status'),
@@ -27,11 +22,6 @@ export const dataConfig: IDataStackConfig = {
       tableName: nameBuilder.table("affiliates"),
       partitionKey: { name: "id", type: "S" },
       gsi: [
-        {
-          indexName: nameBuilder.index("affiliates", "email"),
-          partitionKey: { name: "email", type: "S" },
-          projectionType: "ALL",
-        },
         // NOTE: Can only add one GSI per deployment - uncomment and deploy one at a time
         // {
         //   indexName: nameBuilder.index('affiliates', 'status'),
@@ -154,12 +144,12 @@ export const dataConfig: IDataStackConfig = {
       deletionProtection: false,
     },
     /**
-     * Criteria Catalog table.
+     * Presets table (criteria catalog, logic catalog, tenant presets).
      * PK: id (catalog_set: CCS-prefixed; catalog_version: "{setId}#v{n}")
      * GSI: criteria_set_id-index — list all versions for a given catalog set
      */
-    criteriaCatalog: {
-      tableName: nameBuilder.table("criteria-catalog"),
+    presets: {
+      tableName: nameBuilder.table("presets"),
       partitionKey: { name: "id", type: "S" },
       gsi: [
         {
@@ -180,6 +170,25 @@ export const dataConfig: IDataStackConfig = {
       partitionKey: { name: "user_id", type: "S" },
       sortKey: { name: "table_id", type: "S" },
       pointInTimeRecovery: false,
+      deletionProtection: false,
+    },
+    /**
+     * Platform Presets table (global, tenantless).
+     * PK: id (preset ID)
+     * GSI: scope-index (PK: scope, SK: name) — list presets by scope
+     */
+    platformPresets: {
+      tableName: platformNameBuilder.table("platform-presets"),
+      partitionKey: { name: "id", type: "S" },
+      gsi: [
+        {
+          indexName: "scope-index",
+          partitionKey: { name: "scope", type: "S" },
+          sortKey: { name: "name", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: true,
       deletionProtection: false,
     },
   },

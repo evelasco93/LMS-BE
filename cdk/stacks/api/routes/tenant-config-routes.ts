@@ -116,5 +116,25 @@ export class TenantConfigRoutes extends Construct {
       integration,
       [writeScope],
     );
+
+    // ── Platform Presets ──────────────────────────────────────────────────────
+    const platformPresetsResource =
+      tenantConfigResource.addResource("platform-presets");
+    protect(platformPresetsResource, "GET", integration, [readScope]);
+
+    const platformPresetByIdResource =
+      platformPresetsResource.addResource("{id}");
+    protect(platformPresetByIdResource, "GET", integration, [readScope]);
+    protect(platformPresetByIdResource, "PUT", integration, [writeScope]);
+
+    // ── Tenant Presets ────────────────────────────────────────────────────────
+    const presetsResource = tenantConfigResource.addResource("presets");
+    protect(presetsResource, "GET", integration, [readScope]);
+    protect(presetsResource, "POST", integration, [writeScope]);
+
+    const presetByIdResource = presetsResource.addResource("{id}");
+    protect(presetByIdResource, "GET", integration, [readScope]);
+    protect(presetByIdResource, "PUT", integration, [writeScope]);
+    protect(presetByIdResource, "DELETE", integration, [writeScope]);
   }
 }

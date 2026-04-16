@@ -46,10 +46,12 @@ export interface IDataStackConfig {
     auditLogs: ITableConfig;
     /** Raw HTTP intake log — one record per POST /leads submission attempt */
     leadIntakeLogs: ITableConfig;
-    /** Versioned criteria catalog sets — catalog_set + catalog_version records */
-    criteriaCatalog: ITableConfig;
+    /** Versioned presets — criteria catalog, logic catalog, and tenant preset records */
+    presets: ITableConfig;
     /** Per-user, per-table UI configuration (column visibility, sort, filters) */
     userTablePreferences: ITableConfig;
+    /** Platform-wide presets (field sets, rule sets, etc.) by scope */
+    platformPresets: ITableConfig;
   };
   /** S3 bucket name for daily audit log NDJSON exports (Athena-queryable) */
   auditLogsBucketName: string;

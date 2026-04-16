@@ -89,6 +89,26 @@ export class CampaignsRoutes extends Construct {
       [writeScope],
     );
 
+    // ── Client destinations ──────────────────────────────────────────────────
+    const campaignClientDestinationsResource =
+      campaignClientResource.addResource("destinations");
+    protect(campaignClientDestinationsResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignClientDestinationsResource, "POST", integration, [
+      writeScope,
+    ]);
+
+    const campaignClientDestinationResource =
+      campaignClientDestinationsResource.addResource("{destId}");
+    protect(campaignClientDestinationResource, "GET", integration, [readScope]);
+    protect(campaignClientDestinationResource, "PUT", integration, [
+      writeScope,
+    ]);
+    protect(campaignClientDestinationResource, "DELETE", integration, [
+      writeScope,
+    ]);
+
     // Per-client logic rule overrides
     const campaignClientLogicRulesResource =
       campaignClientResource.addResource("logic-rules");

@@ -2,15 +2,11 @@ import { ClientStatus } from "../enums/client-status.enum";
 
 export type CreateClientRequest = {
   name: string;
-  email: string;
-  phone?: string;
+  notes?: string;
   client_code?: string;
 };
 
-export type UpdateClientRequest = Partial<
-  Omit<CreateClientRequest, "email">
-> & {
-  email?: string;
+export type UpdateClientRequest = Partial<CreateClientRequest> & {
   status?: ClientStatus;
 };
 

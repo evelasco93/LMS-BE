@@ -1,5 +1,8 @@
 import { injectable } from "inversify";
-import { BaseCriteriaDataType } from "../interfaces/ICampaign.interface";
+import {
+  BaseCriteriaDataType,
+  IFieldOption,
+} from "../interfaces/ICampaign.interface";
 
 /**
  * Shape of a single entry in BASE_CRITERIA_FIELDS.
@@ -10,6 +13,9 @@ export interface IBaseCriteriaFieldDef {
   field_name: string;
   data_type: BaseCriteriaDataType;
   required: true;
+  system_field: true;
+  options?: IFieldOption[];
+  state_mapping?: "abbr_to_name" | "name_to_abbr";
 }
 
 /**
@@ -22,60 +28,35 @@ export const BASE_CRITERIA_FIELDS: ReadonlyArray<IBaseCriteriaFieldDef> = [
     field_name: "first_name",
     data_type: "Text",
     required: true,
+    system_field: true,
   },
   {
     field_label: "Last Name",
     field_name: "last_name",
     data_type: "Text",
     required: true,
+    system_field: true,
   },
   {
     field_label: "Phone",
     field_name: "phone",
     data_type: "Text",
     required: true,
-  },
-  {
-    field_label: "State",
-    field_name: "state",
-    data_type: "US State",
-    required: true,
+    system_field: true,
   },
   {
     field_label: "Email",
     field_name: "email",
     data_type: "Text",
     required: true,
+    system_field: true,
   },
   {
-    field_label: "IP Address",
-    field_name: "ip_address",
+    field_label: "TrustedForm Cert ID",
+    field_name: "trusted_form_cert_id",
     data_type: "Text",
     required: true,
-  },
-  {
-    field_label: "Marketing Source",
-    field_name: "marketing_source",
-    data_type: "Text",
-    required: true,
-  },
-  {
-    field_label: "Pub ID",
-    field_name: "pub_id",
-    data_type: "Text",
-    required: true,
-  },
-  {
-    field_label: "Campaign ID",
-    field_name: "campaign_id",
-    data_type: "Text",
-    required: true,
-  },
-  {
-    field_label: "Campaign Key",
-    field_name: "campaign_key",
-    data_type: "Text",
-    required: true,
+    system_field: true,
   },
 ] as const;
 
@@ -96,7 +77,7 @@ export class CampaignConstants {
   /** AWS region used for runtime endpoint discovery */
   public readonly AWS_REGION: string;
   public readonly AUDIT_LOGS_TABLE_NAME: string;
-  public readonly CRITERIA_CATALOG_TABLE_NAME: string;
+  public readonly PRESETS_TABLE_NAME: string;
 
   constructor() {
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
@@ -114,8 +95,8 @@ export class CampaignConstants {
       process.env.CDK_DEFAULT_REGION ??
       "us-east-1";
     this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
-    this.CRITERIA_CATALOG_TABLE_NAME =
-      process.env.CRITERIA_CATALOG_TABLE_NAME ?? "";
+    this.PRESETS_TABLE_NAME =
+      process.env.PRESETS_TABLE_NAME ?? "";
 
     if (!this.CAMPAIGNS_TABLE_NAME) {
       throw new Error("CAMPAIGNS_TABLE_NAME env var is required");
