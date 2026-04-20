@@ -227,7 +227,7 @@ export type CreateDestinationRequest = {
   method: "POST" | "GET" | "PUT" | "PATCH";
   headers?: Record<string, string>;
   payload_mapping: WFM[];
-  acceptance_rules: WAR[];
+  acceptance_rules?: WAR[];
   state_mapping_override?: Record<
     string,
     "abbr_to_name" | "name_to_abbr" | null
@@ -239,3 +239,19 @@ export type CreateDestinationRequest = {
 
 /** Body for PUT /campaigns/{id}/clients/{clientId}/destinations/{destId} */
 export type UpdateDestinationRequest = Partial<CreateDestinationRequest>;
+
+// ── Response Validation ───────────────────────────────────────────────────────
+
+import type { IValidationCondition as VC } from "../interfaces/IClientDelivery.interface";
+import type { IValidationGroup as VG } from "../interfaces/IClientDelivery.interface";
+
+export {
+  IClientResponseValidation,
+  IValidationCondition,
+  IValidationGroup,
+} from "../interfaces/IClientDelivery.interface";
+
+/** Body for PUT /campaigns/{id}/clients/{clientId}/response-validation */
+export type SetResponseValidationRequest = {
+  groups: VG[];
+};

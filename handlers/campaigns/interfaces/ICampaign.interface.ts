@@ -4,6 +4,7 @@ import { RequestActor } from "@shared/utils/request-audit.util";
 import {
   IAffiliateSoldPixelConfig,
   IClientDeliveryConfig,
+  IClientResponseValidation,
   IDestination,
   ILeadDistributionConfig,
 } from "./IClientDelivery.interface";
@@ -92,6 +93,8 @@ export interface ICampaignClient {
   delivery_config?: IClientDeliveryConfig;
   /** Named delivery destinations. Replaces single `delivery_config`. */
   destinations?: IDestination[];
+  /** Client-level response validation referencing one or more destinations. Replaces per-destination acceptance_rules. */
+  response_validation?: IClientResponseValidation;
   /** Weight used for weighted distribution (higher = more leads). Default: 1 */
   weight?: number;
   /** Running count of leads successfully delivered to this client. Used for weighted distribution */

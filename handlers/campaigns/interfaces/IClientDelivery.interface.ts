@@ -52,8 +52,8 @@ export interface IDestination {
   headers?: Record<string, string>;
   /** Defines how to build the outbound payload — must have at least one entry */
   payload_mapping: IWebhookFieldMapping[];
-  /** Response acceptance rules — first match wins. Required for primary destination. */
-  acceptance_rules: IWebhookAcceptanceRule[];
+  /** Response acceptance rules — first match wins. Optional; required only for primary destination going LIVE. */
+  acceptance_rules?: IWebhookAcceptanceRule[];
   /**
    * Per-field state mapping overrides for this destination.
    * Key = field_name, value = mapping direction. Overrides field-level state_mapping.
@@ -68,6 +68,42 @@ export interface IDestination {
   readonly claim_trusted_form?: true;
   /** When true, failed TF claim blocks delivery to this destination */
   require_successful_claim?: boolean;
+}
+
+// ── Response Validation (client-level, decoupled from destinations) ──────────
+
+/**
+ * A single validation condition that checks a specific destination's webhook
+ * response for a match_value substring (case-insensitive).
+ */
+export interface IValidationCondition {
+  /** The destination whose webhook response is evaluated */
+  destination_id: string;
+  /** Value to search for (case-insensitive, partial match) in the response */
+  match_value: string;
+  /** Outcome when this condition matches */
+  action: "passed" | "failed";
+}
+
+/**
+ * A group of validation conditions evaluated with AND logic.
+ * All conditions within a group must match for the group to pass.
+ */
+export interface IValidationGroup {
+  /** All conditions in this group are ANDed together */
+  conditions: IValidationCondition[];
+}
+
+/**
+ * Client-level response validation that can reference any destination.
+ * Replaces per-destination `acceptance_rules`.
+ *
+ * Groups are evaluated with OR logic (first matching group wins).
+ * Conditions within each group are evaluated with AND logic.
+ */
+export interface IClientResponseValidation {
+  /** Ordered list of groups; groups are ORed, conditions within a group are ANDed */
+  groups: IValidationGroup[];
 }
 
 /**

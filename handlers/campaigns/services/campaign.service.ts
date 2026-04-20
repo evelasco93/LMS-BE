@@ -34,6 +34,7 @@ import {
 } from "../interfaces/ICampaign.interface";
 import {
   IClientDeliveryConfig,
+  IClientResponseValidation,
   ILeadDistributionConfig,
   IDestination,
 } from "../interfaces/IClientDelivery.interface";
@@ -67,6 +68,7 @@ import {
   ApplyCriteriaCatalogRequest,
   CreateDestinationRequest,
   UpdateDestinationRequest,
+  SetResponseValidationRequest,
 } from "../types/campaign-request.types";
 import {
   ICriteriaCatalogSet,
@@ -1638,16 +1640,6 @@ export class CampaignService {
         error: "payload_mapping must have at least one entry",
       };
     }
-    if (
-      !Array.isArray(request.acceptance_rules) ||
-      request.acceptance_rules.length === 0
-    ) {
-      return {
-        result: false,
-        error: "acceptance_rules must have at least one entry",
-      };
-    }
-
     try {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted) {
@@ -1673,7 +1665,7 @@ export class CampaignService {
         method: request.method,
         ...(request.headers ? { headers: request.headers } : {}),
         payload_mapping: request.payload_mapping,
-        acceptance_rules: request.acceptance_rules,
+        acceptance_rules: request.acceptance_rules ?? [],
         ...(request.state_mapping_override
           ? { state_mapping_override: request.state_mapping_override }
           : {}),
@@ -1864,6 +1856,146 @@ export class CampaignService {
       return {
         result: false,
         error: error.message || "Failed to delete destination",
+      };
+    }
+  }
+
+  async setResponseValidation(
+    campaignId: string,
+    clientId: string,
+    request: SetResponseValidationRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IClientResponseValidation>> {
+    if (!Array.isArray(request.groups)) {
+      return {
+        result: false,
+        error: "groups must be an array",
+      };
+    }
+    for (const group of request.groups) {
+      if (!Array.isArray(group.conditions) || group.conditions.length === 0) {
+        return {
+          result: false,
+          error: "Each group must have at least one condition",
+        };
+      }
+      for (const c of group.conditions) {
+        if (!c.destination_id?.trim()) {
+          return {
+            result: false,
+            error: "Each condition must have a non-empty destination_id",
+          };
+        }
+        if (!c.match_value?.trim()) {
+          return {
+            result: false,
+            error: "Each condition must have a non-empty match_value",
+          };
+        }
+        if (c.action !== "passed" && c.action !== "failed") {
+          return {
+            result: false,
+            error: 'Each condition action must be "passed" or "failed"',
+          };
+        }
+      }
+    }
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+      // Validate that all referenced destinations exist
+      const destIds = new Set((client.destinations ?? []).map((d) => d.id));
+      for (const group of request.groups) {
+        for (const c of group.conditions) {
+          if (!destIds.has(c.destination_id)) {
+            return {
+              result: false,
+              error: `Destination ${c.destination_id} not found`,
+            };
+          }
+        }
+      }
+
+      const prev = client.response_validation;
+      const validation: IClientResponseValidation = {
+        groups: request.groups.map((g) => ({
+          conditions: g.conditions.map((c) => ({
+            destination_id: c.destination_id,
+            match_value: c.match_value.trim(),
+            action: c.action,
+          })),
+        })),
+      };
+      client.response_validation = validation;
+
+      const now = new Date().toISOString();
+      campaign.updated_at = now;
+      campaign.updated_by = actor;
+
+      await this.dynamoDBUtil.put({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Item: campaign,
+      });
+      await this.auditWriterService.writeAuditEvent({
+        entity_id: campaignId,
+        entity_type: "campaign",
+        action: "response_validation_updated" as AuditAction,
+        changes: [
+          {
+            field: `clients.${clientId}.response_validation`,
+            from: prev ?? null,
+            to: validation,
+          },
+        ],
+        actor,
+        changed_at: now,
+      });
+
+      return { result: true, data: validation };
+    } catch (error: any) {
+      this.logger.error("Failed to set response validation", error);
+      return {
+        result: false,
+        error: error.message || "Failed to set response validation",
+      };
+    }
+  }
+
+  async getResponseValidation(
+    campaignId: string,
+    clientId: string,
+  ): Promise<ServiceResult<IClientResponseValidation | null>> {
+    try {
+      const campaign = await this.getCampaignById(campaignId);
+      if (!campaign || campaign.is_deleted) {
+        return { result: false, error: `Campaign ${campaignId} not found` };
+      }
+      const client = (campaign.clients ?? []).find(
+        (c) => c.client_id === clientId,
+      );
+      if (!client) {
+        return {
+          result: false,
+          error: `Client ${clientId} not linked to campaign`,
+        };
+      }
+      return { result: true, data: client.response_validation ?? null };
+    } catch (error: any) {
+      this.logger.error("Failed to get response validation", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get response validation",
       };
     }
   }

@@ -32,6 +32,7 @@ import {
   SetClientDeliveryRequest,
   CreateDestinationRequest,
   UpdateDestinationRequest,
+  SetResponseValidationRequest,
   SetDistributionRequest,
   SetAffiliateCapRequest,
   SetAffiliateValidationBypassRequest,
@@ -372,6 +373,63 @@ export class CampaignController extends Controller {
     return {
       success: true,
       message: "Destination deleted",
+      data: result.data,
+    };
+  }
+
+  // ── Response Validation ─────────────────────────────────────────────────────
+
+  @PUT("/:id/clients/:clientId/response-validation")
+  @produces("application/json")
+  async setResponseValidation(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+    @body payload: SetResponseValidationRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.setResponseValidation(
+      id,
+      clientId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to set response validation",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Response validation updated",
+      data: result.data,
+    };
+  }
+
+  @GET("/:id/clients/:clientId/response-validation")
+  @produces("application/json")
+  async getResponseValidation(
+    @pathParam("id") id: string,
+    @pathParam("clientId") clientId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getResponseValidation(
+      id,
+      clientId,
+    );
+
+    if (!result.result) {
+      return {
+        success: false,
+        message: "Failed to get response validation",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: "Response validation retrieved",
       data: result.data,
     };
   }

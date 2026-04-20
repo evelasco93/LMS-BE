@@ -109,6 +109,16 @@ export class CampaignsRoutes extends Construct {
       writeScope,
     ]);
 
+    // Client-level response validation
+    const campaignClientResponseValidationResource =
+      campaignClientResource.addResource("response-validation");
+    protect(campaignClientResponseValidationResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignClientResponseValidationResource, "PUT", integration, [
+      writeScope,
+    ]);
+
     // Per-client logic rule overrides
     const campaignClientLogicRulesResource =
       campaignClientResource.addResource("logic-rules");
