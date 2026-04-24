@@ -64,19 +64,24 @@ export interface IDestination {
   >;
   /** When true, this destination determines the overall sold/not-sold outcome */
   is_primary: boolean;
+  /**
+   * Required for non-webhook destinations.
+   * Controls whether a successful send/update should mark the lead as sold or rejected.
+   */
+  non_webhook_delivery_action?: "passed" | "failed";
   /** TrustedForm claim — hard-coded to true server-side */
   readonly claim_trusted_form?: true;
   /** When true, failed TF claim blocks delivery to this destination */
   require_successful_claim?: boolean;
 }
 
-// ── Response Validation (client-level, decoupled from destinations) ──────────
+// ── Response Validation (contract-level, decoupled from destinations) ────────
 
 /**
- * A single validation condition that checks a specific destination's webhook
+ * A single validation rule that checks a specific destination's webhook
  * response for a match_value substring (case-insensitive).
  */
-export interface IValidationCondition {
+export interface IValidationRule {
   /** The destination whose webhook response is evaluated */
   destination_id: string;
   /** Value to search for (case-insensitive, partial match) in the response */
@@ -86,25 +91,24 @@ export interface IValidationCondition {
 }
 
 /**
- * A group of validation conditions evaluated with AND logic.
- * All conditions within a group must match for the group to pass.
+ * Contract-level response validation.
+ *
+ * Rules are evaluated in order with OR semantics (first match wins).
+ * No group-level AND semantics are supported.
  */
-export interface IValidationGroup {
-  /** All conditions in this group are ANDed together */
-  conditions: IValidationCondition[];
+export interface IContractResponseValidation {
+  /** Ordered rules list; first matching rule determines accepted/rejected outcome */
+  rules: IValidationRule[];
 }
 
-/**
- * Client-level response validation that can reference any destination.
- * Replaces per-destination `acceptance_rules`.
- *
- * Groups are evaluated with OR logic (first matching group wins).
- * Conditions within each group are evaluated with AND logic.
- */
-export interface IClientResponseValidation {
-  /** Ordered list of groups; groups are ORed, conditions within a group are ANDed */
-  groups: IValidationGroup[];
+/** @deprecated Prefer IValidationRule. */
+export type IValidationCondition = IValidationRule;
+/** @deprecated Group AND semantics are deprecated; retained for backward compatibility reads. */
+export interface IValidationGroup {
+  conditions: IValidationRule[];
 }
+/** @deprecated Prefer IContractResponseValidation. */
+export interface IClientResponseValidation extends IContractResponseValidation {}
 
 /**
  * Full webhook delivery configuration for a campaign client.
@@ -197,6 +201,7 @@ export interface IAffiliateSoldPixelConfig {
  * Persisted result of a single webhook delivery attempt stored on the lead record.
  */
 export interface ILeadDeliveryResult {
+  contract_id: string;
   client_id: string;
   delivered_at: string;
   /** Number of webhook attempts performed (includes retries) */
@@ -223,6 +228,8 @@ export interface ILeadDeliveryResult {
   error?: string;
   /** Distribution mode that was active when this lead was routed (round_robin | weighted) */
   distribution_mode: "round_robin" | "weighted";
-  /** The client's weight value at the time of delivery (relevant for weighted mode) */
-  client_weight_at_delivery: number;
+  /** The contract's weight value at the time of delivery (relevant for weighted mode) */
+  contract_weight_at_delivery: number;
+  /** @deprecated Use contract_weight_at_delivery. */
+  client_weight_at_delivery?: number;
 }

@@ -72,80 +72,86 @@ export class CampaignsRoutes extends Construct {
       [writeScope],
     );
 
-    // ── Campaign clients ──────────────────────────────────────────────────────
-    const campaignClientsResource = campaignResource.addResource("clients");
-    protect(campaignClientsResource, "POST", integration, [writeScope]);
+    // ── Campaign contracts ────────────────────────────────────────────────────
+    const campaignContractsResource = campaignResource.addResource("contracts");
+    protect(campaignContractsResource, "POST", integration, [writeScope]);
 
-    const campaignClientResource =
-      campaignClientsResource.addResource("{clientId}");
-    protect(campaignClientResource, "PUT", integration, [writeScope]);
-    protect(campaignClientResource, "DELETE", integration, [writeScope]);
+    const campaignContractResource =
+      campaignContractsResource.addResource("{contractId}");
+    protect(campaignContractResource, "PUT", integration, [writeScope]);
+    protect(campaignContractResource, "DELETE", integration, [writeScope]);
 
-    // PUT /v2/campaigns/{id}/clients/{clientId}/delivery
+    // PUT /v2/campaigns/{id}/contracts/{contractId}/delivery
     protect(
-      campaignClientResource.addResource("delivery"),
+      campaignContractResource.addResource("delivery"),
       "PUT",
       integration,
       [writeScope],
     );
 
-    // ── Client destinations ──────────────────────────────────────────────────
-    const campaignClientDestinationsResource =
-      campaignClientResource.addResource("destinations");
-    protect(campaignClientDestinationsResource, "GET", integration, [
+    // ── Contract destinations ────────────────────────────────────────────────
+    const campaignContractDestinationsResource =
+      campaignContractResource.addResource("destinations");
+    protect(campaignContractDestinationsResource, "GET", integration, [
       readScope,
     ]);
-    protect(campaignClientDestinationsResource, "POST", integration, [
+    protect(campaignContractDestinationsResource, "POST", integration, [
       writeScope,
     ]);
 
-    const campaignClientDestinationResource =
-      campaignClientDestinationsResource.addResource("{destId}");
-    protect(campaignClientDestinationResource, "GET", integration, [readScope]);
-    protect(campaignClientDestinationResource, "PUT", integration, [
-      writeScope,
-    ]);
-    protect(campaignClientDestinationResource, "DELETE", integration, [
-      writeScope,
-    ]);
-
-    // Client-level response validation
-    const campaignClientResponseValidationResource =
-      campaignClientResource.addResource("response-validation");
-    protect(campaignClientResponseValidationResource, "GET", integration, [
+    const campaignContractDestinationResource =
+      campaignContractDestinationsResource.addResource("{destId}");
+    protect(campaignContractDestinationResource, "GET", integration, [
       readScope,
     ]);
-    protect(campaignClientResponseValidationResource, "PUT", integration, [
+    protect(campaignContractDestinationResource, "PUT", integration, [
+      writeScope,
+    ]);
+    protect(campaignContractDestinationResource, "DELETE", integration, [
       writeScope,
     ]);
 
-    // Per-client logic rule overrides
-    const campaignClientLogicRulesResource =
-      campaignClientResource.addResource("logic-rules");
-    protect(campaignClientLogicRulesResource, "GET", integration, [readScope]);
-    protect(campaignClientLogicRulesResource, "POST", integration, [
+    // Contract-level response validation
+    const campaignContractResponseValidationResource =
+      campaignContractResource.addResource("response-validation");
+    protect(campaignContractResponseValidationResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignContractResponseValidationResource, "PUT", integration, [
       writeScope,
     ]);
 
-    const campaignClientLogicRuleResource =
-      campaignClientLogicRulesResource.addResource("{ruleId}");
-    protect(campaignClientLogicRuleResource, "PUT", integration, [writeScope]);
-    protect(campaignClientLogicRuleResource, "DELETE", integration, [
+    // Per-contract logic rule overrides
+    const campaignContractLogicRulesResource =
+      campaignContractResource.addResource("logic-rules");
+    protect(campaignContractLogicRulesResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignContractLogicRulesResource, "POST", integration, [
       writeScope,
     ]);
 
-    // POST /v2/campaigns/{id}/clients/{clientId}/logic/apply-catalog
-    // POST /v2/campaigns/{id}/clients/{clientId}/logic/sync-to-campaign
-    const campaignClientLogicResource =
-      campaignClientResource.addResource("logic");
+    const campaignContractLogicRuleResource =
+      campaignContractLogicRulesResource.addResource("{ruleId}");
+    protect(campaignContractLogicRuleResource, "PUT", integration, [
+      writeScope,
+    ]);
+    protect(campaignContractLogicRuleResource, "DELETE", integration, [
+      writeScope,
+    ]);
+
+    // POST /v2/campaigns/{id}/contracts/{contractId}/logic/apply-catalog
+    // POST /v2/campaigns/{id}/contracts/{contractId}/logic/sync-to-campaign
+    const campaignContractLogicResource =
+      campaignContractResource.addResource("logic");
     protect(
-      campaignClientLogicResource.addResource("apply-catalog"),
+      campaignContractLogicResource.addResource("apply-catalog"),
       "POST",
       integration,
       [writeScope],
     );
     protect(
-      campaignClientLogicResource.addResource("sync-to-campaign"),
+      campaignContractLogicResource.addResource("sync-to-campaign"),
       "POST",
       integration,
       [writeScope],

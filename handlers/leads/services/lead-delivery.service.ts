@@ -11,7 +11,7 @@ import {
 } from "../interfaces/ILead.interface";
 import {
   ICampaign,
-  ICampaignClient,
+  ICampaignContract,
   ILogicRule,
 } from "../../campaigns/interfaces/ICampaign.interface";
 import {
@@ -19,6 +19,9 @@ import {
   ILeadDeliveryResult,
   IAffiliateSoldPixelConfig,
   IWebhookFieldMapping,
+  IDestination,
+  IClientResponseValidation,
+  IValidationRule,
 } from "../../campaigns/interfaces/IClientDelivery.interface";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
 
@@ -52,7 +55,8 @@ export class LeadDeliveryService {
   /**
    * Main entry-point called from LeadsService after a lead is saved.
    *
-   * Mutates `lead` in-place (sold, sold_to_client_id, delivery_result) so the
+   * Mutates `lead` in-place (sold, sold_to_contract_id, sold_to_client_id,
+   * delivery_result) so the
    * caller can return the enriched object in the intake response if needed.
    */
   async deliverLead(lead: ILead, campaign: ICampaign): Promise<void> {
@@ -70,33 +74,38 @@ export class LeadDeliveryService {
       return;
     }
 
-    const client = this.pickDeliveryClient(campaign, lead.payload ?? {});
-    if (!client) {
-      this.logger.info("No eligible LIVE client found for delivery", {
+    const contract = this.pickDeliveryContract(campaign, lead.payload ?? {});
+    if (!contract) {
+      this.logger.info("No eligible LIVE contract found for delivery", {
         campaignId: campaign.id,
         leadId: lead.id,
       });
 
       await this.markLeadRejectedWithoutDelivery(
         lead,
-        "No eligible LIVE client available for delivery",
+        "No eligible LIVE contract available for delivery",
       );
       return;
     }
 
     // Claim the TrustedForm certificate before delivery if required.
-    if (client.delivery_config?.claim_trusted_form) {
+    if (contract.delivery_config?.claim_trusted_form) {
       const { claimed, error: claimError } =
         await this.claimCertBeforeDelivery(lead);
-      // Gate on claim failure if either: per-client require_successful_claim is set,
+      // Gate on claim failure if either: per-contract require_successful_claim is set,
       // OR the campaign-level TrustedForm plugin has gate=true ("Reject on failure").
       const claimGate =
-        client.delivery_config.require_successful_claim === true ||
+        contract.delivery_config.require_successful_claim === true ||
         campaign.plugins?.trusted_form?.gate === true;
       if (!claimed && claimGate) {
         this.logger.warn(
           "TrustedForm claim failed; skipping delivery due to claim gate",
-          { leadId: lead.id, clientId: client.client_id, error: claimError },
+          {
+            leadId: lead.id,
+            contractId: contract.contract_id,
+            clientId: contract.client_id,
+            error: claimError,
+          },
         );
         const now = new Date().toISOString();
         const rejectionReason =
@@ -155,14 +164,17 @@ export class LeadDeliveryService {
 
     const result = await this.executeWebhook(
       lead,
-      client,
+      contract,
       distribution.mode ?? "round_robin",
     );
 
     // Persist delivery outcome on the lead record.
     const now = new Date().toISOString();
     lead.sold = result.accepted;
-    lead.sold_to_client_id = result.accepted ? client.client_id : undefined;
+    lead.sold_to_contract_id = result.accepted
+      ? contract.contract_id
+      : undefined;
+    lead.sold_to_client_id = result.accepted ? contract.client_id : undefined;
     lead.delivery_result = result;
     if (!result.accepted) {
       const rejectionReason = this.buildDeliveryRejectionReason(result);
@@ -178,14 +190,17 @@ export class LeadDeliveryService {
       UpdateExpression:
         "SET sold = :sold, delivery_result = :dr, updated_at = :now" +
         (result.accepted
-          ? ", sold_to_client_id = :clientId"
+          ? ", sold_to_contract_id = :contractId, sold_to_client_id = :clientId"
           : ", rejected = :rejected, rejection_reason = :rejection_reason, rejection_errors = :rejection_errors"),
       ExpressionAttributeValues: {
         ":sold": result.accepted,
         ":dr": result,
         ":now": now,
         ...(result.accepted
-          ? { ":clientId": client.client_id }
+          ? {
+              ":contractId": contract.contract_id,
+              ":clientId": contract.client_id,
+            }
           : {
               ":rejected": true,
               ":rejection_reason": this.buildDeliveryRejectionReason(result),
@@ -194,11 +209,15 @@ export class LeadDeliveryService {
       },
     });
 
-    // Atomically increment the client's delivered count only for sold leads.
+    // Atomically increment the contract's delivered count only for sold leads.
     // We do a full campaign put rather than a complex nested list update because
     // DynamoDB UpdateExpression cannot address list items by value.
     if (result.accepted) {
-      await this.incrementClientLeadsDelivered(campaign, client.client_id, now);
+      await this.incrementContractLeadsDelivered(
+        campaign,
+        contract.contract_id,
+        now,
+      );
     }
 
     // Update rr cursor when round_robin mode is active.
@@ -206,9 +225,10 @@ export class LeadDeliveryService {
       await this.dynamoDBUtil.update({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         Key: { id: campaign.id },
-        UpdateExpression: "SET rr_last_client_id = :cid, updated_at = :now",
+        UpdateExpression:
+          "SET rr_last_contract_id = :contractId, updated_at = :now",
         ExpressionAttributeValues: {
-          ":cid": client.client_id,
+          ":contractId": contract.contract_id,
           ":now": now,
         },
       });
@@ -225,9 +245,14 @@ export class LeadDeliveryService {
           to: result.accepted,
         },
         {
+          field: "sold_to_contract_id",
+          from: null,
+          to: result.accepted ? contract.contract_id : null,
+        },
+        {
           field: "sold_to_client_id",
           from: null,
-          to: result.accepted ? client.client_id : null,
+          to: result.accepted ? contract.client_id : null,
         },
         {
           field: "cert_id",
@@ -254,7 +279,8 @@ export class LeadDeliveryService {
 
     this.logger.info("Lead delivery complete", {
       leadId: lead.id,
-      clientId: client.client_id,
+      contractId: contract.contract_id,
+      clientId: contract.client_id,
       accepted: result.accepted,
       status: result.webhook_response_status,
     });
@@ -400,34 +426,31 @@ export class LeadDeliveryService {
   }
 
   /**
-   * Select exactly one LIVE client to deliver to according to distribution mode.
+   * Select exactly one LIVE contract to deliver to according to distribution mode.
    *
-   * Clients that have logic rules (own override or campaign-level) that reject
-   * the lead's payload are excluded from the eligible pool. This lets individual
-   * clients accept state/field combinations that the campaign-wide default blocks
-   * (via client_overrides[id].logic_rules) or restrict their own intake further.
-   *
-   * LIVE guard (delivery_config completeness) is enforced at status-update time,
-   * so here we only need to filter by status + config presence.
+   * Contracts that have logic rules (own override or campaign-level) that reject
+   * the lead's payload are excluded from the eligible pool.
    */
-  private pickDeliveryClient(
+  private pickDeliveryContract(
     campaign: ICampaign,
     leadPayload: Record<string, unknown>,
-  ): ICampaignClient | null {
-    const eligible = (campaign.clients ?? []).filter((c) => {
+  ): ICampaignContract | null {
+    const contracts = campaign.contracts ?? campaign.clients ?? [];
+    const eligible = contracts.filter((c) => {
       if (
         c.status !== CampaignParticipantStatus.LIVE ||
-        !c.delivery_config?.url ||
-        !c.delivery_config?.payload_mapping?.length ||
-        !c.delivery_config?.acceptance_rules?.length
+        !this.hasDeliverableContractConfig(c)
       ) {
         return false;
       }
 
-      // Resolve the effective logic rules for this client based on logic_mode:
+      // Resolve the effective logic rules for this contract based on logic_mode:
       // - "inherit_campaign" (default) → always use current campaign rules
-      // - "pinned" (legacy) → use the client's own override rules; fall back to campaign rules
-      const override = campaign.client_overrides?.[c.client_id];
+      // - "pinned" (legacy) → use the contract's own override rules; fall back to campaign rules
+      const override =
+        campaign.contract_overrides?.[c.contract_id] ??
+        campaign.client_overrides?.[c.contract_id] ??
+        campaign.client_overrides?.[c.client_id];
       const mode = override?.logic_mode ?? "inherit_campaign";
       const overrideRules = override?.logic_rules ?? [];
       const effectiveRules =
@@ -450,33 +473,36 @@ export class LeadDeliveryService {
     }
 
     // round_robin (default)
-    return this.pickRoundRobin(eligible, campaign.rr_last_client_id);
+    return this.pickRoundRobin(
+      eligible,
+      campaign.rr_last_contract_id ?? campaign.rr_last_client_id,
+    );
   }
 
   private pickRoundRobin(
-    clients: ICampaignClient[],
-    lastClientId?: string,
-  ): ICampaignClient {
-    if (!lastClientId) return clients[0];
-    const lastIdx = clients.findIndex((c) => c.client_id === lastClientId);
-    if (lastIdx === -1) return clients[0];
-    return clients[(lastIdx + 1) % clients.length];
+    contracts: ICampaignContract[],
+    lastContractId?: string,
+  ): ICampaignContract {
+    if (!lastContractId) return contracts[0];
+    const lastIdx = contracts.findIndex(
+      (c) => c.contract_id === lastContractId,
+    );
+    if (lastIdx === -1) return contracts[0];
+    return contracts[(lastIdx + 1) % contracts.length];
   }
 
-  private pickWeighted(clients: ICampaignClient[]): ICampaignClient {
-    // Weighted-fair: pick the client that is furthest below its target ratio.
-    // ratio_target = client.weight / sum(all weights)
-    // ratio_actual = client.leads_delivered_count / total_delivered
-    const totalWeight = clients.reduce((s, c) => s + (c.weight ?? 1), 0);
-    const totalDelivered = clients.reduce(
+  private pickWeighted(contracts: ICampaignContract[]): ICampaignContract {
+    // Weighted-fair: pick the contract that is furthest below its target ratio.
+    const totalWeight = contracts.reduce((s, c) => s + (c.weight ?? 1), 0);
+    const totalDelivered = contracts.reduce(
       (s, c) => s + (c.leads_delivered_count ?? 0),
       0,
     );
 
-    let best: ICampaignClient = clients[0];
+    let best: ICampaignContract = contracts[0];
     let bestDeficit = -Infinity;
 
-    for (const c of clients) {
+    for (const c of contracts) {
       const targetRatio = (c.weight ?? 1) / totalWeight;
       const actualRatio =
         totalDelivered === 0
@@ -508,47 +534,45 @@ export class LeadDeliveryService {
 
     for (const rule of enabled) {
       const matches = rule.conditions.every((cond) => {
-          const raw = payload[cond.field_name];
-          const fieldVal = (
-            raw === undefined || raw === null ? "" : String(raw)
-          )
-            .toLowerCase()
-            .trim();
+        const raw = payload[cond.field_name];
+        const fieldVal = (raw === undefined || raw === null ? "" : String(raw))
+          .toLowerCase()
+          .trim();
 
-          if (cond.operator === "is_empty") return fieldVal === "";
-          if (cond.operator === "is_not_empty") return fieldVal !== "";
+        if (cond.operator === "is_empty") return fieldVal === "";
+        if (cond.operator === "is_not_empty") return fieldVal !== "";
 
-          const condValues = (
-            Array.isArray(cond.value) ? cond.value : [cond.value ?? ""]
-          ).flatMap((v) =>
-            String(v).includes(",")
-              ? String(v)
-                  .split(",")
-                  .map((s) => s.trim().toLowerCase())
-              : [String(v).trim().toLowerCase()],
-          );
+        const condValues = (
+          Array.isArray(cond.value) ? cond.value : [cond.value ?? ""]
+        ).flatMap((v) =>
+          String(v).includes(",")
+            ? String(v)
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+            : [String(v).trim().toLowerCase()],
+        );
 
-          switch (cond.operator) {
-            case "is":
-              return condValues.some((v) => fieldVal === v);
-            case "is_not":
-              return condValues.every((v) => fieldVal !== v);
-            case "contains":
-              return condValues.some((v) => fieldVal.includes(v));
-            case "does_not_contain":
-              return condValues.every((v) => !fieldVal.includes(v));
-            case "starts_with":
-              return condValues.some((v) => fieldVal.startsWith(v));
-            case "ends_with":
-              return condValues.some((v) => fieldVal.endsWith(v));
-            case "greater_than":
-              return parseFloat(fieldVal) > parseFloat(condValues[0]);
-            case "less_than":
-              return parseFloat(fieldVal) < parseFloat(condValues[0]);
-            default:
-              return true;
-          }
-        });
+        switch (cond.operator) {
+          case "is":
+            return condValues.some((v) => fieldVal === v);
+          case "is_not":
+            return condValues.every((v) => fieldVal !== v);
+          case "contains":
+            return condValues.some((v) => fieldVal.includes(v));
+          case "does_not_contain":
+            return condValues.every((v) => !fieldVal.includes(v));
+          case "starts_with":
+            return condValues.some((v) => fieldVal.startsWith(v));
+          case "ends_with":
+            return condValues.some((v) => fieldVal.endsWith(v));
+          case "greater_than":
+            return parseFloat(fieldVal) > parseFloat(condValues[0]);
+          case "less_than":
+            return parseFloat(fieldVal) < parseFloat(condValues[0]);
+          default:
+            return true;
+        }
+      });
 
       if (matches) return true;
     }
@@ -557,15 +581,100 @@ export class LeadDeliveryService {
     return false;
   }
 
+  private hasDeliverableContractConfig(contract: ICampaignContract): boolean {
+    const primary = this.getPrimaryDestination(contract);
+    if (primary) {
+      if (
+        !primary.url?.trim() ||
+        !primary.method ||
+        !primary.payload_mapping?.length
+      ) {
+        return false;
+      }
+
+      if (primary.type === "webhook") {
+        const rules = this.normalizeResponseValidationRules(
+          contract.response_validation,
+        );
+        return rules.some(
+          (rule) =>
+            rule.destination_id === primary.id &&
+            rule.action === "passed" &&
+            rule.match_value?.trim().length > 0,
+        );
+      }
+
+      return (
+        primary.non_webhook_delivery_action === "passed" ||
+        primary.non_webhook_delivery_action === "failed"
+      );
+    }
+
+    const dc = contract.delivery_config;
+    return !!(
+      dc?.url?.trim() &&
+      dc.method &&
+      dc.payload_mapping?.length &&
+      dc.acceptance_rules?.length
+    );
+  }
+
+  private getPrimaryDestination(
+    contract: ICampaignContract,
+  ): IDestination | null {
+    const destinations = contract.destinations ?? [];
+    if (destinations.length === 0) return null;
+    return destinations.find((d) => d.is_primary) ?? destinations[0] ?? null;
+  }
+
   /**
-   * POST the lead payload to the client's webhook and interpret the response.
+   * POST the lead payload to the contract destination and interpret the response.
    */
   private async executeWebhook(
     lead: ILead,
-    client: ICampaignClient,
+    contract: ICampaignContract,
     distributionMode: "round_robin" | "weighted",
   ): Promise<ILeadDeliveryResult> {
-    const config = client.delivery_config as IClientDeliveryConfig;
+    const primaryDestination = this.getPrimaryDestination(contract);
+    const config: IClientDeliveryConfig | null = primaryDestination
+      ? {
+          url: primaryDestination.url,
+          method: primaryDestination.method,
+          ...(primaryDestination.headers
+            ? { headers: primaryDestination.headers }
+            : {}),
+          payload_mapping: primaryDestination.payload_mapping,
+          acceptance_rules: primaryDestination.acceptance_rules ?? [],
+          claim_trusted_form: true,
+          ...(primaryDestination.require_successful_claim !== undefined
+            ? {
+                require_successful_claim:
+                  primaryDestination.require_successful_claim,
+              }
+            : {}),
+        }
+      : ((contract.delivery_config as IClientDeliveryConfig | undefined) ??
+        null);
+
+    if (!config) {
+      return {
+        contract_id: contract.contract_id,
+        client_id: contract.client_id,
+        delivered_at: new Date().toISOString(),
+        attempts: 0,
+        webhook_url: "",
+        webhook_method: "POST",
+        accepted: false,
+        error: "Contract has no delivery configuration",
+        distribution_mode: distributionMode,
+        contract_weight_at_delivery: contract.weight ?? 1,
+        client_weight_at_delivery: contract.weight ?? 1,
+      };
+    }
+
+    const destinationType = primaryDestination?.type ?? "webhook";
+    const nonWebhookDeliveryAction =
+      primaryDestination?.non_webhook_delivery_action;
     const deliveredAt = new Date().toISOString();
 
     const { queryParams, bodyPayload } = this.buildPayload(lead, config);
@@ -607,7 +716,7 @@ export class LeadDeliveryService {
               ...(isBodyMethod ? { "Content-Type": "application/json" } : {}),
               Accept: "application/json, text/plain, */*",
               // Helps downstream buyers de-duplicate retries.
-              "Idempotency-Key": `${lead.id}:${client.client_id}`,
+              "Idempotency-Key": `${lead.id}:${contract.contract_id}`,
               "X-Lead-Id": lead.id,
               "X-Delivery-Attempt": String(attempt),
               ...config.headers,
@@ -633,13 +742,31 @@ export class LeadDeliveryService {
           continue;
         }
 
-        // Evaluate acceptance rules against the raw response body.
-        const matchResult = this.evaluateAcceptanceRules(
-          responseBody,
-          config.acceptance_rules,
-        );
-        accepted = matchResult.accepted;
-        acceptanceMatch = matchResult.matchedValue;
+        if (destinationType === "webhook" && primaryDestination) {
+          const matchResult = this.evaluateResponseValidation(
+            responseBody,
+            responseStatus,
+            contract.response_validation,
+            primaryDestination.id,
+          );
+          accepted = matchResult.accepted;
+          acceptanceMatch = matchResult.matchedValue;
+        } else if (destinationType !== "webhook") {
+          const successfulSend = responseStatus >= 200 && responseStatus < 300;
+          accepted = successfulSend && nonWebhookDeliveryAction === "passed";
+          acceptanceMatch = successfulSend
+            ? `status:${responseStatus}|${nonWebhookDeliveryAction ?? "failed"}`
+            : undefined;
+        } else {
+          // Legacy delivery_config mode.
+          const matchResult = this.evaluateAcceptanceRules(
+            responseBody,
+            responseStatus,
+            config.acceptance_rules,
+          );
+          accepted = matchResult.accepted;
+          acceptanceMatch = matchResult.matchedValue;
+        }
         error = undefined;
         break;
       } catch (err: any) {
@@ -664,7 +791,8 @@ export class LeadDeliveryService {
     }
 
     return {
-      client_id: client.client_id,
+      contract_id: contract.contract_id,
+      client_id: contract.client_id,
       delivered_at: deliveredAt,
       attempts,
       webhook_url: config.url,
@@ -681,8 +809,45 @@ export class LeadDeliveryService {
         : {}),
       ...(error !== undefined ? { error } : {}),
       distribution_mode: distributionMode,
-      client_weight_at_delivery: client.weight ?? 1,
+      contract_weight_at_delivery: contract.weight ?? 1,
+      client_weight_at_delivery: contract.weight ?? 1,
     };
+  }
+
+  private evaluateResponseValidation(
+    body: string,
+    status: number | undefined,
+    validation: ICampaignContract["response_validation"],
+    destinationId: string,
+  ): { accepted: boolean; matchedValue?: string } {
+    const rules = this.normalizeResponseValidationRules(validation).filter(
+      (rule) =>
+        rule.destination_id === destinationId &&
+        rule.match_value?.trim().length > 0,
+    );
+
+    if (rules.length === 0) {
+      return { accepted: false };
+    }
+
+    const responseIndex = this.buildResponseIndex(body);
+    for (const rule of rules) {
+      const matched = this.matchesRuleExpression(
+        rule.match_value,
+        status,
+        responseIndex,
+      );
+      if (matched) {
+        return {
+          accepted: rule.action === "passed",
+          ...(rule.match_value.trim().length > 0
+            ? { matchedValue: rule.match_value.trim() }
+            : {}),
+        };
+      }
+    }
+
+    return { accepted: false };
   }
 
   private isRetryableStatus(status: number): boolean {
@@ -691,12 +856,12 @@ export class LeadDeliveryService {
 
   private buildDeliveryRejectionReason(result: ILeadDeliveryResult): string {
     if (result.error && result.error.trim().length > 0) {
-      return `Client delivery failed: ${result.error}`;
+      return `Contract delivery failed: ${result.error}`;
     }
     if (typeof result.webhook_response_status === "number") {
-      return `Client delivery was rejected (status ${result.webhook_response_status})`;
+      return `Contract delivery was rejected (status ${result.webhook_response_status})`;
     }
-    return "Client delivery was not accepted";
+    return "Contract delivery was not accepted";
   }
 
   private async markLeadRejectedWithoutDelivery(
@@ -1025,18 +1190,65 @@ export class LeadDeliveryService {
     return u.toString();
   }
 
+  private normalizeResponseValidationRules(
+    validation:
+      | (IClientResponseValidation & {
+          groups?: Array<{ conditions?: Array<Partial<IValidationRule>> }>;
+        })
+      | undefined,
+  ): IValidationRule[] {
+    if (!validation) return [];
+
+    const rules = (validation as { rules?: Array<Partial<IValidationRule>> })
+      .rules;
+    if (Array.isArray(rules)) {
+      return rules
+        .filter((rule) => typeof rule?.destination_id === "string")
+        .map((rule) => ({
+          destination_id: rule.destination_id as string,
+          match_value:
+            typeof rule.match_value === "string" ? rule.match_value : "",
+          action: rule.action as IValidationRule["action"],
+        }));
+    }
+
+    const flattened: IValidationRule[] = [];
+    for (const group of validation.groups ?? []) {
+      for (const condition of group.conditions ?? []) {
+        flattened.push({
+          destination_id:
+            typeof condition.destination_id === "string"
+              ? condition.destination_id
+              : "",
+          match_value:
+            typeof condition.match_value === "string"
+              ? condition.match_value
+              : "",
+          action: condition.action as IValidationRule["action"],
+        });
+      }
+    }
+
+    return flattened;
+  }
+
   /**
    * Walk acceptance rules in order and return the first match.
    * If no rule matches the response body, default to failed (no match = no sale).
    */
   private evaluateAcceptanceRules(
     body: string,
-    rules: IClientDeliveryConfig["acceptance_rules"],
+    status: number | undefined,
+    rules: IClientDeliveryConfig["acceptance_rules"] | undefined,
   ): { accepted: boolean; matchedValue?: string } {
-    const lowerBody = body.toLowerCase();
+    if (!Array.isArray(rules) || rules.length === 0) {
+      return { accepted: false };
+    }
+
+    const responseIndex = this.buildResponseIndex(body);
 
     for (const rule of rules) {
-      if (lowerBody.includes(rule.match_value.toLowerCase())) {
+      if (this.matchesRuleExpression(rule.match_value, status, responseIndex)) {
         return {
           accepted: rule.action === "passed",
           matchedValue: rule.match_value,
@@ -1048,24 +1260,176 @@ export class LeadDeliveryService {
     return { accepted: false };
   }
 
+  private buildResponseIndex(body: string): {
+    lowerBody: string;
+    keyValuePairs: Array<{ key: string; value: string }>;
+  } {
+    const lowerBody = body.toLowerCase();
+    const keyValuePairs: Array<{ key: string; value: string }> = [];
+
+    // Try JSON first for precise key:value matching.
+    try {
+      const parsed = JSON.parse(body);
+      const walk = (node: unknown, path: string[]) => {
+        if (
+          node === null ||
+          typeof node === "string" ||
+          typeof node === "number" ||
+          typeof node === "boolean"
+        ) {
+          const keyPath = path.join(".").toLowerCase();
+          const value = String(node).toLowerCase();
+          if (keyPath && value) {
+            keyValuePairs.push({ key: keyPath, value });
+            const leaf = path[path.length - 1]?.toLowerCase();
+            if (leaf && leaf !== keyPath) {
+              keyValuePairs.push({ key: leaf, value });
+            }
+          }
+          return;
+        }
+
+        if (Array.isArray(node)) {
+          node.forEach((value, index) => walk(value, [...path, String(index)]));
+          return;
+        }
+
+        if (typeof node === "object" && node !== null) {
+          for (const [key, value] of Object.entries(node)) {
+            walk(value, [...path, key]);
+          }
+        }
+      };
+
+      walk(parsed, []);
+    } catch {
+      // Not JSON; fall through to other extractors.
+    }
+
+    // Lightweight XML leaf extraction for expressions like "status:accepted".
+    const xmlRegex = /<([a-zA-Z0-9_.:-]+)(?:\s[^>]*)?>([^<]*)<\/\1>/g;
+    let xmlMatch: RegExpExecArray | null;
+    while ((xmlMatch = xmlRegex.exec(body)) !== null) {
+      const key = xmlMatch[1]?.trim().toLowerCase();
+      const value = xmlMatch[2]?.trim().toLowerCase();
+      if (key && value) {
+        keyValuePairs.push({ key, value });
+      }
+    }
+
+    // Generic plain-text key/value extraction fallback.
+    const kvRegex = /"?([a-zA-Z0-9_.:-]+)"?\s*[:=]\s*"?([^,\n\r\}\]]+)"?/g;
+    let kvMatch: RegExpExecArray | null;
+    while ((kvMatch = kvRegex.exec(body)) !== null) {
+      const key = kvMatch[1]?.trim().toLowerCase();
+      const value = kvMatch[2]?.trim().toLowerCase();
+      if (key && value) {
+        keyValuePairs.push({ key, value });
+      }
+    }
+
+    return { lowerBody, keyValuePairs };
+  }
+
+  private matchesRuleExpression(
+    matchValue: string,
+    status: number | undefined,
+    responseIndex: {
+      lowerBody: string;
+      keyValuePairs: Array<{ key: string; value: string }>;
+    },
+  ): boolean {
+    const token = matchValue.trim();
+    if (!token) return false;
+
+    const statusExpression = /^status\s*:\s*(.+)$/i.exec(token);
+    if (statusExpression) {
+      return this.matchesStatusExpression(status, statusExpression[1]);
+    }
+
+    const idx = token.indexOf(":");
+    if (idx > 0) {
+      const key = token.slice(0, idx).trim().toLowerCase();
+      const expected = token
+        .slice(idx + 1)
+        .trim()
+        .toLowerCase();
+      if (!key || !expected) return false;
+
+      return responseIndex.keyValuePairs.some(
+        (pair) =>
+          (pair.key === key || pair.key.endsWith(`.${key}`)) &&
+          pair.value.includes(expected),
+      );
+    }
+
+    return responseIndex.lowerBody.includes(token.toLowerCase());
+  }
+
+  private matchesStatusExpression(
+    status: number | undefined,
+    expression: string,
+  ): boolean {
+    if (status === undefined) return false;
+
+    const candidates = expression
+      .split(",")
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (/^\d{3}$/.test(candidate)) {
+        if (status === Number(candidate)) return true;
+        continue;
+      }
+
+      if (/^\dxx$/.test(candidate)) {
+        if (Math.floor(status / 100) === Number(candidate[0])) return true;
+        continue;
+      }
+
+      const range = /^(\d{3})\s*-\s*(\d{3})$/.exec(candidate);
+      if (range) {
+        const min = Number(range[1]);
+        const max = Number(range[2]);
+        if (status >= min && status <= max) return true;
+        continue;
+      }
+
+      const comparator = /^(>=|<=|>|<)\s*(\d{3})$/.exec(candidate);
+      if (comparator) {
+        const operator = comparator[1];
+        const boundary = Number(comparator[2]);
+        if (operator === ">" && status > boundary) return true;
+        if (operator === "<" && status < boundary) return true;
+        if (operator === ">=" && status >= boundary) return true;
+        if (operator === "<=" && status <= boundary) return true;
+      }
+    }
+
+    return false;
+  }
+
   /**
    * Reload the campaign and increment leads_delivered_count for the specified
-   * client.  A full put is used because DynamoDB cannot address list items by
+   * contract. A full put is used because DynamoDB cannot address list items by
    * value in an UpdateExpression.
    */
-  private async incrementClientLeadsDelivered(
+  private async incrementContractLeadsDelivered(
     campaign: ICampaign,
-    clientId: string,
+    contractId: string,
     now: string,
   ): Promise<void> {
     try {
       // We already have the campaign in memory (passed by reference from
       // deliverLead). Mutate it so the in-memory copy stays consistent.
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (client) {
-        client.leads_delivered_count = (client.leads_delivered_count ?? 0) + 1;
+      const contracts = campaign.contracts ?? campaign.clients ?? [];
+      const contract = contracts.find((c) => c.contract_id === contractId);
+      if (contract) {
+        contract.leads_delivered_count =
+          (contract.leads_delivered_count ?? 0) + 1;
+        campaign.contracts = contracts;
+        campaign.clients = contracts;
       }
       campaign.updated_at = now;
 
@@ -1075,9 +1439,9 @@ export class LeadDeliveryService {
       });
     } catch (err: any) {
       // Non-fatal: log and continue. The lead delivery result is already persisted.
-      this.logger.error("Failed to increment client leads_delivered_count", {
+      this.logger.error("Failed to increment contract leads_delivered_count", {
         campaignId: campaign.id,
-        clientId,
+        contractId,
         error: err?.message,
       });
     }

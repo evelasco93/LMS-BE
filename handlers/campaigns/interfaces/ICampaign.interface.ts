@@ -4,7 +4,7 @@ import { RequestActor } from "@shared/utils/request-audit.util";
 import {
   IAffiliateSoldPixelConfig,
   IClientDeliveryConfig,
-  IClientResponseValidation,
+  IContractResponseValidation,
   IDestination,
   ILeadDistributionConfig,
 } from "./IClientDelivery.interface";
@@ -34,18 +34,21 @@ export interface ICampaignValidationBypassConfig {
 
 export type ParticipantLogicMode = "pinned" | "inherit_campaign";
 
-export interface ICampaignClientOverride {
+export interface ICampaignContractOverride {
   criteria_set_id?: string;
   criteria_set_version?: number;
   logic_set_id?: string;
   logic_set_version?: number;
   /** Explicit mode governing how this participant resolves logic rules. */
   logic_mode?: ParticipantLogicMode;
-  /** Inline logic rule overrides scoped to this client on this campaign. */
+  /** Inline logic rule overrides scoped to this contract on this campaign. */
   logic_rules?: ILogicRule[];
   validation_bypass?: ICampaignValidationBypassConfig;
   metadata?: Record<string, unknown>;
 }
+
+/** @deprecated Prefer ICampaignContractOverride. */
+export interface ICampaignClientOverride extends ICampaignContractOverride {}
 
 export interface ICampaignAffiliateOverride {
   criteria_set_id?: string;
@@ -85,7 +88,10 @@ export interface ICampaignAffiliate {
   quota_completion_percent?: number | null;
 }
 
-export interface ICampaignClient {
+export interface ICampaignContract {
+  /** Stable participant identity for campaign routing and APIs. */
+  contract_id: string;
+  /** Client entity this contract belongs to. Multiple contracts may share one client_id. */
   client_id: string;
   added_at?: string;
   status?: CampaignParticipantStatus;
@@ -94,12 +100,15 @@ export interface ICampaignClient {
   /** Named delivery destinations. Replaces single `delivery_config`. */
   destinations?: IDestination[];
   /** Client-level response validation referencing one or more destinations. Replaces per-destination acceptance_rules. */
-  response_validation?: IClientResponseValidation;
+  response_validation?: IContractResponseValidation;
   /** Weight used for weighted distribution (higher = more leads). Default: 1 */
   weight?: number;
-  /** Running count of leads successfully delivered to this client. Used for weighted distribution */
+  /** Running count of leads successfully delivered to this contract. Used for weighted distribution */
   leads_delivered_count?: number;
 }
+
+/** @deprecated Prefer ICampaignContract. */
+export type ICampaignClient = ICampaignContract;
 
 export interface IRemovedAffiliate {
   affiliate_id: string;
@@ -110,13 +119,17 @@ export interface IRemovedAffiliate {
   removed_by?: RequestActor;
 }
 
-export interface IRemovedClient {
+export interface IRemovedContract {
+  contract_id: string;
   client_id: string;
   added_at?: string;
   status_at_removal?: CampaignParticipantStatus;
   removed_at: string;
   removed_by?: RequestActor;
 }
+
+/** @deprecated Prefer IRemovedContract. */
+export type IRemovedClient = IRemovedContract;
 
 export type DuplicateCheckCriteriaField = "phone" | "email";
 
@@ -341,9 +354,13 @@ export interface ICampaign {
   id: string;
   name: string;
   status: CampaignStatus;
-  clients: ICampaignClient[];
+  contracts?: ICampaignContract[];
+  /** @deprecated Prefer `contracts`. */
+  clients?: ICampaignContract[];
   affiliates: ICampaignAffiliate[];
-  removed_clients?: IRemovedClient[];
+  removed_contracts?: IRemovedContract[];
+  /** @deprecated Prefer `removed_contracts`. */
+  removed_clients?: IRemovedContract[];
   removed_affiliates?: IRemovedAffiliate[];
   plugins: ICampaignPlugins;
   ever_linked_participants?: boolean;
@@ -362,8 +379,10 @@ export interface ICampaign {
   logic_version?: string;
   /** Campaign-level keyword tags (simple label strings). */
   tags?: string[];
-  /** Client-scoped override map keyed by client_id. */
-  client_overrides?: Record<string, ICampaignClientOverride>;
+  /** Contract-scoped override map keyed by contract_id. */
+  contract_overrides?: Record<string, ICampaignContractOverride>;
+  /** @deprecated Prefer `contract_overrides`. */
+  client_overrides?: Record<string, ICampaignContractOverride>;
   /** Affiliate-scoped override map keyed by affiliate_id. */
   affiliate_overrides?: Record<string, ICampaignAffiliateOverride>;
   /** Logic rules applied after criteria validation \u2014 lead passes if ANY enabled rule matches, rejected if none match */
@@ -372,9 +391,11 @@ export interface ICampaign {
   default_cherry_pickable?: boolean;
   /** Default casing transform applied to all field values unless overridden at field level. */
   default_field_casing?: CasingMode;
-  /** Lead distribution configuration (round_robin or weighted across LIVE clients) */
+  /** Lead distribution configuration (round_robin or weighted across LIVE contracts) */
   distribution?: ILeadDistributionConfig;
-  /** Tracks the last client that received a lead for round-robin cycling */
+  /** Tracks the last contract that received a lead for round-robin cycling */
+  rr_last_contract_id?: string;
+  /** @deprecated Prefer rr_last_contract_id. */
   rr_last_client_id?: string;
   created_at: string;
   updated_at: string;

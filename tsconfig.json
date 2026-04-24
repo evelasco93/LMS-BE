@@ -5,6 +5,7 @@
     "lib": ["ES2022"],
     "declaration": true,
     "strict": true,
+    "ignoreDeprecations": "6.0",
     "noImplicitAny": true,
     "strictNullChecks": true,
     "noImplicitThis": true,
@@ -23,19 +24,15 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
-      "@cdk/*": ["cdk/*"],
-      "@handlers/*": ["handlers/*"],
-      "@shared/*": ["shared/*"]
+      "@cdk/*": ["./cdk/*"],
+      "@handlers/*": ["./handlers/*"],
+      "@shared/*": ["./shared/*"]
     },
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": [
-    "cdk/**/*.ts",
-    "shared/**/*.ts"
-  ],
+  "include": ["cdk/**/*.ts", "shared/**/*.ts"],
   "exclude": [
     "node_modules",
     "cdk.out",

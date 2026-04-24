@@ -16,7 +16,7 @@ import { CampaignService } from "../services/campaign.service";
 import {
   CreateCampaignRequest,
   LinkAffiliateRequest,
-  LinkClientRequest,
+  LinkContractRequest,
   ListCampaignsQuery,
   UpdateCampaignRequest,
   UpdateCampaignStatusRequest,
@@ -29,7 +29,7 @@ import {
   CreateLogicRuleRequest,
   UpdateLogicRuleRequest,
   GeneratePostingInstructionsRequest,
-  SetClientDeliveryRequest,
+  SetContractDeliveryRequest,
   CreateDestinationRequest,
   UpdateDestinationRequest,
   SetResponseValidationRequest,
@@ -150,13 +150,13 @@ export class CampaignController extends Controller {
     };
   }
 
-  @POST("/:id/clients")
+  @POST("/:id/contracts")
   @produces("application/json")
-  async linkClient(
+  async linkContract(
     @pathParam("id") id: string,
-    @body payload: LinkClientRequest,
+    @body payload: LinkContractRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.linkClient(
+    const result = await this.campaignService.linkContract(
       id,
       payload,
       this.getActor(),
@@ -165,28 +165,28 @@ export class CampaignController extends Controller {
     if (!result.result) {
       return {
         success: false,
-        message: "Failed to link client",
+        message: "Failed to link contract",
         error: result.error,
       };
     }
 
     return {
       success: true,
-      message: "Client linked successfully",
+      message: "Contract linked successfully",
       data: result.data,
     };
   }
 
-  @PUT("/:id/clients/:clientId")
+  @PUT("/:id/contracts/:contractId")
   @produces("application/json")
-  async updateClientStatus(
+  async updateContractStatus(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @body payload: UpdateParticipantStatusRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.updateClientStatus(
+    const result = await this.campaignService.updateContractStatus(
       id,
-      clientId,
+      contractId,
       payload,
       this.getActor(),
     );
@@ -194,28 +194,28 @@ export class CampaignController extends Controller {
     if (!result.result) {
       return {
         success: false,
-        message: "Failed to update client status",
+        message: "Failed to update contract status",
         error: result.error,
       };
     }
 
     return {
       success: true,
-      message: "Client status updated",
+      message: "Contract status updated",
       data: result.data,
     };
   }
 
-  @PUT("/:id/clients/:clientId/delivery")
+  @PUT("/:id/contracts/:contractId/delivery")
   @produces("application/json")
-  async setClientDelivery(
+  async setContractDelivery(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
-    @body payload: SetClientDeliveryRequest,
+    @pathParam("contractId") contractId: string,
+    @body payload: SetContractDeliveryRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.setClientDelivery(
+    const result = await this.campaignService.setContractDelivery(
       id,
-      clientId,
+      contractId,
       payload,
       this.getActor(),
     );
@@ -223,27 +223,30 @@ export class CampaignController extends Controller {
     if (!result.result) {
       return {
         success: false,
-        message: "Failed to set client delivery config",
+        message: "Failed to set contract delivery config",
         error: result.error,
       };
     }
 
     return {
       success: true,
-      message: "Client delivery config updated",
+      message: "Contract delivery config updated",
       data: result.data,
     };
   }
 
   // ── Destination CRUD ──────────────────────────────────────────────────────
 
-  @GET("/:id/clients/:clientId/destinations")
+  @GET("/:id/contracts/:contractId/destinations")
   @produces("application/json")
   async listDestinations(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.listDestinations(id, clientId);
+    const result = await this.campaignService.listContractDestinations(
+      id,
+      contractId,
+    );
 
     if (!result.result) {
       return {
@@ -260,16 +263,16 @@ export class CampaignController extends Controller {
     };
   }
 
-  @GET("/:id/clients/:clientId/destinations/:destId")
+  @GET("/:id/contracts/:contractId/destinations/:destId")
   @produces("application/json")
   async getDestination(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @pathParam("destId") destId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.getDestination(
+    const result = await this.campaignService.getContractDestination(
       id,
-      clientId,
+      contractId,
       destId,
     );
 
@@ -288,16 +291,16 @@ export class CampaignController extends Controller {
     };
   }
 
-  @POST("/:id/clients/:clientId/destinations")
+  @POST("/:id/contracts/:contractId/destinations")
   @produces("application/json")
   async addDestination(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @body payload: CreateDestinationRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.addDestination(
+    const result = await this.campaignService.addContractDestination(
       id,
-      clientId,
+      contractId,
       payload,
       this.getActor(),
     );
@@ -317,17 +320,17 @@ export class CampaignController extends Controller {
     };
   }
 
-  @PUT("/:id/clients/:clientId/destinations/:destId")
+  @PUT("/:id/contracts/:contractId/destinations/:destId")
   @produces("application/json")
   async updateDestination(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @pathParam("destId") destId: string,
     @body payload: UpdateDestinationRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.updateDestination(
+    const result = await this.campaignService.updateContractDestination(
       id,
-      clientId,
+      contractId,
       destId,
       payload,
       this.getActor(),
@@ -348,16 +351,16 @@ export class CampaignController extends Controller {
     };
   }
 
-  @DELETE("/:id/clients/:clientId/destinations/:destId")
+  @DELETE("/:id/contracts/:contractId/destinations/:destId")
   @produces("application/json")
   async deleteDestination(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @pathParam("destId") destId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.deleteDestination(
+    const result = await this.campaignService.deleteContractDestination(
       id,
-      clientId,
+      contractId,
       destId,
       this.getActor(),
     );
@@ -379,16 +382,16 @@ export class CampaignController extends Controller {
 
   // ── Response Validation ─────────────────────────────────────────────────────
 
-  @PUT("/:id/clients/:clientId/response-validation")
+  @PUT("/:id/contracts/:contractId/response-validation")
   @produces("application/json")
   async setResponseValidation(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @body payload: SetResponseValidationRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.setResponseValidation(
+    const result = await this.campaignService.setContractResponseValidation(
       id,
-      clientId,
+      contractId,
       payload,
       this.getActor(),
     );
@@ -408,15 +411,15 @@ export class CampaignController extends Controller {
     };
   }
 
-  @GET("/:id/clients/:clientId/response-validation")
+  @GET("/:id/contracts/:contractId/response-validation")
   @produces("application/json")
   async getResponseValidation(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.getResponseValidation(
+    const result = await this.campaignService.getContractResponseValidation(
       id,
-      clientId,
+      contractId,
     );
 
     if (!result.result) {
@@ -434,29 +437,29 @@ export class CampaignController extends Controller {
     };
   }
 
-  @DELETE("/:id/clients/:clientId")
+  @DELETE("/:id/contracts/:contractId")
   @produces("application/json")
-  async deleteClient(
+  async deleteContract(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.deleteClient(
+    const result = await this.campaignService.deleteContract(
       id,
-      clientId,
+      contractId,
       this.getActor(),
     );
 
     if (!result.result) {
       return {
         success: false,
-        message: "Failed to delete client from campaign",
+        message: "Failed to delete contract from campaign",
         error: result.error,
       };
     }
 
     return {
       success: true,
-      message: "Client removed from campaign",
+      message: "Contract removed from campaign",
       data: result.data,
     };
   }
@@ -1656,44 +1659,44 @@ export class CampaignController extends Controller {
     };
   }
 
-  // ── Per-Client Logic Rule Overrides ──────────────────────────────────────
+  // ── Per-Contract Logic Rule Overrides ────────────────────────────────────
 
-  @GET("/:id/clients/:clientId/logic-rules")
+  @GET("/:id/contracts/:contractId/logic-rules")
   @produces("application/json")
-  async listClientLogicRules(
+  async listContractLogicRules(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.listClientLogicRules(
+    const result = await this.campaignService.listContractLogicRules(
       id,
-      clientId,
+      contractId,
     );
     if (!result.result) {
       const isNotFound = result.error?.includes("not found");
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to list client logic rules",
+        message: "Failed to list contract logic rules",
         error: result.error,
       };
     }
     return {
       success: true,
-      message: "Client logic rules retrieved",
+      message: "Contract logic rules retrieved",
       data: result.data,
     };
   }
 
-  @POST("/:id/clients/:clientId/logic-rules")
+  @POST("/:id/contracts/:contractId/logic-rules")
   @produces("application/json")
-  async createClientLogicRule(
+  async createContractLogicRule(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @body payload: CreateLogicRuleRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.createClientLogicRule(
+    const result = await this.campaignService.createContractLogicRule(
       id,
-      clientId,
+      contractId,
       payload,
       this.getActor(),
     );
@@ -1702,29 +1705,29 @@ export class CampaignController extends Controller {
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to create client logic rule",
+        message: "Failed to create contract logic rule",
         error: result.error,
       };
     }
     this.response.status(201);
     return {
       success: true,
-      message: "Client logic rule created",
+      message: "Contract logic rule created",
       data: result.data,
     };
   }
 
-  @PUT("/:id/clients/:clientId/logic-rules/:ruleId")
+  @PUT("/:id/contracts/:contractId/logic-rules/:ruleId")
   @produces("application/json")
-  async updateClientLogicRule(
+  async updateContractLogicRule(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @pathParam("ruleId") ruleId: string,
     @body payload: UpdateLogicRuleRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.updateClientLogicRule(
+    const result = await this.campaignService.updateContractLogicRule(
       id,
-      clientId,
+      contractId,
       ruleId,
       payload,
       this.getActor(),
@@ -1734,27 +1737,27 @@ export class CampaignController extends Controller {
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to update client logic rule",
+        message: "Failed to update contract logic rule",
         error: result.error,
       };
     }
     return {
       success: true,
-      message: "Client logic rule updated",
+      message: "Contract logic rule updated",
       data: result.data,
     };
   }
 
-  @DELETE("/:id/clients/:clientId/logic-rules/:ruleId")
+  @DELETE("/:id/contracts/:contractId/logic-rules/:ruleId")
   @produces("application/json")
-  async deleteClientLogicRule(
+  async deleteContractLogicRule(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @pathParam("ruleId") ruleId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.deleteClientLogicRule(
+    const result = await this.campaignService.deleteContractLogicRule(
       id,
-      clientId,
+      contractId,
       ruleId,
       this.getActor(),
     );
@@ -1763,27 +1766,27 @@ export class CampaignController extends Controller {
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to delete client logic rule",
+        message: "Failed to delete contract logic rule",
         error: result.error,
       };
     }
     return {
       success: true,
-      message: "Client logic rule deleted",
+      message: "Contract logic rule deleted",
       data: result.data,
     };
   }
 
-  @POST("/:id/clients/:clientId/logic/apply-catalog")
+  @POST("/:id/contracts/:contractId/logic/apply-catalog")
   @produces("application/json")
-  async applyLogicCatalogToClient(
+  async applyLogicCatalogToContract(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
     @body payload: ApplyLogicCatalogRequest,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.applyLogicCatalogToClient(
+    const result = await this.campaignService.applyLogicCatalogToContract(
       id,
-      clientId,
+      contractId,
       payload,
       this.getActor(),
     );
@@ -1792,26 +1795,26 @@ export class CampaignController extends Controller {
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to apply logic catalog to client",
+        message: "Failed to apply logic catalog to contract",
         error: result.error,
       };
     }
     return {
       success: true,
-      message: "Logic catalog applied to client",
+      message: "Logic catalog applied to contract",
       data: result.data,
     };
   }
 
-  @POST("/:id/clients/:clientId/logic/sync-to-campaign")
+  @POST("/:id/contracts/:contractId/logic/sync-to-campaign")
   @produces("application/json")
-  async syncClientLogicToCampaign(
+  async syncContractLogicToCampaign(
     @pathParam("id") id: string,
-    @pathParam("clientId") clientId: string,
+    @pathParam("contractId") contractId: string,
   ): Promise<RestApiResponse> {
-    const result = await this.campaignService.syncClientLogicToCampaign(
+    const result = await this.campaignService.syncContractLogicToCampaign(
       id,
-      clientId,
+      contractId,
       this.getActor(),
     );
     if (!result.result) {
@@ -1819,13 +1822,13 @@ export class CampaignController extends Controller {
       this.response.status(isNotFound ? 404 : 400);
       return {
         success: false,
-        message: "Failed to sync client logic to campaign",
+        message: "Failed to sync contract logic to campaign",
         error: result.error,
       };
     }
     return {
       success: true,
-      message: "Client logic synced to campaign",
+      message: "Contract logic synced to campaign",
       data: result.data,
     };
   }

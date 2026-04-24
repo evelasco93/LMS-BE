@@ -68,6 +68,34 @@ export class TenantConfigService {
     return `${this.constants.TENANT_SETTINGS_TABLE_NAME}-schema-id-index`;
   }
 
+  private normalizePresetOptionValue(value: string): string {
+    return value.trim().toLowerCase().replace(/\s+/g, "_");
+  }
+
+  private normalizePresetOptions(
+    options?: IPlatformPresetRecord["options"],
+  ): IPlatformPresetRecord["options"] {
+    if (!options) return options;
+
+    const seen = new Set<string>();
+    const normalized: NonNullable<IPlatformPresetRecord["options"]> = [];
+
+    for (const option of options) {
+      const normalizedValue = this.normalizePresetOptionValue(
+        String(option.value ?? ""),
+      );
+      if (!normalizedValue || seen.has(normalizedValue)) continue;
+      seen.add(normalizedValue);
+
+      normalized.push({
+        value: normalizedValue,
+        label: String(option.label ?? "").trim() || normalizedValue,
+      });
+    }
+
+    return normalized;
+  }
+
   // ── Credential CRUD ────────────────────────────────────────────────────────
 
   async createCredential(
@@ -1823,7 +1851,13 @@ export class TenantConfigService {
       const items = await this.dynamoDBUtil.scanAll<IPlatformPresetRecord>({
         TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
       });
-      return { result: true, data: items };
+      return {
+        result: true,
+        data: items.map((item) => ({
+          ...item,
+          options: this.normalizePresetOptions(item.options),
+        })),
+      };
     } catch (error: any) {
       this.logger.error("Failed to list platform presets", error);
       return {
@@ -1845,7 +1879,7 @@ export class TenantConfigService {
         name: payload.name,
         description: payload.description,
         data_type: payload.data_type,
-        options: payload.options,
+        options: this.normalizePresetOptions(payload.options),
         casing: payload.casing,
         state_mapping: payload.state_mapping,
         created_at: now,
@@ -1857,12 +1891,13 @@ export class TenantConfigService {
         TableName: this.constants.PLATFORM_PRESETS_TABLE_NAME,
         Item: record,
       });
-      await this.auditWriter.write({
-        action: "platform_preset_created",
-        entity_type: "platform_preset",
+      await this.auditWriterService.writeAuditEvent({
         entity_id: record.id,
-        actor,
+        entity_type: "platform_preset",
+        action: "created",
         changes: [{ field: "name", from: null, to: record.name }],
+        actor,
+        changed_at: now,
       });
       return { result: true, data: record };
     } catch (error: any) {
@@ -1885,7 +1920,13 @@ export class TenantConfigService {
       if (!item) {
         return { result: false, error: `Platform preset ${id} not found` };
       }
-      return { result: true, data: item };
+      return {
+        result: true,
+        data: {
+          ...item,
+          options: this.normalizePresetOptions(item.options),
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to get platform preset", error);
       return {
@@ -1928,12 +1969,13 @@ export class TenantConfigService {
         existing.description = payload.description;
       }
       if (payload.options !== undefined) {
+        const normalizedOptions = this.normalizePresetOptions(payload.options);
         changes.push({
           field: "options",
           from: existing.options?.length ?? 0,
-          to: payload.options.length,
+          to: normalizedOptions?.length ?? 0,
         });
-        existing.options = payload.options;
+        existing.options = normalizedOptions;
       }
       if (payload.casing !== undefined && payload.casing !== existing.casing) {
         changes.push({
@@ -1974,7 +2016,13 @@ export class TenantConfigService {
         });
       }
 
-      return { result: true, data: existing };
+      return {
+        result: true,
+        data: {
+          ...existing,
+          options: this.normalizePresetOptions(existing.options),
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to update platform preset", error);
       return {
@@ -2003,7 +2051,13 @@ export class TenantConfigService {
           (i) => i.tags && tags.some((t) => i.tags!.includes(t)),
         );
       }
-      return { result: true, data: filtered };
+      return {
+        result: true,
+        data: filtered.map((item) => ({
+          ...item,
+          options: this.normalizePresetOptions(item.options) ?? [],
+        })),
+      };
     } catch (error: any) {
       this.logger.error("Failed to list tenant presets", error);
       return {
@@ -2024,7 +2078,13 @@ export class TenantConfigService {
       if (!item || item.is_deleted) {
         return { result: false, error: `Tenant preset ${id} not found` };
       }
-      return { result: true, data: item };
+      return {
+        result: true,
+        data: {
+          ...item,
+          options: this.normalizePresetOptions(item.options) ?? [],
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to get tenant preset", error);
       return {
@@ -2048,7 +2108,7 @@ export class TenantConfigService {
         description: payload.description,
         tags: payload.tags ?? [],
         data_type: payload.data_type,
-        options: payload.options ?? [],
+        options: this.normalizePresetOptions(payload.options ?? []) ?? [],
         casing: payload.casing,
         state_mapping: payload.state_mapping ?? null,
         created_at: now,
@@ -2112,12 +2172,13 @@ export class TenantConfigService {
         existing.tags = payload.tags;
       }
       if (payload.options !== undefined) {
+        const normalizedOptions = this.normalizePresetOptions(payload.options);
         changes.push({
           field: "options",
           from: existing.options?.length ?? 0,
-          to: payload.options.length,
+          to: normalizedOptions?.length ?? 0,
         });
-        existing.options = payload.options;
+        existing.options = normalizedOptions;
       }
       if (payload.casing !== undefined) {
         existing.casing = payload.casing;
@@ -2145,7 +2206,13 @@ export class TenantConfigService {
         });
       }
 
-      return { result: true, data: existing };
+      return {
+        result: true,
+        data: {
+          ...existing,
+          options: this.normalizePresetOptions(existing.options) ?? [],
+        },
+      };
     } catch (error: any) {
       this.logger.error("Failed to update tenant preset", error);
       return {

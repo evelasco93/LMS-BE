@@ -117,13 +117,13 @@ export type CreateLogicCatalogRequest = {
   name: string;
   description?: string;
   tags?: string[];
-  rules?: Pick<ILogicRule, "name" | "action" | "enabled" | "groups">[];
+  rules?: Pick<ILogicRule, "name" | "enabled" | "conditions">[];
 };
 
 export type UpdateLogicCatalogRequest = {
   name?: string;
   description?: string;
-  rules: Pick<ILogicRule, "name" | "action" | "enabled" | "groups">[];
+  rules: Pick<ILogicRule, "name" | "enabled" | "conditions">[];
 };
 
 export type ApplyLogicCatalogRequest = {

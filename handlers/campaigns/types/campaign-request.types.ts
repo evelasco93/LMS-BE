@@ -16,9 +16,13 @@ export type CreateCampaignRequest = {
   tags?: string[];
 };
 
-export type LinkClientRequest = {
+export type LinkContractRequest = {
   client_id: string;
+  contract_id?: string;
 };
+
+/** @deprecated Prefer LinkContractRequest. */
+export type LinkClientRequest = LinkContractRequest;
 
 export type LinkAffiliateRequest = {
   affiliate_id: string;
@@ -82,6 +86,8 @@ export type UpdateCriteriaFieldRequest = {
 export type SetValueMappingsRequest = {
   /** Full replacement list of value mappings for a field. Send an empty array to clear all mappings. */
   value_mappings: IValueMapping[];
+  /** Built-in state normalisation direction: "abbr_to_name" (CA→California) or "name_to_abbr" (California→CA). Omit to leave unchanged; pass null to clear. */
+  state_mapping?: "abbr_to_name" | "name_to_abbr" | null;
 };
 
 export type ReorderCriteriaRequest = {
@@ -161,8 +167,8 @@ export {
   IDestination,
 } from "../interfaces/IClientDelivery.interface";
 
-/** Body for PUT /campaigns/{id}/clients/{clientId}/delivery */
-export type SetClientDeliveryRequest = Omit<
+/** Body for PUT /campaigns/{id}/contracts/{contractId}/delivery */
+export type SetContractDeliveryRequest = Omit<
   import("../interfaces/IClientDelivery.interface").IClientDeliveryConfig,
   "claim_trusted_form"
 > & {
@@ -173,6 +179,9 @@ export type SetClientDeliveryRequest = Omit<
    */
   weight?: number;
 };
+
+/** @deprecated Prefer SetContractDeliveryRequest. */
+export type SetClientDeliveryRequest = SetContractDeliveryRequest;
 
 /** Body for PUT /campaigns/{id}/distribution */
 export type SetDistributionRequest = {
@@ -219,7 +228,7 @@ import type {
   IWebhookAcceptanceRule as WAR,
 } from "../interfaces/IClientDelivery.interface";
 
-/** Body for POST /campaigns/{id}/clients/{clientId}/destinations */
+/** Body for POST /campaigns/{id}/contracts/{contractId}/destinations */
 export type CreateDestinationRequest = {
   name: string;
   type: DestinationType;
@@ -233,25 +242,27 @@ export type CreateDestinationRequest = {
     "abbr_to_name" | "name_to_abbr" | null
   >;
   is_primary?: boolean;
+  non_webhook_delivery_action?: "passed" | "failed";
   claim_trusted_form?: boolean;
   require_successful_claim?: boolean;
 };
 
-/** Body for PUT /campaigns/{id}/clients/{clientId}/destinations/{destId} */
+/** Body for PUT /campaigns/{id}/contracts/{contractId}/destinations/{destId} */
 export type UpdateDestinationRequest = Partial<CreateDestinationRequest>;
 
 // ── Response Validation ───────────────────────────────────────────────────────
 
-import type { IValidationCondition as VC } from "../interfaces/IClientDelivery.interface";
-import type { IValidationGroup as VG } from "../interfaces/IClientDelivery.interface";
+import type { IValidationRule as VR } from "../interfaces/IClientDelivery.interface";
 
 export {
+  IContractResponseValidation,
+  IValidationRule,
   IClientResponseValidation,
   IValidationCondition,
   IValidationGroup,
 } from "../interfaces/IClientDelivery.interface";
 
-/** Body for PUT /campaigns/{id}/clients/{clientId}/response-validation */
+/** Body for PUT /campaigns/{id}/contracts/{contractId}/response-validation */
 export type SetResponseValidationRequest = {
-  groups: VG[];
+  rules: VR[];
 };

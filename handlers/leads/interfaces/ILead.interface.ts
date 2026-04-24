@@ -104,6 +104,8 @@ export interface ILead {
   sold?: boolean;
   /** True when the webhook accepted but sold_criteria rules failed, overriding sold to false */
   sold_criteria_failed?: boolean;
+  /** ID of the contract the lead was delivered to */
+  sold_to_contract_id?: string;
   /** ID of the client the lead was delivered to */
   sold_to_client_id?: string;
   /** Full result of the webhook delivery attempt */

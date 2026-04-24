@@ -1,4 +1,11 @@
-import { NestedStack, NestedStackProps, RemovalPolicy, CustomResource, Duration, Stack } from "aws-cdk-lib";
+import {
+  NestedStack,
+  NestedStackProps,
+  RemovalPolicy,
+  CustomResource,
+  Duration,
+  Stack,
+} from "aws-cdk-lib";
 import {
   Table,
   AttributeType,
@@ -76,7 +83,7 @@ export class PlatformPresetsDataStack extends NestedStack {
         item.options = {
           L: preset.options.map((o) => ({
             M: {
-              value: { S: o.value },
+              value: { S: o.value.trim().toLowerCase().replace(/\s+/g, "_") },
               label: { S: o.label },
             },
           })),
@@ -125,7 +132,9 @@ export class PlatformPresetsDataStack extends NestedStack {
             TableName: tableConfig.tableName,
             Item: item,
           },
-          physicalResourceId: cr.PhysicalResourceId.of(`seed-${preset.id}-${contentHash}`),
+          physicalResourceId: cr.PhysicalResourceId.of(
+            `seed-${preset.id}-${contentHash}`,
+          ),
         },
         onUpdate: {
           service: "DynamoDB",
@@ -134,7 +143,9 @@ export class PlatformPresetsDataStack extends NestedStack {
             TableName: tableConfig.tableName,
             Item: item,
           },
-          physicalResourceId: cr.PhysicalResourceId.of(`seed-${preset.id}-${contentHash}`),
+          physicalResourceId: cr.PhysicalResourceId.of(
+            `seed-${preset.id}-${contentHash}`,
+          ),
         },
         policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
           resources: [

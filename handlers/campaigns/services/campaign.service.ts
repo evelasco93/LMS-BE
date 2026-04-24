@@ -28,7 +28,7 @@ import {
   IIpqsPluginConfig,
   ILogicRule,
   ILogicRuleCondition,
-  ILogicRuleGroup,
+  LegacyCriteriaDataType,
   ICampaignValidationBypassConfig,
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
@@ -37,6 +37,7 @@ import {
   IClientResponseValidation,
   ILeadDistributionConfig,
   IDestination,
+  IValidationRule,
 } from "../interfaces/IClientDelivery.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
 import { CampaignParticipantStatus } from "../enums/campaign-participant-status.enum";
@@ -125,6 +126,7 @@ export class CampaignService {
         id: IdGenerator.generateCampaignId(),
         name: (sanitized.name as string) || request.name,
         status: CampaignStatus.DRAFT,
+        contracts: [],
         clients: [],
         affiliates: [],
         plugins: this.getDefaultPlugins(),
@@ -316,6 +318,170 @@ export class CampaignService {
     }
   }
 
+  async linkContract(
+    campaignId: string,
+    request: LinkClientRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    return this.linkClient(campaignId, request, actor);
+  }
+
+  async updateContractStatus(
+    campaignId: string,
+    contractId: string,
+    request: UpdateParticipantStatusRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    return this.updateClientStatus(campaignId, contractId, request, actor);
+  }
+
+  async setContractDelivery(
+    campaignId: string,
+    contractId: string,
+    request: SetClientDeliveryRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    return this.setClientDelivery(campaignId, contractId, request, actor);
+  }
+
+  async listContractDestinations(
+    campaignId: string,
+    contractId: string,
+  ): Promise<ServiceResult<IDestination[]>> {
+    return this.listDestinations(campaignId, contractId);
+  }
+
+  async getContractDestination(
+    campaignId: string,
+    contractId: string,
+    destId: string,
+  ): Promise<ServiceResult<IDestination>> {
+    return this.getDestination(campaignId, contractId, destId);
+  }
+
+  async addContractDestination(
+    campaignId: string,
+    contractId: string,
+    request: CreateDestinationRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IDestination>> {
+    return this.addDestination(campaignId, contractId, request, actor);
+  }
+
+  async updateContractDestination(
+    campaignId: string,
+    contractId: string,
+    destId: string,
+    request: UpdateDestinationRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IDestination>> {
+    return this.updateDestination(
+      campaignId,
+      contractId,
+      destId,
+      request,
+      actor,
+    );
+  }
+
+  async deleteContractDestination(
+    campaignId: string,
+    contractId: string,
+    destId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<void>> {
+    return this.deleteDestination(campaignId, contractId, destId, actor);
+  }
+
+  async setContractResponseValidation(
+    campaignId: string,
+    contractId: string,
+    request: SetResponseValidationRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<IClientResponseValidation>> {
+    return this.setResponseValidation(campaignId, contractId, request, actor);
+  }
+
+  async getContractResponseValidation(
+    campaignId: string,
+    contractId: string,
+  ): Promise<ServiceResult<IClientResponseValidation | null>> {
+    return this.getResponseValidation(campaignId, contractId);
+  }
+
+  async deleteContract(
+    campaignId: string,
+    contractId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaign>> {
+    return this.deleteClient(campaignId, contractId, actor);
+  }
+
+  async listContractLogicRules(
+    campaignId: string,
+    contractId: string,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    return this.listClientLogicRules(campaignId, contractId);
+  }
+
+  async createContractLogicRule(
+    campaignId: string,
+    contractId: string,
+    request: CreateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    return this.createClientLogicRule(campaignId, contractId, request, actor);
+  }
+
+  async updateContractLogicRule(
+    campaignId: string,
+    contractId: string,
+    ruleId: string,
+    request: UpdateLogicRuleRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule>> {
+    return this.updateClientLogicRule(
+      campaignId,
+      contractId,
+      ruleId,
+      request,
+      actor,
+    );
+  }
+
+  async deleteContractLogicRule(
+    campaignId: string,
+    contractId: string,
+    ruleId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    return this.deleteClientLogicRule(campaignId, contractId, ruleId, actor);
+  }
+
+  async applyLogicCatalogToContract(
+    campaignId: string,
+    contractId: string,
+    request: ApplyLogicCatalogRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ILogicRule[]>> {
+    return this.applyLogicCatalogToClient(
+      campaignId,
+      contractId,
+      request,
+      actor,
+    );
+  }
+
+  async syncContractLogicToCampaign(
+    campaignId: string,
+    contractId: string,
+    actor?: RequestActor,
+  ): Promise<
+    ServiceResult<{ kept_rules: ILogicRule[]; removed_count: number }>
+  > {
+    return this.syncClientLogicToCampaign(campaignId, contractId, actor);
+  }
+
   async linkClient(
     campaignId: string,
     request: LinkClientRequest,
@@ -324,7 +490,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["client_id"],
+        ["client_id", "contract_id"],
       );
       if (!ok) {
         return { result: false, error: `Invalid fields: ${extras.join(", ")}` };
@@ -357,31 +523,58 @@ export class CampaignService {
       const normalized = this.normalizeParticipants(campaign);
       Object.assign(campaign, normalized);
 
-      const existingClient = campaign.clients.find(
-        (c) => c.client_id === clientId,
-      );
       const now = new Date().toISOString();
 
-      if (existingClient) {
-        existingClient.status = campaignStatus;
-        existingClient.added_at = existingClient.added_at ?? now;
-      } else {
-        const newClient: ICampaignClient = {
-          client_id: clientId,
-          added_at: now,
-          status: campaignStatus,
+      const requestedContractId =
+        typeof sanitized.contract_id === "string"
+          ? sanitized.contract_id.trim()
+          : "";
+      if (sanitized.contract_id !== undefined && !requestedContractId) {
+        return {
+          result: false,
+          error: "contract_id must be a non-empty string when provided",
         };
-        campaign.clients = [...campaign.clients, newClient];
       }
 
-      const existingClientOverride = (campaign.client_overrides ?? {})[
-        clientId
-      ];
-      if (!existingClientOverride) {
-        const overrides = { ...(campaign.client_overrides ?? {}) };
-        overrides[clientId] = { logic_mode: "inherit_campaign" };
-        campaign.client_overrides = overrides;
+      const contracts = [...(campaign.contracts ?? campaign.clients ?? [])];
+
+      if (
+        requestedContractId &&
+        contracts.some(
+          (contract) => contract.contract_id === requestedContractId,
+        )
+      ) {
+        return {
+          result: false,
+          error: `Contract ${requestedContractId} already linked to campaign`,
+        };
       }
+
+      let contractId = requestedContractId;
+      if (!contractId) {
+        do {
+          contractId = IdGenerator.generate("CT");
+        } while (
+          contracts.some((contract) => contract.contract_id === contractId)
+        );
+      }
+
+      const newContract: ICampaignClient = {
+        contract_id: contractId,
+        client_id: clientId,
+        added_at: now,
+        status: campaignStatus,
+      };
+      contracts.push(newContract);
+      campaign.contracts = contracts;
+      campaign.clients = contracts;
+
+      const contractOverrides = { ...(campaign.contract_overrides ?? {}) };
+      if (!contractOverrides[contractId]) {
+        contractOverrides[contractId] = { logic_mode: "inherit_campaign" };
+      }
+      campaign.contract_overrides = contractOverrides;
+      campaign.client_overrides = contractOverrides;
 
       campaign.ever_linked_participants = true;
 
@@ -389,11 +582,12 @@ export class CampaignService {
       campaign.updated_by = actor;
       campaign.ever_linked_participants = true;
 
-      this.logger.info("Client linked to campaign", {
+      this.logger.info("Contract linked to campaign", {
         campaignId,
+        contractId,
         clientId,
         campaignStatus,
-        addedAt: existingClient?.added_at ?? now,
+        addedAt: now,
       });
 
       await this.dynamoDBUtil.put({
@@ -404,15 +598,20 @@ export class CampaignService {
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,
         entity_type: "campaign",
-        action: "client_linked",
+        action: "contract_linked",
         changes: [
           {
-            field: `clients.${clientId}.client_id`,
+            field: `contracts.${contractId}.contract_id`,
+            from: null,
+            to: contractId,
+          },
+          {
+            field: `contracts.${contractId}.client_id`,
             from: null,
             to: clientId,
           },
           {
-            field: `clients.${clientId}.status`,
+            field: `contracts.${contractId}.status`,
             from: null,
             to: campaignStatus,
           },
@@ -423,10 +622,10 @@ export class CampaignService {
 
       return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
-      this.logger.error("Failed to link client to campaign", error);
+      this.logger.error("Failed to link contract to campaign", error);
       return {
         result: false,
-        error: error.message || "Failed to link client",
+        error: error.message || "Failed to link contract",
       };
     }
   }
@@ -592,28 +791,33 @@ export class CampaignService {
       const normalized = this.normalizeParticipants(campaign);
       Object.assign(campaign, normalized);
       const previousStatus = campaign.status;
-      const hasClients = (campaign.clients?.length ?? 0) > 0;
+      const hasContracts = this.getCampaignContracts(campaign).length > 0;
       const hasAffiliates = (campaign.affiliates?.length ?? 0) > 0;
 
-      if (status === CampaignStatus.TEST && (!hasClients || !hasAffiliates)) {
-        return {
-          result: false,
-          error: "Add at least one client and affiliate before moving to TEST",
-        };
-      }
-
-      if (status !== CampaignStatus.DRAFT && !hasClients && !hasAffiliates) {
-        return {
-          result: false,
-          error: "Add at least one client and affiliate before changing status",
-        };
-      }
-
-      if (status === CampaignStatus.ACTIVE && (!hasClients || !hasAffiliates)) {
+      if (status === CampaignStatus.TEST && (!hasContracts || !hasAffiliates)) {
         return {
           result: false,
           error:
-            "Add at least one client and affiliate before moving to ACTIVE",
+            "Add at least one contract and affiliate before moving to TEST",
+        };
+      }
+
+      if (status !== CampaignStatus.DRAFT && !hasContracts && !hasAffiliates) {
+        return {
+          result: false,
+          error:
+            "Add at least one contract and affiliate before changing status",
+        };
+      }
+
+      if (
+        status === CampaignStatus.ACTIVE &&
+        (!hasContracts || !hasAffiliates)
+      ) {
+        return {
+          result: false,
+          error:
+            "Add at least one contract and affiliate before moving to ACTIVE",
         };
       }
 
@@ -631,8 +835,8 @@ export class CampaignService {
         const hasLiveAffiliates = (campaign.affiliates ?? []).some(
           (a) => a.status === CampaignParticipantStatus.LIVE,
         );
-        const hasLiveClients = (campaign.clients ?? []).some(
-          (c) => c.status === CampaignParticipantStatus.LIVE,
+        const hasLiveContracts = this.getCampaignContracts(campaign).some(
+          (contract) => contract.status === CampaignParticipantStatus.LIVE,
         );
         if (
           (campaign.affiliates ?? []).some(
@@ -646,21 +850,21 @@ export class CampaignService {
         }
 
         if (
-          (campaign.clients ?? []).some(
-            (c) => c.status === CampaignParticipantStatus.TEST,
+          this.getCampaignContracts(campaign).some(
+            (contract) => contract.status === CampaignParticipantStatus.TEST,
           )
         ) {
           return {
             result: false,
-            error: "All clients must be LIVE for campaign to go ACTIVE",
+            error: "All contracts must be LIVE for campaign to go ACTIVE",
           };
         }
 
-        if (!hasLiveAffiliates || !hasLiveClients) {
+        if (!hasLiveAffiliates || !hasLiveContracts) {
           return {
             result: false,
             error:
-              "At least one LIVE client and one LIVE affiliate are required for campaign to go ACTIVE",
+              "At least one LIVE contract and one LIVE affiliate are required for campaign to go ACTIVE",
           };
         }
 
@@ -1304,39 +1508,84 @@ export class CampaignService {
     request: UpdateParticipantStatusRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
-    // Guard: a client may only be set to LIVE if delivery config is complete
+    // Guard: a contract may only be set to LIVE if delivery config is complete.
+    // Destination-config contracts use the primary destination + response validation.
     if (request.status === CampaignParticipantStatus.LIVE) {
-      // We need to peek at the client's current delivery_config before mutating.
-      // Load campaign first, then validate, then delegate to mutateClient.
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
-      const dc = client.delivery_config;
-      if (
-        !dc ||
-        !dc.url?.trim() ||
-        !dc.method ||
-        !dc.payload_mapping?.length ||
-        !dc.acceptance_rules?.length
-      ) {
-        return {
-          result: false,
-          error:
-            "Client cannot be set to LIVE without a complete delivery configuration. " +
-            "Configure a webhook URL, HTTP method, at least one payload mapping, " +
-            "and at least one acceptance rule " +
-            "via PUT /campaigns/{id}/clients/{clientId}/delivery first.",
-        };
+
+      const destinations = contract.destinations ?? [];
+      if (destinations.length > 0) {
+        const primary =
+          destinations.find((d) => d.is_primary) ?? destinations[0] ?? null;
+        if (
+          !primary ||
+          !primary.url?.trim() ||
+          !primary.method ||
+          !primary.payload_mapping?.length
+        ) {
+          return {
+            result: false,
+            error:
+              "Contract cannot be set to LIVE without a complete primary destination. " +
+              "Configure URL, method, and at least one payload mapping in Destination Config.",
+          };
+        }
+
+        if (primary.type === "webhook") {
+          const hasPrimaryPassRule = this.normalizeResponseValidationRules(
+            contract.response_validation,
+          ).some(
+            (rule) =>
+              rule.destination_id === primary.id &&
+              rule.action === "passed" &&
+              rule.match_value?.trim().length > 0,
+          );
+
+          if (!hasPrimaryPassRule) {
+            return {
+              result: false,
+              error:
+                "Contract cannot be set to LIVE because the primary webhook destination has no PASS response validation rule.",
+            };
+          }
+        } else if (
+          primary.non_webhook_delivery_action !== "passed" &&
+          primary.non_webhook_delivery_action !== "failed"
+        ) {
+          return {
+            result: false,
+            error:
+              "Contract cannot be set to LIVE because the primary non-webhook destination must define whether successful sends mark leads as sold or rejected.",
+          };
+        }
+      } else {
+        const dc = contract.delivery_config;
+        if (
+          !dc ||
+          !dc.url?.trim() ||
+          !dc.method ||
+          !dc.payload_mapping?.length ||
+          !dc.acceptance_rules?.length
+        ) {
+          return {
+            result: false,
+            error:
+              "Contract cannot be set to LIVE without a complete delivery configuration. " +
+              "Configure a webhook URL, HTTP method, at least one payload mapping, " +
+              "and at least one acceptance rule " +
+              "via PUT /campaigns/{id}/contracts/{contractId}/delivery first.",
+          };
+        }
       }
     }
 
@@ -1349,10 +1598,10 @@ export class CampaignService {
       actor,
       { recordRemoval: false },
       {
-        action: "client_status_updated",
+        action: "contract_status_updated",
         changes: (before) => [
           {
-            field: `clients.${clientId}.status`,
+            field: `contracts.${before.contract_id}.status`,
             from: before.status ?? null,
             to: request.status,
           },
@@ -1494,21 +1743,19 @@ export class CampaignService {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
 
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
 
-      const prev = client.delivery_config ?? null;
-      const prevWeight = client.weight;
-      client.delivery_config = deliveryConfig;
+      const prev = contract.delivery_config ?? null;
+      const prevWeight = contract.weight;
+      contract.delivery_config = deliveryConfig;
       if (request.weight !== undefined) {
-        client.weight = request.weight;
+        contract.weight = request.weight;
       }
 
       const now = new Date().toISOString();
@@ -1526,14 +1773,14 @@ export class CampaignService {
         action: "delivery_config_updated",
         changes: [
           {
-            field: `clients.${clientId}.delivery_config`,
+            field: `contracts.${contract.contract_id}.delivery_config`,
             from: prev,
             to: deliveryConfig,
           },
           ...(request.weight !== undefined
             ? [
                 {
-                  field: `clients.${clientId}.weight`,
+                  field: `contracts.${contract.contract_id}.weight`,
                   from: prevWeight ?? null,
                   to: request.weight,
                 },
@@ -1546,10 +1793,10 @@ export class CampaignService {
 
       return { result: true, data: this.enrichCampaignForResponse(campaign) };
     } catch (error: any) {
-      this.logger.error("Failed to set client delivery config", error);
+      this.logger.error("Failed to set contract delivery config", error);
       return {
         result: false,
-        error: error.message || "Failed to set client delivery config",
+        error: error.message || "Failed to set contract delivery config",
       };
     }
   }
@@ -1565,16 +1812,14 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
-      return { result: true, data: client.destinations ?? [] };
+      return { result: true, data: contract.destinations ?? [] };
     } catch (error: any) {
       this.logger.error("Failed to list destinations", error);
       return {
@@ -1594,16 +1839,14 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
-      const dest = (client.destinations ?? []).find((d) => d.id === destId);
+      const dest = (contract.destinations ?? []).find((d) => d.id === destId);
       if (!dest) {
         return { result: false, error: `Destination ${destId} not found` };
       }
@@ -1640,27 +1883,47 @@ export class CampaignService {
         error: "payload_mapping must have at least one entry",
       };
     }
+
+    const destinationType = request.type ?? "webhook";
+    if (!["webhook", "email", "google_sheets"].includes(destinationType)) {
+      return {
+        result: false,
+        error: "type must be one of: webhook, email, google_sheets",
+      };
+    }
+    if (
+      destinationType !== "webhook" &&
+      request.non_webhook_delivery_action !== "passed" &&
+      request.non_webhook_delivery_action !== "failed"
+    ) {
+      return {
+        result: false,
+        error:
+          'non_webhook_delivery_action must be "passed" or "failed" for email/google_sheets destinations',
+      };
+    }
+
     try {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
 
-      if (!client.destinations) client.destinations = [];
+      if (!contract.destinations) contract.destinations = [];
+      const previousPrimaryId =
+        contract.destinations.find((d) => d.is_primary)?.id ?? null;
 
       const dest: IDestination = {
         id: IdGenerator.generate("DST"),
         name: request.name ?? "Default",
-        type: request.type ?? "webhook",
+        type: destinationType,
         url: request.url.trim(),
         method: request.method,
         ...(request.headers ? { headers: request.headers } : {}),
@@ -1669,8 +1932,14 @@ export class CampaignService {
         ...(request.state_mapping_override
           ? { state_mapping_override: request.state_mapping_override }
           : {}),
-        is_primary: request.is_primary ?? client.destinations.length === 0,
-        claim_trusted_form: request.claim_trusted_form ?? true,
+        is_primary: request.is_primary ?? contract.destinations.length === 0,
+        ...(destinationType !== "webhook"
+          ? {
+              non_webhook_delivery_action:
+                request.non_webhook_delivery_action as "passed" | "failed",
+            }
+          : {}),
+        claim_trusted_form: true,
         ...(request.require_successful_claim !== undefined
           ? { require_successful_claim: request.require_successful_claim }
           : {}),
@@ -1678,10 +1947,20 @@ export class CampaignService {
 
       // If this destination is marked primary, unmark all others
       if (dest.is_primary) {
-        for (const d of client.destinations) d.is_primary = false;
+        for (const d of contract.destinations) d.is_primary = false;
       }
 
-      client.destinations.push(dest);
+      contract.destinations.push(dest);
+
+      const newPrimaryId = contract.destinations.find((d) => d.is_primary)?.id;
+      if (
+        previousPrimaryId &&
+        newPrimaryId &&
+        previousPrimaryId !== newPrimaryId
+      ) {
+        // Validation is bound to primary destination only.
+        contract.response_validation = { rules: [] };
+      }
 
       const now = new Date().toISOString();
       campaign.updated_at = now;
@@ -1697,7 +1976,7 @@ export class CampaignService {
         action: "destination_added",
         changes: [
           {
-            field: `clients.${clientId}.destinations`,
+            field: `contracts.${contract.contract_id}.destinations`,
             from: null,
             to: dest.id,
           },
@@ -1728,20 +2007,76 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
 
-      const dest = (client.destinations ?? []).find((d) => d.id === destId);
+      const dest = (contract.destinations ?? []).find((d) => d.id === destId);
       if (!dest) {
         return { result: false, error: `Destination ${destId} not found` };
       }
+
+      const nextType = request.type ?? dest.type;
+      if (!["webhook", "email", "google_sheets"].includes(nextType)) {
+        return {
+          result: false,
+          error: "type must be one of: webhook, email, google_sheets",
+        };
+      }
+
+      if (request.url !== undefined) {
+        const trimmed = request.url.trim();
+        if (!trimmed) {
+          return { result: false, error: "url is required" };
+        }
+        try {
+          new URL(trimmed);
+        } catch {
+          return { result: false, error: "url must be a valid URL" };
+        }
+      }
+
+      if (request.payload_mapping !== undefined) {
+        if (
+          !Array.isArray(request.payload_mapping) ||
+          request.payload_mapping.length === 0
+        ) {
+          return {
+            result: false,
+            error: "payload_mapping must have at least one entry",
+          };
+        }
+      }
+
+      if (
+        nextType !== "webhook" &&
+        request.non_webhook_delivery_action === undefined &&
+        dest.non_webhook_delivery_action === undefined
+      ) {
+        return {
+          result: false,
+          error:
+            'non_webhook_delivery_action must be "passed" or "failed" for email/google_sheets destinations',
+        };
+      }
+
+      if (
+        request.non_webhook_delivery_action !== undefined &&
+        request.non_webhook_delivery_action !== "passed" &&
+        request.non_webhook_delivery_action !== "failed"
+      ) {
+        return {
+          result: false,
+          error: 'non_webhook_delivery_action must be "passed" or "failed"',
+        };
+      }
+
+      const previousPrimaryId =
+        (contract.destinations ?? []).find((d) => d.is_primary)?.id ?? null;
 
       if (request.name !== undefined) dest.name = request.name;
       if (request.type !== undefined) dest.type = request.type;
@@ -1754,16 +2089,49 @@ export class CampaignService {
         dest.acceptance_rules = request.acceptance_rules;
       if (request.state_mapping_override !== undefined)
         dest.state_mapping_override = request.state_mapping_override;
-      if (request.claim_trusted_form !== undefined)
-        dest.claim_trusted_form = request.claim_trusted_form;
+      if (request.non_webhook_delivery_action !== undefined)
+        dest.non_webhook_delivery_action = request.non_webhook_delivery_action;
       if (request.require_successful_claim !== undefined)
         dest.require_successful_claim = request.require_successful_claim;
 
+      if (nextType === "webhook") {
+        delete dest.non_webhook_delivery_action;
+      }
+
       if (request.is_primary === true) {
-        for (const d of client.destinations ?? []) d.is_primary = false;
+        for (const d of contract.destinations ?? []) d.is_primary = false;
         dest.is_primary = true;
       } else if (request.is_primary === false) {
+        if (dest.is_primary) {
+          const hasOtherPrimary = (contract.destinations ?? []).some(
+            (d) => d.id !== destId && d.is_primary,
+          );
+          if (!hasOtherPrimary) {
+            return {
+              result: false,
+              error:
+                "At least one primary destination is required. Mark another destination as primary first.",
+            };
+          }
+        }
         dest.is_primary = false;
+      }
+
+      if (!(contract.destinations ?? []).some((d) => d.is_primary)) {
+        const fallback = (contract.destinations ?? [])[0];
+        if (fallback) fallback.is_primary = true;
+      }
+
+      const newPrimaryId = (contract.destinations ?? []).find(
+        (d) => d.is_primary,
+      )?.id;
+      if (
+        previousPrimaryId &&
+        newPrimaryId &&
+        previousPrimaryId !== newPrimaryId
+      ) {
+        // Validation is bound to primary destination only.
+        contract.response_validation = { rules: [] };
       }
 
       const now = new Date().toISOString();
@@ -1780,7 +2148,7 @@ export class CampaignService {
         action: "destination_updated",
         changes: [
           {
-            field: `clients.${clientId}.destinations.${destId}`,
+            field: `contracts.${contract.contract_id}.destinations.${destId}`,
             from: null,
             to: "updated",
           },
@@ -1810,22 +2178,28 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
 
-      const idx = (client.destinations ?? []).findIndex((d) => d.id === destId);
+      const idx = (contract.destinations ?? []).findIndex(
+        (d) => d.id === destId,
+      );
       if (idx === -1) {
         return { result: false, error: `Destination ${destId} not found` };
       }
 
-      client.destinations!.splice(idx, 1);
+      const removed = contract.destinations![idx];
+      contract.destinations!.splice(idx, 1);
+      if (removed?.is_primary && contract.destinations!.length > 0) {
+        contract.destinations![0].is_primary = true;
+        // Validation is bound to primary destination only.
+        contract.response_validation = { rules: [] };
+      }
 
       const now = new Date().toISOString();
       campaign.updated_at = now;
@@ -1841,7 +2215,7 @@ export class CampaignService {
         action: "destination_deleted",
         changes: [
           {
-            field: `clients.${clientId}.destinations.${destId}`,
+            field: `contracts.${contract.contract_id}.destinations.${destId}`,
             from: destId,
             to: null,
           },
@@ -1866,38 +2240,36 @@ export class CampaignService {
     request: SetResponseValidationRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<IClientResponseValidation>> {
-    if (!Array.isArray(request.groups)) {
+    const requestRules = this.normalizeResponseValidationRules(
+      request as unknown as IClientResponseValidation,
+    );
+    if (
+      !Array.isArray((request as Record<string, unknown>).rules) &&
+      !Array.isArray((request as Record<string, unknown>).groups)
+    ) {
       return {
         result: false,
-        error: "groups must be an array",
+        error: "rules must be an array",
       };
     }
-    for (const group of request.groups) {
-      if (!Array.isArray(group.conditions) || group.conditions.length === 0) {
+    for (const rule of requestRules) {
+      if (!rule.destination_id?.trim()) {
         return {
           result: false,
-          error: "Each group must have at least one condition",
+          error: "Each rule must have a non-empty destination_id",
         };
       }
-      for (const c of group.conditions) {
-        if (!c.destination_id?.trim()) {
-          return {
-            result: false,
-            error: "Each condition must have a non-empty destination_id",
-          };
-        }
-        if (!c.match_value?.trim()) {
-          return {
-            result: false,
-            error: "Each condition must have a non-empty match_value",
-          };
-        }
-        if (c.action !== "passed" && c.action !== "failed") {
-          return {
-            result: false,
-            error: 'Each condition action must be "passed" or "failed"',
-          };
-        }
+      if (!rule.match_value?.trim()) {
+        return {
+          result: false,
+          error: "Each rule must have a non-empty match_value",
+        };
+      }
+      if (rule.action !== "passed" && rule.action !== "failed") {
+        return {
+          result: false,
+          error: 'Each rule action must be "passed" or "failed"',
+        };
       }
     }
     try {
@@ -1905,39 +2277,66 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
-      // Validate that all referenced destinations exist
-      const destIds = new Set((client.destinations ?? []).map((d) => d.id));
-      for (const group of request.groups) {
-        for (const c of group.conditions) {
-          if (!destIds.has(c.destination_id)) {
-            return {
-              result: false,
-              error: `Destination ${c.destination_id} not found`,
-            };
-          }
-        }
+
+      const primaryDestination =
+        (contract.destinations ?? []).find((d) => d.is_primary) ??
+        (contract.destinations ?? [])[0] ??
+        null;
+      if (!primaryDestination && requestRules.length > 0) {
+        return {
+          result: false,
+          error: "Add a primary destination before saving response validation",
+        };
       }
 
-      const prev = client.response_validation;
+      // Validate that all referenced destinations exist
+      const destIds = new Set((contract.destinations ?? []).map((d) => d.id));
+      let hasPassRule = false;
+      for (const rule of requestRules) {
+        if (!destIds.has(rule.destination_id)) {
+          return {
+            result: false,
+            error: `Destination ${rule.destination_id} not found`,
+          };
+        }
+        if (
+          primaryDestination &&
+          rule.destination_id !== primaryDestination.id
+        ) {
+          return {
+            result: false,
+            error:
+              "Response validation must target the primary destination only",
+          };
+        }
+
+        if (rule.action === "passed") hasPassRule = true;
+      }
+
+      if (requestRules.length > 0 && !hasPassRule) {
+        return {
+          result: false,
+          error:
+            "At least one PASS rule is required so leads can be marked sold",
+        };
+      }
+
+      const prev = contract.response_validation;
       const validation: IClientResponseValidation = {
-        groups: request.groups.map((g) => ({
-          conditions: g.conditions.map((c) => ({
-            destination_id: c.destination_id,
-            match_value: c.match_value.trim(),
-            action: c.action,
-          })),
+        rules: requestRules.map((rule) => ({
+          destination_id: primaryDestination?.id ?? rule.destination_id,
+          match_value: rule.match_value.trim(),
+          action: rule.action,
         })),
       };
-      client.response_validation = validation;
+      contract.response_validation = validation;
 
       const now = new Date().toISOString();
       campaign.updated_at = now;
@@ -1953,7 +2352,7 @@ export class CampaignService {
         action: "response_validation_updated" as AuditAction,
         changes: [
           {
-            field: `clients.${clientId}.response_validation`,
+            field: `contracts.${contract.contract_id}.response_validation`,
             from: prev ?? null,
             to: validation,
           },
@@ -1981,16 +2380,14 @@ export class CampaignService {
       if (!campaign || campaign.is_deleted) {
         return { result: false, error: `Campaign ${campaignId} not found` };
       }
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
-      return { result: true, data: client.response_validation ?? null };
+      return { result: true, data: contract.response_validation ?? null };
     } catch (error: any) {
       this.logger.error("Failed to get response validation", error);
       return {
@@ -2552,22 +2949,29 @@ export class CampaignService {
       campaignId,
       clientId,
       (c, campaign) => {
-        campaign.clients = (campaign.clients ?? []).filter(
-          (x) => x.client_id !== clientId,
+        const contracts = this.getCampaignContracts(campaign).filter(
+          (x) => this.getContractIdentity(x) !== this.getContractIdentity(c),
         );
+        campaign.contracts = contracts;
+        campaign.clients = contracts;
       },
       actor,
       { recordRemoval: true },
       {
-        action: "client_deleted",
+        action: "contract_deleted",
         changes: (before) => [
           {
-            field: `clients.${clientId}.status`,
+            field: `contracts.${before.contract_id}.status`,
             from: before.status ?? null,
             to: null,
           },
           {
-            field: `clients.${clientId}.client_id`,
+            field: `contracts.${before.contract_id}.contract_id`,
+            from: before.contract_id,
+            to: null,
+          },
+          {
+            field: `contracts.${before.contract_id}.client_id`,
             from: before.client_id,
             to: null,
           },
@@ -2681,6 +3085,31 @@ export class CampaignService {
     }
   }
 
+  private getCampaignContracts(campaign: ICampaign): ICampaignClient[] {
+    return campaign.contracts ?? campaign.clients ?? [];
+  }
+
+  private getContractIdentity(contract: ICampaignClient): string {
+    return contract.contract_id;
+  }
+
+  private findContract(
+    campaign: ICampaign,
+    contractIdOrClientId: string,
+  ): ICampaignClient | undefined {
+    const contracts = this.getCampaignContracts(campaign);
+    const byContractId = contracts.find(
+      (contract) => contract.contract_id === contractIdOrClientId,
+    );
+    if (byContractId) return byContractId;
+
+    // Legacy fallback for older client-id based callers.
+    const byClientId = contracts.filter(
+      (contract) => contract.client_id === contractIdOrClientId,
+    );
+    return byClientId[0];
+  }
+
   private async mutateClient(
     campaignId: string,
     clientId: string,
@@ -2705,37 +3134,42 @@ export class CampaignService {
         return {
           result: false,
           error:
-            "Cannot remove client because the campaign has leads; disable the client instead",
+            "Cannot remove contract because the campaign has leads; disable the contract instead",
         };
       }
 
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client) {
+      const contract = this.findContract(campaign, clientId);
+      if (!contract) {
         return {
           result: false,
-          error: `Client ${clientId} not linked to campaign`,
+          error: `Contract ${clientId} not linked to campaign`,
         };
       }
 
       const now = new Date().toISOString();
-      const auditChanges = audit ? audit.changes({ ...client }) : [];
+      const auditChanges = audit ? audit.changes({ ...contract }) : [];
 
       if (options.recordRemoval) {
-        campaign.removed_clients = [
-          ...(campaign.removed_clients ?? []),
+        const removedContracts =
+          campaign.removed_contracts ?? campaign.removed_clients ?? [];
+        campaign.removed_contracts = [
+          ...removedContracts,
           {
-            client_id: client.client_id,
-            added_at: client.added_at,
-            status_at_removal: client.status,
+            contract_id: contract.contract_id,
+            client_id: contract.client_id,
+            added_at: contract.added_at,
+            status_at_removal: contract.status,
             removed_at: now,
             removed_by: actor,
           },
         ];
+        campaign.removed_clients = campaign.removed_contracts;
       }
 
-      mutate(client, campaign);
+      mutate(contract, campaign);
+
+      campaign.clients = this.getCampaignContracts(campaign);
+      campaign.contracts = this.getCampaignContracts(campaign);
 
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -2756,11 +3190,12 @@ export class CampaignService {
         });
       }
 
-      this.logger.info("Campaign client mutated", {
+      this.logger.info("Campaign contract mutated", {
         campaignId,
-        clientId,
-        status: client.status,
-        addedAt: client.added_at,
+        contractId: contract.contract_id,
+        clientId: contract.client_id,
+        status: contract.status,
+        addedAt: contract.added_at,
       });
 
       return { result: true, data: this.enrichCampaignForResponse(campaign) };
@@ -2823,7 +3258,7 @@ export class CampaignService {
       const normalized = this.normalizeParticipants(existing);
       Object.assign(existing, normalized);
 
-      const hasClients = (existing.clients?.length ?? 0) > 0;
+      const hasContracts = this.getCampaignContracts(existing).length > 0;
       const hasAffiliates = (existing.affiliates?.length ?? 0) > 0;
       // Use the persisted flag — avoids an unreliable cross-table scan with Limit:1
       const hasLeads = existing.has_received_leads === true;
@@ -2838,11 +3273,11 @@ export class CampaignService {
         };
       }
 
-      if (hasClients || hasAffiliates) {
+      if (hasContracts || hasAffiliates) {
         return {
           result: false,
           error:
-            "Remove or disable all linked clients and affiliates before deleting the campaign",
+            "Remove or disable all linked contracts and affiliates before deleting the campaign",
         };
       }
 
@@ -2856,7 +3291,8 @@ export class CampaignService {
       const hasParticipantHistory =
         existing.ever_linked_participants === true ||
         (existing.removed_affiliates?.length ?? 0) > 0 ||
-        (existing.removed_clients?.length ?? 0) > 0;
+        ((existing.removed_contracts ?? existing.removed_clients)?.length ??
+          0) > 0;
       const hasLeadHistory = existing.has_received_leads === true;
 
       if (options.permanent) {
@@ -2924,15 +3360,9 @@ export class CampaignService {
 
   // ── Base Criteria ─────────────────────────────────────────────────────────
 
-  private static readonly VALID_DATA_TYPES: BaseCriteriaDataType[] = [
-    "List",
-    "US State",
-    "Text",
-    "Number",
-    "Date",
-    "Boolean",
-    "Yes/No",
-  ];
+  private static readonly VALID_DATA_TYPES: Array<
+    BaseCriteriaDataType | LegacyCriteriaDataType
+  > = ["List", "US State", "Text", "Number", "Date", "Boolean", "Yes/No"];
 
   async getCriteria(
     campaignId: string,
@@ -3613,12 +4043,28 @@ export class CampaignService {
       const mappingsError = this.validateValueMappings(request.value_mappings);
       if (mappingsError) return { result: false, error: mappingsError };
 
+      if (
+        request.state_mapping !== undefined &&
+        request.state_mapping !== null &&
+        request.state_mapping !== "abbr_to_name" &&
+        request.state_mapping !== "name_to_abbr"
+      ) {
+        return {
+          result: false,
+          error:
+            'state_mapping must be "abbr_to_name", "name_to_abbr", or null',
+        };
+      }
+
       const field = { ...existing[fieldIndex] };
       const now = new Date().toISOString();
 
       const previousMappings = field.value_mappings;
       field.value_mappings =
         request.value_mappings.length > 0 ? request.value_mappings : undefined;
+      if (request.state_mapping !== undefined) {
+        field.state_mapping = request.state_mapping || undefined;
+      }
       field.updated_at = now;
       field.updated_by = actor;
 
@@ -4800,21 +5246,23 @@ export class CampaignService {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted)
         return { result: false, error: `Campaign ${campaignId} not found` };
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client)
+      const contract = this.findContract(campaign, clientId);
+      if (!contract)
         return {
           result: false,
-          error: `Client ${clientId} not found on this campaign`,
+          error: `Contract ${clientId} not found on this campaign`,
         };
-      const overrides = (campaign.client_overrides ?? {})[clientId] ?? {};
+      const contractId = this.getContractIdentity(contract);
+      const overrides =
+        (campaign.contract_overrides ?? campaign.client_overrides ?? {})[
+          contractId
+        ] ?? {};
       return { result: true, data: overrides.logic_rules ?? [] };
     } catch (error: any) {
-      this.logger.error("Failed to list client logic rules", error);
+      this.logger.error("Failed to list contract logic rules", error);
       return {
         result: false,
-        error: error.message || "Failed to list client logic rules",
+        error: error.message || "Failed to list contract logic rules",
       };
     }
   }
@@ -4829,14 +5277,13 @@ export class CampaignService {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted)
         return { result: false, error: `Campaign ${campaignId} not found` };
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client)
+      const contract = this.findContract(campaign, clientId);
+      if (!contract)
         return {
           result: false,
-          error: `Client ${clientId} not found on this campaign`,
+          error: `Contract ${clientId} not found on this campaign`,
         };
+      const contractId = this.getContractIdentity(contract);
 
       const validationError = this.validateLogicRuleRequest(request);
       if (validationError) return { result: false, error: validationError };
@@ -4858,12 +5305,15 @@ export class CampaignService {
         updated_by: actor,
       };
 
-      const overrides = { ...(campaign.client_overrides ?? {}) };
-      const existing = overrides[clientId] ?? {};
-      overrides[clientId] = {
+      const overrides = {
+        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+      };
+      const existing = overrides[contractId] ?? {};
+      overrides[contractId] = {
         ...existing,
         logic_rules: [...(existing.logic_rules ?? []), rule],
       };
+      campaign.contract_overrides = overrides;
       campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -4875,9 +5325,10 @@ export class CampaignService {
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,
         entity_type: "campaign",
-        action: "client_logic_rule_added",
+        action: "contract_logic_rule_added",
         changes: [
-          { field: "client_id", from: null, to: clientId },
+          { field: "contract_id", from: null, to: contractId },
+          { field: "client_id", from: null, to: contract.client_id },
           { field: "rule_id", from: null, to: rule.id },
           { field: "name", from: null, to: rule.name },
         ],
@@ -4887,10 +5338,10 @@ export class CampaignService {
 
       return { result: true, data: rule };
     } catch (error: any) {
-      this.logger.error("Failed to create client logic rule", error);
+      this.logger.error("Failed to create contract logic rule", error);
       return {
         result: false,
-        error: error.message || "Failed to create client logic rule",
+        error: error.message || "Failed to create contract logic rule",
       };
     }
   }
@@ -4906,15 +5357,24 @@ export class CampaignService {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted)
         return { result: false, error: `Campaign ${campaignId} not found` };
+      const contract = this.findContract(campaign, clientId);
+      if (!contract)
+        return {
+          result: false,
+          error: `Contract ${clientId} not found on this campaign`,
+        };
+      const contractId = this.getContractIdentity(contract);
 
-      const overrides = { ...(campaign.client_overrides ?? {}) };
-      const existing = overrides[clientId] ?? {};
+      const overrides = {
+        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+      };
+      const existing = overrides[contractId] ?? {};
       const rules = existing.logic_rules ?? [];
       const ruleIndex = rules.findIndex((r) => r.id === ruleId);
       if (ruleIndex === -1)
         return {
           result: false,
-          error: `Logic rule ${ruleId} not found for client ${clientId}`,
+          error: `Logic rule ${ruleId} not found for contract ${contractId}`,
         };
 
       if (request.conditions !== undefined) {
@@ -4950,7 +5410,8 @@ export class CampaignService {
 
       const updatedRules = [...rules];
       updatedRules[ruleIndex] = updated;
-      overrides[clientId] = { ...existing, logic_rules: updatedRules };
+      overrides[contractId] = { ...existing, logic_rules: updatedRules };
+      campaign.contract_overrides = overrides;
       campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -4962,9 +5423,10 @@ export class CampaignService {
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,
         entity_type: "campaign",
-        action: "client_logic_rule_updated",
+        action: "contract_logic_rule_updated",
         changes: [
-          { field: "client_id", from: null, to: clientId },
+          { field: "contract_id", from: null, to: contractId },
+          { field: "client_id", from: null, to: contract.client_id },
           { field: "rule_id", from: ruleId, to: ruleId },
         ],
         actor,
@@ -4973,10 +5435,10 @@ export class CampaignService {
 
       return { result: true, data: updated };
     } catch (error: any) {
-      this.logger.error("Failed to update client logic rule", error);
+      this.logger.error("Failed to update contract logic rule", error);
       return {
         result: false,
-        error: error.message || "Failed to update client logic rule",
+        error: error.message || "Failed to update contract logic rule",
       };
     }
   }
@@ -4991,22 +5453,32 @@ export class CampaignService {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted)
         return { result: false, error: `Campaign ${campaignId} not found` };
+      const contract = this.findContract(campaign, clientId);
+      if (!contract)
+        return {
+          result: false,
+          error: `Contract ${clientId} not found on this campaign`,
+        };
+      const contractId = this.getContractIdentity(contract);
 
-      const overrides = { ...(campaign.client_overrides ?? {}) };
-      const existing = overrides[clientId] ?? {};
+      const overrides = {
+        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+      };
+      const existing = overrides[contractId] ?? {};
       const rules = existing.logic_rules ?? [];
       const ruleToDelete = rules.find((r) => r.id === ruleId);
       if (!ruleToDelete)
         return {
           result: false,
-          error: `Logic rule ${ruleId} not found for client ${clientId}`,
+          error: `Logic rule ${ruleId} not found for contract ${contractId}`,
         };
 
       const now = new Date().toISOString();
-      overrides[clientId] = {
+      overrides[contractId] = {
         ...existing,
         logic_rules: rules.filter((r) => r.id !== ruleId),
       };
+      campaign.contract_overrides = overrides;
       campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -5018,9 +5490,10 @@ export class CampaignService {
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,
         entity_type: "campaign",
-        action: "client_logic_rule_deleted",
+        action: "contract_logic_rule_deleted",
         changes: [
-          { field: "client_id", from: null, to: clientId },
+          { field: "contract_id", from: null, to: contractId },
+          { field: "client_id", from: null, to: contract.client_id },
           { field: "rule_id", from: ruleToDelete.id, to: null },
           { field: "name", from: ruleToDelete.name, to: null },
         ],
@@ -5030,10 +5503,10 @@ export class CampaignService {
 
       return { result: true, data: { id: ruleId } };
     } catch (error: any) {
-      this.logger.error("Failed to delete client logic rule", error);
+      this.logger.error("Failed to delete contract logic rule", error);
       return {
         result: false,
-        error: error.message || "Failed to delete client logic rule",
+        error: error.message || "Failed to delete contract logic rule",
       };
     }
   }
@@ -5057,14 +5530,13 @@ export class CampaignService {
 
       if (!campaign || campaign.is_deleted)
         return { result: false, error: `Campaign ${campaignId} not found` };
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client)
+      const contract = this.findContract(campaign, clientId);
+      if (!contract)
         return {
           result: false,
-          error: `Client ${clientId} not found on this campaign`,
+          error: `Contract ${clientId} not found on this campaign`,
         };
+      const contractId = this.getContractIdentity(contract);
       if (!catalogVersion || catalogVersion.record_type !== "logic_version")
         return {
           result: false,
@@ -5075,14 +5547,17 @@ export class CampaignService {
       const rules: ILogicRule[] = JSON.parse(
         JSON.stringify(catalogVersion.rules),
       );
-      const overrides = { ...(campaign.client_overrides ?? {}) };
-      const existing = overrides[clientId] ?? {};
-      overrides[clientId] = {
+      const overrides = {
+        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+      };
+      const existing = overrides[contractId] ?? {};
+      overrides[contractId] = {
         ...existing,
         logic_set_id,
         logic_set_version: version,
         logic_rules: rules,
       };
+      campaign.contract_overrides = overrides;
       campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -5094,9 +5569,10 @@ export class CampaignService {
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,
         entity_type: "campaign",
-        action: "client_logic_catalog_applied",
+        action: "contract_logic_catalog_applied",
         changes: [
-          { field: "client_id", from: null, to: clientId },
+          { field: "contract_id", from: null, to: contractId },
+          { field: "client_id", from: null, to: contract.client_id },
           {
             field: "logic_set_id",
             from: existing.logic_set_id,
@@ -5114,10 +5590,10 @@ export class CampaignService {
 
       return { result: true, data: rules };
     } catch (error: any) {
-      this.logger.error("Failed to apply logic catalog to client", error);
+      this.logger.error("Failed to apply logic catalog to contract", error);
       return {
         result: false,
-        error: error.message || "Failed to apply logic catalog to client",
+        error: error.message || "Failed to apply logic catalog to contract",
       };
     }
   }
@@ -5140,18 +5616,19 @@ export class CampaignService {
       const campaign = await this.getCampaignById(campaignId);
       if (!campaign || campaign.is_deleted)
         return { result: false, error: `Campaign ${campaignId} not found` };
-      const client = (campaign.clients ?? []).find(
-        (c) => c.client_id === clientId,
-      );
-      if (!client)
+      const contract = this.findContract(campaign, clientId);
+      if (!contract)
         return {
           result: false,
-          error: `Client ${clientId} not found on this campaign`,
+          error: `Contract ${clientId} not found on this campaign`,
         };
+      const contractId = this.getContractIdentity(contract);
 
       const campaignRules = campaign.logic_rules ?? [];
-      const overrides = { ...(campaign.client_overrides ?? {}) };
-      const existing = overrides[clientId] ?? {};
+      const overrides = {
+        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+      };
+      const existing = overrides[contractId] ?? {};
       const clientRules = existing.logic_rules ?? [];
 
       // Build a set of field signatures from campaign rules for matching
@@ -5184,12 +5661,13 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
-      overrides[clientId] = {
+      overrides[contractId] = {
         ...existing,
         logic_set_id: campaign.logic_set_id,
         logic_set_version: campaign.logic_set_version,
         logic_rules: keptRules,
       };
+      campaign.contract_overrides = overrides;
       campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
@@ -5201,9 +5679,10 @@ export class CampaignService {
       await this.auditWriterService.writeAuditEvent({
         entity_id: campaignId,
         entity_type: "campaign",
-        action: "client_logic_synced_to_campaign",
+        action: "contract_logic_synced_to_campaign",
         changes: [
-          { field: "client_id", from: null, to: clientId },
+          { field: "contract_id", from: null, to: contractId },
+          { field: "client_id", from: null, to: contract.client_id },
           {
             field: "logic_set_id",
             from: existing.logic_set_id,
@@ -5225,10 +5704,10 @@ export class CampaignService {
         data: { kept_rules: keptRules, removed_count: removedCount },
       };
     } catch (error: any) {
-      this.logger.error("Failed to sync client logic to campaign", error);
+      this.logger.error("Failed to sync contract logic to campaign", error);
       return {
         result: false,
-        error: error.message || "Failed to sync client logic to campaign",
+        error: error.message || "Failed to sync contract logic to campaign",
       };
     }
   }
@@ -5320,22 +5799,109 @@ export class CampaignService {
     return null;
   }
 
+  private normalizeResponseValidationRules(
+    validation:
+      | (IClientResponseValidation & {
+          groups?: Array<{ conditions?: Array<Partial<IValidationRule>> }>;
+        })
+      | undefined,
+  ): IValidationRule[] {
+    if (!validation) return [];
+
+    const rules = (validation as { rules?: Array<Partial<IValidationRule>> })
+      .rules;
+    if (Array.isArray(rules)) {
+      return rules.map((rule) => ({
+        destination_id:
+          typeof rule.destination_id === "string" ? rule.destination_id : "",
+        match_value:
+          typeof rule.match_value === "string" ? rule.match_value : "",
+        action: rule.action as IValidationRule["action"],
+      }));
+    }
+
+    const groups = validation.groups ?? [];
+    const flattened: IValidationRule[] = [];
+    for (const group of groups) {
+      for (const condition of group.conditions ?? []) {
+        flattened.push({
+          destination_id:
+            typeof condition.destination_id === "string"
+              ? condition.destination_id
+              : "",
+          match_value:
+            typeof condition.match_value === "string"
+              ? condition.match_value
+              : "",
+          action: condition.action as IValidationRule["action"],
+        });
+      }
+    }
+
+    return flattened;
+  }
+
   private normalizeParticipants(campaign: ICampaign): ICampaign {
-    const normalizeClients: ICampaignClient[] = (campaign.clients ?? []).map(
-      (c: any) =>
-        typeof c === "string"
-          ? {
-              client_id: c,
-              status: CampaignParticipantStatus.LIVE,
-              added_at: new Date().toISOString(),
-            }
-          : {
-              ...c,
-              client_id: c.client_id,
-              added_at: c.added_at ?? new Date().toISOString(),
-              status: c.status ?? CampaignParticipantStatus.LIVE,
-            },
+    const sourceContracts = campaign.contracts ?? campaign.clients ?? [];
+    const normalizeContracts: ICampaignClient[] = sourceContracts.map(
+      (c: any) => {
+        if (typeof c === "string") {
+          return {
+            contract_id: c,
+            client_id: c,
+            status: CampaignParticipantStatus.LIVE,
+            added_at: new Date().toISOString(),
+          };
+        }
+
+        const contractId =
+          typeof c.contract_id === "string" && c.contract_id.trim().length > 0
+            ? c.contract_id
+            : c.client_id;
+
+        return {
+          ...c,
+          contract_id: contractId,
+          client_id: c.client_id,
+          added_at: c.added_at ?? new Date().toISOString(),
+          status: c.status ?? CampaignParticipantStatus.LIVE,
+          ...(c.response_validation
+            ? {
+                response_validation: {
+                  rules: this.normalizeResponseValidationRules(
+                    c.response_validation,
+                  ),
+                },
+              }
+            : {}),
+        };
+      },
     );
+
+    const normalizeRemovedContracts = (
+      campaign.removed_contracts ??
+      campaign.removed_clients ??
+      []
+    ).map((removed: any) => ({
+      ...removed,
+      contract_id: removed.contract_id ?? removed.client_id,
+      client_id: removed.client_id,
+    }));
+
+    const normalizedContractOverrides: Record<string, any> = {
+      ...(campaign.contract_overrides ?? {}),
+    };
+    const legacyClientOverrides = campaign.client_overrides ?? {};
+    for (const contract of normalizeContracts) {
+      if (!normalizedContractOverrides[contract.contract_id]) {
+        const legacyOverride =
+          legacyClientOverrides[contract.contract_id] ??
+          legacyClientOverrides[contract.client_id];
+        if (legacyOverride) {
+          normalizedContractOverrides[contract.contract_id] = legacyOverride;
+        }
+      }
+    }
 
     const normalizeAffiliates: ICampaignAffiliate[] = (
       campaign.affiliates ?? []
@@ -5361,14 +5927,20 @@ export class CampaignService {
 
     return {
       ...campaignWithoutStatusHistory,
-      clients: normalizeClients,
+      contracts: normalizeContracts,
+      clients: normalizeContracts,
       affiliates: normalizeAffiliates,
       plugins: this.normalizePlugins(campaign.plugins),
-      removed_clients: campaign.removed_clients ?? [],
+      removed_contracts: normalizeRemovedContracts,
+      removed_clients: normalizeRemovedContracts,
+      contract_overrides: normalizedContractOverrides,
+      client_overrides: normalizedContractOverrides,
+      rr_last_contract_id:
+        campaign.rr_last_contract_id ?? campaign.rr_last_client_id,
       removed_affiliates: campaign.removed_affiliates ?? [],
       ever_linked_participants:
         campaign.ever_linked_participants === true ||
-        normalizeClients.length > 0 ||
+        normalizeContracts.length > 0 ||
         normalizeAffiliates.length > 0,
       has_received_leads: campaign.has_received_leads ?? false,
     };
