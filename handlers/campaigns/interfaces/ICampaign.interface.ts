@@ -91,6 +91,8 @@ export interface ICampaignAffiliate {
 export interface ICampaignContract {
   /** Stable participant identity for campaign routing and APIs. */
   contract_id: string;
+  /** Human-readable contract label chosen by operators. */
+  contract_name?: string;
   /** Client entity this contract belongs to. Multiple contracts may share one client_id. */
   client_id: string;
   added_at?: string;

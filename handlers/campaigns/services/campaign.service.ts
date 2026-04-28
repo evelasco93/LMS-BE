@@ -56,6 +56,7 @@ import {
   SetAffiliateSoldPixelRequest,
   SetCampaignTagsRequest,
   SetClientDeliveryRequest,
+  UpdateContractRequest,
   SetDistributionRequest,
   SetValueMappingsRequest,
   UpdateCampaignPluginsRequest,
@@ -329,7 +330,7 @@ export class CampaignService {
   async updateContractStatus(
     campaignId: string,
     contractId: string,
-    request: UpdateParticipantStatusRequest,
+    request: UpdateContractRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     return this.updateClientStatus(campaignId, contractId, request, actor);
@@ -490,7 +491,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["client_id", "contract_id"],
+        ["client_id", "contract_id", "contract_name"],
       );
       if (!ok) {
         return { result: false, error: `Invalid fields: ${extras.join(", ")}` };
@@ -559,8 +560,20 @@ export class CampaignService {
         );
       }
 
+      const contractName =
+        typeof sanitized.contract_name === "string"
+          ? sanitized.contract_name.trim()
+          : "";
+      if (sanitized.contract_name !== undefined && !contractName) {
+        return {
+          result: false,
+          error: "contract_name must be a non-empty string when provided",
+        };
+      }
+
       const newContract: ICampaignClient = {
         contract_id: contractId,
+        ...(contractName ? { contract_name: contractName } : {}),
         client_id: clientId,
         added_at: now,
         status: campaignStatus,
@@ -610,6 +623,15 @@ export class CampaignService {
             from: null,
             to: clientId,
           },
+          ...(contractName
+            ? [
+                {
+                  field: `contracts.${contractId}.contract_name`,
+                  from: null,
+                  to: contractName,
+                },
+              ]
+            : []),
           {
             field: `contracts.${contractId}.status`,
             from: null,
@@ -1505,9 +1527,33 @@ export class CampaignService {
   async updateClientStatus(
     campaignId: string,
     clientId: string,
-    request: UpdateParticipantStatusRequest,
+    request: UpdateContractRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
+    const hasStatusUpdate = request.status !== undefined;
+    const hasContractNameUpdate = request.contract_name !== undefined;
+    if (!hasStatusUpdate && !hasContractNameUpdate) {
+      return {
+        result: false,
+        error: "At least one of status or contract_name is required",
+      };
+    }
+
+    if (hasContractNameUpdate) {
+      if (typeof request.contract_name !== "string") {
+        return {
+          result: false,
+          error: "contract_name must be a string",
+        };
+      }
+      if (!request.contract_name.trim()) {
+        return {
+          result: false,
+          error: "contract_name must be a non-empty string",
+        };
+      }
+    }
+
     // Guard: a contract may only be set to LIVE if delivery config is complete.
     // Destination-config contracts use the primary destination + response validation.
     if (request.status === CampaignParticipantStatus.LIVE) {
@@ -1593,18 +1639,39 @@ export class CampaignService {
       campaignId,
       clientId,
       (c) => {
-        c.status = request.status;
+        if (request.status !== undefined) {
+          c.status = request.status;
+        }
+        if (request.contract_name !== undefined) {
+          c.contract_name = request.contract_name.trim();
+        }
       },
       actor,
       { recordRemoval: false },
       {
-        action: "contract_status_updated",
+        action:
+          hasStatusUpdate && !hasContractNameUpdate
+            ? "contract_status_updated"
+            : "contract_updated",
         changes: (before) => [
-          {
-            field: `contracts.${before.contract_id}.status`,
-            from: before.status ?? null,
-            to: request.status,
-          },
+          ...(hasStatusUpdate
+            ? [
+                {
+                  field: `contracts.${before.contract_id}.status`,
+                  from: before.status ?? null,
+                  to: request.status,
+                },
+              ]
+            : []),
+          ...(hasContractNameUpdate
+            ? [
+                {
+                  field: `contracts.${before.contract_id}.contract_name`,
+                  from: before.contract_name ?? null,
+                  to: request.contract_name?.trim() ?? null,
+                },
+              ]
+            : []),
         ],
       },
     );

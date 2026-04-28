@@ -19,6 +19,7 @@ export type CreateCampaignRequest = {
 export type LinkContractRequest = {
   client_id: string;
   contract_id?: string;
+  contract_name?: string;
 };
 
 /** @deprecated Prefer LinkContractRequest. */
@@ -30,6 +31,11 @@ export type LinkAffiliateRequest = {
 
 export type UpdateParticipantStatusRequest = {
   status: CampaignParticipantStatus;
+};
+
+export type UpdateContractRequest = {
+  status?: CampaignParticipantStatus;
+  contract_name?: string;
 };
 
 export type UpdateCampaignStatusRequest = {

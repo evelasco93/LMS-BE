@@ -47,6 +47,39 @@ validate_input() {
   esac
 }
 
+validate_aws_account_guard() {
+  if [[ "$ACTION" == "synth" ]]; then
+    return
+  fi
+
+  if [[ -z "${CDK_DEFAULT_ACCOUNT:-}" ]]; then
+    echo -e "${RED}Error: CDK_DEFAULT_ACCOUNT is not set${NC}"
+    echo "Run: source ./scripts/env-dev.sh"
+    exit 1
+  fi
+
+  if ! command -v aws >/dev/null 2>&1; then
+    echo -e "${RED}Error: aws CLI is required for account guard${NC}"
+    exit 1
+  fi
+
+  local current_account
+  current_account="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+
+  if [[ -z "${current_account}" ]] || [[ "${current_account}" == "None" ]]; then
+    echo -e "${RED}Error: unable to resolve current AWS account identity${NC}"
+    echo "Check AWS credentials/profile before deploy."
+    exit 1
+  fi
+
+  if [[ "${current_account}" != "${CDK_DEFAULT_ACCOUNT}" ]]; then
+    echo -e "${RED}Error: AWS account mismatch${NC}"
+    echo "Expected: ${CDK_DEFAULT_ACCOUNT}"
+    echo "Current:  ${current_account}"
+    exit 1
+  fi
+}
+
 # Print usage
 print_usage() {
   echo -e "${YELLOW}Usage: ./scripts/deploy.sh [stack] [action]${NC}"
@@ -146,6 +179,8 @@ main() {
     echo "Run: source ./scripts/env-dev.sh"
     exit 1
   fi
+
+  validate_aws_account_guard
   
   # Get the stack names
   STACK_NAMES=$(get_stack_names "$STACK" "$ENVIRONMENT")

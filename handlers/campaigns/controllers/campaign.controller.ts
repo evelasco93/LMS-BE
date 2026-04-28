@@ -21,6 +21,7 @@ import {
   UpdateCampaignRequest,
   UpdateCampaignStatusRequest,
   UpdateCampaignPluginsRequest,
+  UpdateContractRequest,
   UpdateParticipantStatusRequest,
   AddCriteriaFieldRequest,
   UpdateCriteriaFieldRequest,
@@ -182,7 +183,7 @@ export class CampaignController extends Controller {
   async updateContractStatus(
     @pathParam("id") id: string,
     @pathParam("contractId") contractId: string,
-    @body payload: UpdateParticipantStatusRequest,
+    @body payload: UpdateContractRequest,
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.updateContractStatus(
       id,
