@@ -365,6 +365,8 @@ export interface ICampaign {
   removed_clients?: IRemovedContract[];
   removed_affiliates?: IRemovedAffiliate[];
   plugins: ICampaignPlugins;
+  /** Campaign-wide default QA validation bypass flags. Affiliate-level bypass can override these. */
+  validation_bypass?: ICampaignValidationBypassConfig;
   ever_linked_participants?: boolean;
   has_received_leads?: boolean;
   /** Base criteria fields that every lead must satisfy for this campaign */

@@ -313,6 +313,45 @@ describe("CampaignService", () => {
         emptyCampaign.plugins.ipqs.ip.criteria,
       );
     });
+
+    it("updates campaign-level validation bypass via plugins endpoint", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...emptyCampaign,
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await campaignService.updatePlugins(emptyCampaign.id, {
+        validation_bypass: {
+          duplicate_check: true,
+          ipqs_phone: true,
+        },
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.validation_bypass).toEqual({
+        duplicate_check: true,
+        ipqs_phone: true,
+      });
+      expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects invalid campaign-level validation bypass value types", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...emptyCampaign,
+      });
+
+      const result = await campaignService.updatePlugins(emptyCampaign.id, {
+        validation_bypass: {
+          duplicate_check: "yes" as unknown as boolean,
+        },
+      });
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain(
+        "validation_bypass.duplicate_check must be a boolean",
+      );
+      expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
+    });
   });
 
   describe("updateStatus", () => {

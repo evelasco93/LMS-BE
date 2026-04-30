@@ -14,10 +14,39 @@ import {
 interface MockCampaign {
   id: string;
   status: CampaignStatus;
+  validation_bypass?: {
+    trusted_form_claim?: boolean;
+    duplicate_check?: boolean;
+    ipqs_phone?: boolean;
+    ipqs_email?: boolean;
+    ipqs_ip?: boolean;
+    all?: boolean;
+  };
+  affiliate_overrides?: Record<
+    string,
+    {
+      validation_bypass?: {
+        trusted_form_claim?: boolean;
+        duplicate_check?: boolean;
+        ipqs_phone?: boolean;
+        ipqs_email?: boolean;
+        ipqs_ip?: boolean;
+        all?: boolean;
+      };
+    }
+  >;
   affiliates: {
     affiliate_id: string;
     campaign_key: string;
     status?: CampaignParticipantStatus;
+    validation_bypass?: {
+      trusted_form_claim?: boolean;
+      duplicate_check?: boolean;
+      ipqs_phone?: boolean;
+      ipqs_email?: boolean;
+      ipqs_ip?: boolean;
+      all?: boolean;
+    };
   }[];
   plugins?: {
     duplicate_check?: {
@@ -374,6 +403,88 @@ describe("LeadsService", () => {
       expect(result.result).toBe("passed");
       expect(result.data?.lead_id).toBeDefined();
       expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledTimes(1);
+    });
+
+    it("applies campaign-level bypass when affiliate has no bypass", async () => {
+      mockConstants.QA_ORCHESTRATOR_LAMBDA_NAME = "qa-orchestrator";
+      const campaign = {
+        ...buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.LIVE),
+        validation_bypass: {
+          duplicate_check: true,
+          ipqs_phone: true,
+        },
+      };
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+        duplicate: false,
+        duplicate_matches: { lead_ids: [] },
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "ok@real.com", phone: "5551112222" },
+      });
+
+      expect(result.result).toBe("passed");
+      expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            bypass: {
+              duplicate_check: true,
+              ipqs_phone: true,
+            },
+          }),
+        }),
+      );
+    });
+
+    it("lets affiliate bypass values override campaign-level defaults", async () => {
+      mockConstants.QA_ORCHESTRATOR_LAMBDA_NAME = "qa-orchestrator";
+      const campaign = {
+        ...buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.LIVE),
+        validation_bypass: {
+          duplicate_check: true,
+          ipqs_phone: true,
+        },
+        affiliates: [
+          {
+            affiliate_id: "AF1",
+            campaign_key: "KEY123",
+            status: CampaignParticipantStatus.LIVE,
+            validation_bypass: {
+              duplicate_check: false,
+            },
+          },
+        ],
+      };
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+        duplicate: false,
+        duplicate_matches: { lead_ids: [] },
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "ok@real.com", phone: "5551112222" },
+      });
+
+      expect(result.result).toBe("passed");
+      expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            bypass: {
+              duplicate_check: false,
+              ipqs_phone: true,
+            },
+          }),
+        }),
+      );
     });
 
     it("rejects live lead when delivery is not accepted", async () => {

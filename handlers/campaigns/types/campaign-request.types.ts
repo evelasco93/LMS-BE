@@ -52,6 +52,7 @@ export type UpdateCampaignPluginsRequest = {
   };
   trusted_form?: Partial<ITrustedFormPluginConfig>;
   ipqs?: Partial<IIpqsPluginConfig>;
+  validation_bypass?: import("../interfaces/ICampaign.interface").ICampaignValidationBypassConfig;
 };
 
 export type ListCampaignsQuery = {

@@ -946,7 +946,7 @@ export class CampaignService {
     try {
       const { ok, extras, sanitized } = validateAllowedFields(
         request as Record<string, unknown>,
-        ["duplicate_check", "trusted_form", "ipqs"],
+        ["duplicate_check", "trusted_form", "ipqs", "validation_bypass"],
       );
 
       if (!ok) {
@@ -962,6 +962,16 @@ export class CampaignService {
       Object.assign(campaign, normalizedCampaign);
 
       const currentPlugins = this.normalizePlugins(campaign.plugins);
+      const currentValidationBypass = campaign.validation_bypass;
+
+      const bypassRequest =
+        (sanitized.validation_bypass as Record<string, unknown> | undefined) ??
+        undefined;
+      const normalizedCampaignBypass =
+        this.normalizeValidationBypassPayload(bypassRequest);
+      if (normalizedCampaignBypass.error) {
+        return { result: false, error: normalizedCampaignBypass.error };
+      }
       const duplicateCheck =
         (sanitized.duplicate_check as Record<string, unknown> | undefined) ??
         undefined;
@@ -1217,6 +1227,13 @@ export class CampaignService {
       }
 
       campaign.plugins = nextPlugins;
+      if (normalizedCampaignBypass.hasInput) {
+        if (normalizedCampaignBypass.value) {
+          campaign.validation_bypass = normalizedCampaignBypass.value;
+        } else {
+          delete campaign.validation_bypass;
+        }
+      }
       campaign.updated_at = new Date().toISOString();
       campaign.updated_by = actor;
 
@@ -1334,6 +1351,22 @@ export class CampaignService {
             });
           }
         }
+      }
+
+      if (
+        normalizedCampaignBypass.hasInput &&
+        !deepEqual(
+          currentValidationBypass ?? null,
+          campaign.validation_bypass ?? null,
+        )
+      ) {
+        pluginHistoryEntries.push({
+          field: "validation_bypass",
+          previous_value: currentValidationBypass ?? null,
+          new_value: campaign.validation_bypass ?? null,
+          changed_at: now,
+          changed_by: actor,
+        });
       }
 
       await this.dynamoDBUtil.put({
@@ -2623,6 +2656,53 @@ export class CampaignService {
     }
   }
 
+  private normalizeValidationBypassPayload(
+    bypass: Record<string, unknown> | undefined,
+  ): {
+    hasInput: boolean;
+    value?: ICampaignValidationBypassConfig;
+    error?: string;
+  } {
+    if (bypass === undefined) {
+      return { hasInput: false };
+    }
+
+    if (!bypass || typeof bypass !== "object" || Array.isArray(bypass)) {
+      return {
+        hasInput: true,
+        error: "validation_bypass must be an object",
+      };
+    }
+
+    const keys: Array<keyof ICampaignValidationBypassConfig> = [
+      "trusted_form_claim",
+      "duplicate_check",
+      "ipqs_phone",
+      "ipqs_email",
+      "ipqs_ip",
+      "all",
+    ];
+
+    const normalizedBypass: ICampaignValidationBypassConfig = {};
+    for (const key of keys) {
+      const value = bypass[key];
+      if (value === undefined) continue;
+      if (typeof value !== "boolean") {
+        return {
+          hasInput: true,
+          error: `validation_bypass.${key} must be a boolean`,
+        };
+      }
+      normalizedBypass[key] = value;
+    }
+
+    if (Object.keys(normalizedBypass).length === 0) {
+      return { hasInput: true };
+    }
+
+    return { hasInput: true, value: normalizedBypass };
+  }
+
   async setAffiliateValidationBypass(
     campaignId: string,
     affiliateId: string,
@@ -2630,34 +2710,14 @@ export class CampaignService {
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
-      const bypass = request?.validation_bypass;
-      if (!bypass || typeof bypass !== "object" || Array.isArray(bypass)) {
+      const normalized = this.normalizeValidationBypassPayload(
+        request?.validation_bypass as Record<string, unknown> | undefined,
+      );
+      if (normalized.error) {
         return {
           result: false,
-          error: "validation_bypass must be an object",
+          error: normalized.error,
         };
-      }
-
-      const keys: Array<keyof ICampaignValidationBypassConfig> = [
-        "trusted_form_claim",
-        "duplicate_check",
-        "ipqs_phone",
-        "ipqs_email",
-        "ipqs_ip",
-        "all",
-      ];
-
-      const normalizedBypass: ICampaignValidationBypassConfig = {};
-      for (const key of keys) {
-        const value = bypass[key];
-        if (value === undefined) continue;
-        if (typeof value !== "boolean") {
-          return {
-            result: false,
-            error: `validation_bypass.${key} must be a boolean`,
-          };
-        }
-        normalizedBypass[key] = value;
       }
 
       const campaign = await this.getCampaignById(campaignId);
@@ -2676,9 +2736,9 @@ export class CampaignService {
       }
 
       const prev = affiliate.validation_bypass ?? null;
-      const hasValues = Object.keys(normalizedBypass).length > 0;
-      if (hasValues) {
-        affiliate.validation_bypass = normalizedBypass;
+      const hasValues = Boolean(normalized.value);
+      if (normalized.value) {
+        affiliate.validation_bypass = normalized.value;
       } else {
         delete affiliate.validation_bypass;
       }
@@ -2700,7 +2760,7 @@ export class CampaignService {
           {
             field: `affiliates.${affiliateId}.validation_bypass`,
             from: prev,
-            to: hasValues ? normalizedBypass : null,
+            to: hasValues ? normalized.value : null,
           },
         ],
         actor,

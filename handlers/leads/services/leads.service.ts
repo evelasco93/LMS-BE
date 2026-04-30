@@ -1426,12 +1426,14 @@ export class LeadsService {
       validation_bypass?: ICampaignValidationBypassConfig;
     },
   ): ICampaignValidationBypassConfig | undefined {
+    const campaignBypass = campaign.validation_bypass ?? {};
     const affiliateBypass = affiliate.validation_bypass ?? {};
     const overrideBypass =
       campaign.affiliate_overrides?.[affiliate.affiliate_id]
         ?.validation_bypass ?? {};
 
     const merged: ICampaignValidationBypassConfig = {
+      ...campaignBypass,
       ...affiliateBypass,
       ...overrideBypass,
     };
