@@ -972,6 +972,10 @@ export class CherryPickService {
       return mapping.static_value;
     }
 
+    if (mapping.value_source === "lead_id") {
+      return lead.id;
+    }
+
     const fieldName = mapping.field_name!;
     const leadPayload = lead.payload as Record<string, unknown> | undefined;
 

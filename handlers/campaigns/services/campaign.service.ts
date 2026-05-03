@@ -15,6 +15,7 @@ import {
   IBaseCriteriaField,
   ICampaign,
   ICampaignAffiliate,
+  ICampaignAffiliateOverride,
   ICampaignClient,
   ICampaignPlugins,
   IEditHistoryEntry,
@@ -30,6 +31,7 @@ import {
   ILogicRuleCondition,
   LegacyCriteriaDataType,
   ICampaignValidationBypassConfig,
+  IAffiliateOutboundResponseOverride,
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
 import {
@@ -1752,6 +1754,16 @@ export class CampaignService {
         };
       }
       if (
+        mapping.value_source !== "field" &&
+        mapping.value_source !== "static" &&
+        mapping.value_source !== "lead_id"
+      ) {
+        return {
+          result: false,
+          error: `payload_mapping key "${mapping.key}": value_source must be one of "field", "static", "lead_id"`,
+        };
+      }
+      if (
         mapping.parameter_target !== undefined &&
         mapping.parameter_target !== "query" &&
         mapping.parameter_target !== "body"
@@ -2703,6 +2715,75 @@ export class CampaignService {
     return { hasInput: true, value: normalizedBypass };
   }
 
+  private normalizeAffiliateOutboundResponsePayload(
+    outbound: Record<string, unknown> | undefined,
+  ): {
+    hasInput: boolean;
+    value?: IAffiliateOutboundResponseOverride;
+    error?: string;
+  } {
+    if (outbound === undefined) {
+      return { hasInput: false };
+    }
+
+    if (!outbound || typeof outbound !== "object" || Array.isArray(outbound)) {
+      return {
+        hasInput: true,
+        error: "outbound_response must be an object",
+      };
+    }
+
+    const normalized: IAffiliateOutboundResponseOverride = {};
+
+    if (outbound.success_message !== undefined) {
+      if (typeof outbound.success_message !== "string") {
+        return {
+          hasInput: true,
+          error: "outbound_response.success_message must be a string",
+        };
+      }
+      const trimmed = outbound.success_message.trim();
+      if (trimmed.length > 0) {
+        normalized.success_message = trimmed;
+      }
+    }
+
+    if (outbound.failure_message !== undefined) {
+      if (typeof outbound.failure_message !== "string") {
+        return {
+          hasInput: true,
+          error: "outbound_response.failure_message must be a string",
+        };
+      }
+      const trimmed = outbound.failure_message.trim();
+      if (trimmed.length > 0) {
+        normalized.failure_message = trimmed;
+      }
+    }
+
+    if (outbound.failure_errors !== undefined) {
+      if (!Array.isArray(outbound.failure_errors)) {
+        return {
+          hasInput: true,
+          error: "outbound_response.failure_errors must be an array of strings",
+        };
+      }
+      const failureErrors = outbound.failure_errors
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+      if (failureErrors.length > 0) {
+        normalized.failure_errors = failureErrors;
+      }
+    }
+
+    if (Object.keys(normalized).length === 0) {
+      return { hasInput: true };
+    }
+
+    return { hasInput: true, value: normalized };
+  }
+
   async setAffiliateValidationBypass(
     campaignId: string,
     affiliateId: string,
@@ -2710,13 +2791,31 @@ export class CampaignService {
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
-      const normalized = this.normalizeValidationBypassPayload(
+      const normalizedBypass = this.normalizeValidationBypassPayload(
         request?.validation_bypass as Record<string, unknown> | undefined,
       );
-      if (normalized.error) {
+      if (normalizedBypass.error) {
         return {
           result: false,
-          error: normalized.error,
+          error: normalizedBypass.error,
+        };
+      }
+
+      const normalizedOutbound = this.normalizeAffiliateOutboundResponsePayload(
+        request?.outbound_response as Record<string, unknown> | undefined,
+      );
+      if (normalizedOutbound.error) {
+        return {
+          result: false,
+          error: normalizedOutbound.error,
+        };
+      }
+
+      if (!normalizedBypass.hasInput && !normalizedOutbound.hasInput) {
+        return {
+          result: false,
+          error:
+            "At least one of validation_bypass or outbound_response must be provided",
         };
       }
 
@@ -2735,12 +2834,52 @@ export class CampaignService {
         };
       }
 
-      const prev = affiliate.validation_bypass ?? null;
-      const hasValues = Boolean(normalized.value);
-      if (normalized.value) {
-        affiliate.validation_bypass = normalized.value;
-      } else {
-        delete affiliate.validation_bypass;
+      const prevBypass = affiliate.validation_bypass ?? null;
+      const nextBypass = normalizedBypass.hasInput
+        ? (normalizedBypass.value ?? null)
+        : prevBypass;
+      if (normalizedBypass.hasInput) {
+        if (normalizedBypass.value) {
+          affiliate.validation_bypass = normalizedBypass.value;
+        } else {
+          delete affiliate.validation_bypass;
+        }
+      }
+
+      const existingOverride =
+        campaign.affiliate_overrides?.[affiliateId] ??
+        ({} as ICampaignAffiliateOverride);
+      const prevOutboundResponse = existingOverride.outbound_response ?? null;
+      const nextOutboundResponse = normalizedOutbound.hasInput
+        ? (normalizedOutbound.value ?? null)
+        : prevOutboundResponse;
+
+      if (normalizedOutbound.hasInput) {
+        const nextOverride: ICampaignAffiliateOverride = {
+          ...existingOverride,
+        };
+
+        if (normalizedOutbound.value) {
+          nextOverride.outbound_response = normalizedOutbound.value;
+        } else {
+          delete nextOverride.outbound_response;
+        }
+
+        const hasRemainingOverrideFields = Object.keys(nextOverride).length > 0;
+
+        if (!campaign.affiliate_overrides) {
+          campaign.affiliate_overrides = {};
+        }
+
+        if (hasRemainingOverrideFields) {
+          campaign.affiliate_overrides[affiliateId] = nextOverride;
+        } else {
+          delete campaign.affiliate_overrides[affiliateId];
+        }
+
+        if (Object.keys(campaign.affiliate_overrides).length === 0) {
+          delete campaign.affiliate_overrides;
+        }
       }
 
       const now = new Date().toISOString();
@@ -2759,8 +2898,13 @@ export class CampaignService {
         changes: [
           {
             field: `affiliates.${affiliateId}.validation_bypass`,
-            from: prev,
-            to: hasValues ? normalized.value : null,
+            from: prevBypass,
+            to: nextBypass,
+          },
+          {
+            field: `affiliate_overrides.${affiliateId}.outbound_response`,
+            from: prevOutboundResponse,
+            to: nextOutboundResponse,
           },
         ],
         actor,
@@ -2934,6 +3078,16 @@ export class CampaignService {
         };
       }
       if (
+        mapping.value_source !== "field" &&
+        mapping.value_source !== "static" &&
+        mapping.value_source !== "lead_id"
+      ) {
+        return {
+          result: false,
+          error: `sold_pixel_config.payload_mapping key "${mapping.key}": value_source must be one of "field", "static", "lead_id"`,
+        };
+      }
+      if (
         normalizedParameterTarget === undefined &&
         normalizedParameterMode === undefined
       ) {
@@ -3009,6 +3163,18 @@ export class CampaignService {
               key: mapping.key,
               value_source: "field" as const,
               field_name: mapping.field_name,
+              ...(targetToPersist
+                ? {
+                    parameter_target: targetToPersist as "query" | "body",
+                  }
+                : {}),
+            };
+          }
+
+          if (mapping.value_source === "lead_id") {
+            return {
+              key: mapping.key,
+              value_source: "lead_id" as const,
               ...(targetToPersist
                 ? {
                     parameter_target: targetToPersist as "query" | "body",

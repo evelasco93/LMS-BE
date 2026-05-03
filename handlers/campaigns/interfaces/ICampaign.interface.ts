@@ -32,6 +32,15 @@ export interface ICampaignValidationBypassConfig {
   all?: boolean;
 }
 
+export interface IAffiliateOutboundResponseOverride {
+  /** Optional custom success message returned to the source on accepted leads. */
+  success_message?: string;
+  /** Optional custom failure message returned to the source on rejected leads. */
+  failure_message?: string;
+  /** Optional replacement errors array returned to the source on rejected leads. */
+  failure_errors?: string[];
+}
+
 export type ParticipantLogicMode = "pinned" | "inherit_campaign";
 
 export interface ICampaignContractOverride {
@@ -60,6 +69,7 @@ export interface ICampaignAffiliateOverride {
   /** Inline logic rule overrides scoped to this affiliate on this campaign. */
   logic_rules?: ILogicRule[];
   validation_bypass?: ICampaignValidationBypassConfig;
+  outbound_response?: IAffiliateOutboundResponseOverride;
   metadata?: Record<string, unknown>;
 }
 

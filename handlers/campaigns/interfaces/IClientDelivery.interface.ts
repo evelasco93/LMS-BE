@@ -6,7 +6,7 @@
 export interface IWebhookFieldMapping {
   /** Destination key in the outbound payload sent to the client webhook */
   key: string;
-  value_source: "field" | "static";
+  value_source: "field" | "static" | "lead_id";
   /** Optional per-field destination for sold pixels (query or body). */
   parameter_target?: "query" | "body";
   /** Required when value_source === "field". Must match a field_name in campaign base_criteria */

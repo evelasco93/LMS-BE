@@ -1161,6 +1161,10 @@ export class LeadDeliveryService {
       return mapping.static_value;
     }
 
+    if (mapping.value_source === "lead_id") {
+      return lead.id;
+    }
+
     // value_source === "field"
     const fieldName = mapping.field_name!;
     const leadPayload = lead.payload as Record<string, unknown> | undefined;

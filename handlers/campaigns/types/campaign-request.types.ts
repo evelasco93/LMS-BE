@@ -209,7 +209,8 @@ export type SetCampaignTagsRequest = {
 
 /** Body for PUT /campaigns/{id}/affiliates/{affiliateId}/validation-bypass */
 export type SetAffiliateValidationBypassRequest = {
-  validation_bypass: import("../interfaces/ICampaign.interface").ICampaignValidationBypassConfig;
+  validation_bypass?: import("../interfaces/ICampaign.interface").ICampaignValidationBypassConfig;
+  outbound_response?: import("../interfaces/ICampaign.interface").IAffiliateOutboundResponseOverride;
 };
 
 /** Body for PUT /campaigns/{id}/affiliates/{affiliateId}/pixel */

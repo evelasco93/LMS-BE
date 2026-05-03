@@ -29,6 +29,7 @@ import {
 } from "../interfaces/leads-internal.interface";
 import {
   ICampaign,
+  IAffiliateOutboundResponseOverride,
   ICampaignValidationBypassConfig,
 } from "../../campaigns/interfaces/ICampaign.interface";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -210,6 +211,10 @@ export class LeadsService {
         campaign,
         affiliate,
       );
+      const outboundResponseOverride = this.resolveOutboundResponseOverride(
+        campaign,
+        affiliate.affiliate_id,
+      );
 
       // ── Affiliate lead cap check (live leads only) ────────────────────────
       // Cap is tracked per-affiliate per-campaign on the campaign record.
@@ -265,7 +270,7 @@ export class LeadsService {
           REJECTION_CRITERIA_VALIDATION;
         const criteriaRejectionErrors = (
           criteriaValidationResult.missing_fields ?? []
-        ).map((field) => `${field.replace(/_/g, " ")} is required`);
+        ).map((field) => `${this.toTitleCasePhrase(field)} Is Required`);
         const lead: ILead = {
           id: IdGenerator.generateLeadId(),
           campaign_id: campaignId,
@@ -357,9 +362,16 @@ export class LeadsService {
         const criteriaResponse: LeadIntakeResponse = {
           result: "failed",
           lead_id: lead.id,
-          message: "Lead Rejected",
-          ...(criteriaRejectionErrors.length > 0
-            ? { errors: criteriaRejectionErrors }
+          message:
+            outboundResponseOverride?.failure_message?.trim() ||
+            "Lead Rejected",
+          ...((outboundResponseOverride?.failure_errors?.length ?? 0) > 0 ||
+          criteriaRejectionErrors.length > 0
+            ? {
+                errors: outboundResponseOverride?.failure_errors?.length
+                  ? outboundResponseOverride.failure_errors
+                  : criteriaRejectionErrors,
+              }
             : {}),
         };
 
@@ -396,33 +408,35 @@ export class LeadsService {
           logicRulesResult.rejection_reason ?? REJECTION_LOGIC_RULES;
         logicRejectionErrors = (logicRulesResult.condition_failures ?? []).map(
           (f) => {
-            const fieldLabel = f.field.replace(/_/g, " ");
+            const fieldLabel = this.toTitleCasePhrase(f.field);
             const expected = Array.isArray(f.expected)
-              ? f.expected.join(" or ")
+              ? f.expected
+                  .map((value) => this.formatRuleValue(value))
+                  .join(" Or ")
               : f.expected;
             switch (f.operator) {
               case "is":
-                return `${fieldLabel} must equal ${expected}`;
+                return `${fieldLabel} Must Equal ${this.formatRuleValue(expected)}`;
               case "is_not":
-                return `${fieldLabel} must not equal ${expected}`;
+                return `${fieldLabel} Must Not Equal ${this.formatRuleValue(expected)}`;
               case "contains":
-                return `${fieldLabel} does not match options`;
+                return `${fieldLabel} Does Not Match Options`;
               case "does_not_contain":
-                return `${fieldLabel} contains a disallowed value`;
+                return `${fieldLabel} Contains A Disallowed Value`;
               case "starts_with":
-                return `${fieldLabel} must start with ${expected}`;
+                return `${fieldLabel} Must Start With ${this.formatRuleValue(expected)}`;
               case "does_not_start_with":
-                return `${fieldLabel} must not start with ${expected}`;
+                return `${fieldLabel} Must Not Start With ${this.formatRuleValue(expected)}`;
               case "ends_with":
-                return `${fieldLabel} must end with ${expected}`;
+                return `${fieldLabel} Must End With ${this.formatRuleValue(expected)}`;
               case "does_not_end_with":
-                return `${fieldLabel} must not end with ${expected}`;
+                return `${fieldLabel} Must Not End With ${this.formatRuleValue(expected)}`;
               case "greater_than":
-                return `${fieldLabel} must be greater than ${expected}`;
+                return `${fieldLabel} Must Be Greater Than ${this.formatRuleValue(expected)}`;
               case "less_than":
-                return `${fieldLabel} must be less than ${expected}`;
+                return `${fieldLabel} Must Be Less Than ${this.formatRuleValue(expected)}`;
               default:
-                return `${fieldLabel} does not meet requirements`;
+                return `${fieldLabel} Does Not Meet Requirements`;
             }
           },
         );
@@ -719,21 +733,35 @@ export class LeadsService {
         ? {
             result: "failed",
             lead_id: lead.id,
-            message: "Lead Rejected",
+            message:
+              outboundResponseOverride?.failure_message?.trim() ||
+              "Lead Rejected",
             ...(lead.rejection_errors && lead.rejection_errors.length > 0
-              ? { errors: lead.rejection_errors }
+              ? {
+                  errors: outboundResponseOverride?.failure_errors?.length
+                    ? outboundResponseOverride.failure_errors
+                    : lead.rejection_errors,
+                }
               : lead.rejection_reason
-                ? { errors: [lead.rejection_reason] }
-                : {}),
+                ? {
+                    errors: outboundResponseOverride?.failure_errors?.length
+                      ? outboundResponseOverride.failure_errors
+                      : [this.formatRejectionMessage(lead.rejection_reason)],
+                  }
+                : outboundResponseOverride?.failure_errors?.length
+                  ? { errors: outboundResponseOverride.failure_errors }
+                  : {}),
           }
         : {
             result: "passed",
-            message: isTest ? "Test lead accepted" : "Lead accepted",
+            message:
+              outboundResponseOverride?.success_message?.trim() ||
+              (isTest ? "Test Lead Accepted" : "Lead Accepted"),
             data: {
               lead_id: lead.id,
-              message: isTest
-                ? LEAD_ACCEPTED_TEST_MESSAGE
-                : LEAD_ACCEPTED_MESSAGE,
+              message:
+                outboundResponseOverride?.success_message?.trim() ||
+                (isTest ? LEAD_ACCEPTED_TEST_MESSAGE : LEAD_ACCEPTED_MESSAGE),
             },
           };
 
@@ -1438,6 +1466,52 @@ export class LeadsService {
       ...overrideBypass,
     };
     return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  private toTitleCasePhrase(input: string): string {
+    return input
+      .replace(/[_\-\.]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean)
+      .map((word) => {
+        const lower = word.toLowerCase();
+        if (lower === "id" || lower === "ip" || lower === "ipqs") {
+          return lower.toUpperCase();
+        }
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      })
+      .join(" ");
+  }
+
+  private formatRuleValue(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return trimmed;
+    const lower = trimmed.toLowerCase();
+    if (lower === "yes") return "Yes";
+    if (lower === "no") return "No";
+    return this.toTitleCasePhrase(trimmed);
+  }
+
+  private formatRejectionMessage(raw: string): string {
+    const trimmed = raw.trim();
+    if (!trimmed) return trimmed;
+    const [head, ...rest] = trimmed.split(":");
+    if (rest.length > 0) {
+      return `${this.toTitleCasePhrase(head)}: ${rest.join(":").trim()}`;
+    }
+    return this.toTitleCasePhrase(trimmed);
+  }
+
+  private resolveOutboundResponseOverride(
+    campaign: ICampaign,
+    affiliateId: string,
+  ): IAffiliateOutboundResponseOverride | undefined {
+    const override =
+      campaign.affiliate_overrides?.[affiliateId]?.outbound_response;
+    if (!override) return undefined;
+    return override;
   }
 
   private mapBypassForOrchestrator(bypass?: ICampaignValidationBypassConfig):
