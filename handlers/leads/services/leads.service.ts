@@ -365,14 +365,15 @@ export class LeadsService {
           message:
             outboundResponseOverride?.failure_message?.trim() ||
             "Lead Rejected",
-          ...((outboundResponseOverride?.failure_errors?.length ?? 0) > 0 ||
-          criteriaRejectionErrors.length > 0
+          ...(outboundResponseOverride?.failure_message?.trim()
             ? {
-                errors: outboundResponseOverride?.failure_errors?.length
-                  ? outboundResponseOverride.failure_errors
-                  : criteriaRejectionErrors,
+                errors: [outboundResponseOverride.failure_message.trim()],
               }
-            : {}),
+            : criteriaRejectionErrors.length > 0
+              ? {
+                  errors: criteriaRejectionErrors,
+                }
+              : {}),
         };
 
         this.writeIntakeLog(
@@ -736,20 +737,18 @@ export class LeadsService {
             message:
               outboundResponseOverride?.failure_message?.trim() ||
               "Lead Rejected",
-            ...(lead.rejection_errors && lead.rejection_errors.length > 0
+            ...(outboundResponseOverride?.failure_message?.trim()
               ? {
-                  errors: outboundResponseOverride?.failure_errors?.length
-                    ? outboundResponseOverride.failure_errors
-                    : lead.rejection_errors,
+                  errors: [outboundResponseOverride.failure_message.trim()],
                 }
-              : lead.rejection_reason
-                ? {
-                    errors: outboundResponseOverride?.failure_errors?.length
-                      ? outboundResponseOverride.failure_errors
-                      : [this.formatRejectionMessage(lead.rejection_reason)],
-                  }
-                : outboundResponseOverride?.failure_errors?.length
-                  ? { errors: outboundResponseOverride.failure_errors }
+              : lead.rejection_errors && lead.rejection_errors.length > 0
+                ? { errors: lead.rejection_errors }
+                : lead.rejection_reason
+                  ? {
+                      errors: [
+                        this.formatRejectionMessage(lead.rejection_reason),
+                      ],
+                    }
                   : {}),
           }
         : {
@@ -759,9 +758,6 @@ export class LeadsService {
               (isTest ? "Test Lead Accepted" : "Lead Accepted"),
             data: {
               lead_id: lead.id,
-              message:
-                outboundResponseOverride?.success_message?.trim() ||
-                (isTest ? LEAD_ACCEPTED_TEST_MESSAGE : LEAD_ACCEPTED_MESSAGE),
             },
           };
 

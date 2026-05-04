@@ -11,7 +11,6 @@ export type LeadIntakeResponse = {
   /** Present only when the lead is accepted */
   data?: {
     lead_id: string;
-    message: string;
   };
 };
 

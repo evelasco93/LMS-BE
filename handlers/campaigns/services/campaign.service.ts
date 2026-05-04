@@ -2761,22 +2761,6 @@ export class CampaignService {
       }
     }
 
-    if (outbound.failure_errors !== undefined) {
-      if (!Array.isArray(outbound.failure_errors)) {
-        return {
-          hasInput: true,
-          error: "outbound_response.failure_errors must be an array of strings",
-        };
-      }
-      const failureErrors = outbound.failure_errors
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-      if (failureErrors.length > 0) {
-        normalized.failure_errors = failureErrors;
-      }
-    }
-
     if (Object.keys(normalized).length === 0) {
       return { hasInput: true };
     }

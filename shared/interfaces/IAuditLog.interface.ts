@@ -53,6 +53,7 @@ export type AuditAction =
   | "destination_deleted"
   | "contract_linked"
   | "contract_status_updated"
+  | "contract_updated"
   | "contract_deleted"
   | "client_linked"
   | "client_status_updated"

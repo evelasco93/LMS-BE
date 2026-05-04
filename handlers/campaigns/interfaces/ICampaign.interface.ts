@@ -37,8 +37,6 @@ export interface IAffiliateOutboundResponseOverride {
   success_message?: string;
   /** Optional custom failure message returned to the source on rejected leads. */
   failure_message?: string;
-  /** Optional replacement errors array returned to the source on rejected leads. */
-  failure_errors?: string[];
 }
 
 export type ParticipantLogicMode = "pinned" | "inherit_campaign";
