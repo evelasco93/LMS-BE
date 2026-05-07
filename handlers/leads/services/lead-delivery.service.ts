@@ -869,10 +869,25 @@ export class LeadDeliveryService {
     reason: string,
   ): Promise<void> {
     const now = new Date().toISOString();
+    const existingReason =
+      typeof lead.rejection_reason === "string" &&
+      lead.rejection_reason.trim().length > 0
+        ? lead.rejection_reason.trim()
+        : undefined;
+    const existingErrors = Array.isArray(lead.rejection_errors)
+      ? lead.rejection_errors.filter(
+          (value): value is string =>
+            typeof value === "string" && value.trim().length > 0,
+        )
+      : [];
+    const effectiveReason = existingReason ?? reason;
+    const effectiveErrors =
+      existingErrors.length > 0 ? existingErrors : [effectiveReason];
+
     lead.sold = false;
     lead.rejected = true;
-    lead.rejection_reason = reason;
-    lead.rejection_errors = [reason];
+    lead.rejection_reason = effectiveReason;
+    lead.rejection_errors = effectiveErrors;
     lead.updated_at = now;
 
     await this.dynamoDBUtil.update({
@@ -884,8 +899,8 @@ export class LeadDeliveryService {
         ":reason": reason,
         ":sold": false,
         ":rejected": true,
-        ":rejection_reason": reason,
-        ":rejection_errors": [reason],
+        ":rejection_reason": effectiveReason,
+        ":rejection_errors": effectiveErrors,
         ":now": now,
       },
     });
@@ -912,8 +927,8 @@ export class LeadDeliveryService {
         },
         {
           field: "rejection_reason",
-          from: null,
-          to: reason,
+          from: existingReason ?? null,
+          to: effectiveReason,
         },
       ],
       actor: {

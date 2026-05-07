@@ -28,3 +28,16 @@ export type RestApiResponse<T = any> = {
   count?: number;
   lastEvaluatedKey?: string;
 };
+
+export type PaginatedData<T> = {
+  items: T[];
+  count: number;
+  lastEvaluatedKey?: string;
+};
+
+export type PaginatedRestApiResponse<T> = {
+  success: boolean;
+  message?: string;
+  data?: PaginatedData<T>;
+  error?: string;
+};

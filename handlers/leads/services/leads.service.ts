@@ -655,11 +655,12 @@ export class LeadsService {
       });
 
       // ── Synchronous webhook delivery ──────────────────────────────────────
-      // Deliver when: not test, not hard-rejected (affiliate disabled, duplicate,
-      // plugin gate).  Logic-failed leads still attempt delivery — the client's
-      // own override rules decide acceptance in pickDeliveryClient().
+      // Deliver when: not test and not hard-rejected.
       const hardRejected =
-        rejectedByAffiliate || rejectedByDuplicate || pluginGateRejected;
+        rejectedByAffiliate ||
+        rejectedByDuplicate ||
+        pluginGateRejected ||
+        affiliateLogicFailed;
       if (!isTest && !hardRejected) {
         await this.leadDeliveryService
           .deliverLead(lead, campaign)

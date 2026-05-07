@@ -2568,6 +2568,15 @@
             "description": "When true, soft-deleted leads are included in the response"
           },
           {
+            "name": "include_trace",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "When true, include decision_trace in each lead item"
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -6439,16 +6448,21 @@
           "message": {
             "type": "string"
           },
-          "count": {
-            "type": "integer"
-          },
-          "lastEvaluatedKey": {
-            "type": "string"
-          },
           "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Lead"
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Lead"
+                }
+              },
+              "count": {
+                "type": "integer"
+              },
+              "lastEvaluatedKey": {
+                "type": "string"
+              }
             }
           }
         }

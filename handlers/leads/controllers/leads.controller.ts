@@ -19,7 +19,12 @@ import {
   ListIntakeLogsQuery,
   UpdateLeadRequest,
 } from "../types/lead-request.types";
-import { LeadIntakeResponse, RestApiResponse } from "../types/common.types";
+import {
+  LeadIntakeResponse,
+  PaginatedRestApiResponse,
+  RestApiResponse,
+} from "../types/common.types";
+import { ILead } from "../interfaces/ILead.interface";
 import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
 
 @injectable()
@@ -44,7 +49,7 @@ export class LeadsController extends Controller {
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
     @queryParam("includeDeleted") includeDeleted?: string,
     @queryParam("include_trace") include_trace?: string,
-  ): Promise<RestApiResponse> {
+  ): Promise<PaginatedRestApiResponse<ILead>> {
     const result = await this.service.listLeads({
       campaign_id,
       test: typeof test === "string" ? test === "true" : undefined,
@@ -66,9 +71,13 @@ export class LeadsController extends Controller {
     return {
       success: true,
       message: "Leads retrieved successfully",
-      count: result.data?.count,
-      data: result.data?.items,
-      lastEvaluatedKey: result.data?.lastEvaluatedKey,
+      data: {
+        items: result.data?.items ?? [],
+        count: result.data?.count ?? 0,
+        ...(result.data?.lastEvaluatedKey
+          ? { lastEvaluatedKey: result.data.lastEvaluatedKey }
+          : {}),
+      },
     };
   }
 
