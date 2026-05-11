@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
+    "ignoreDeprecations": "6.0",
+    "module": "Node16",
     "lib": ["ES2022"],
     "outDir": "../../../../dist/handlers/qa/modules/logic-rules",
     "rootDir": "../../../../",
@@ -10,14 +11,13 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "noEmit": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "baseUrl": ".",
     "paths": {
       "@shared/*": ["../../../../shared/*"],
       "@interfaces/*": ["./interfaces/*"],
