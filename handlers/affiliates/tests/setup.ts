@@ -32,6 +32,14 @@ export function createMockLogger() {
 export function createMockConstants() {
   return {
     AFFILIATES_TABLE_NAME: 'test-affiliates-table',
+    CAMPAIGNS_TABLE_NAME: 'test-campaigns-table',
+    LEADS_TABLE_NAME: 'test-leads-table',
+  };
+}
+
+export function createMockAuditWriterService() {
+  return {
+    writeAuditEvent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -43,10 +51,14 @@ beforeEach(() => {
   const mockDynamoDBUtil = createMockDynamoDBUtil();
   const mockLogger = createMockLogger();
   const mockConstants = createMockConstants();
+  const mockAuditWriterService = createMockAuditWriterService();
   
   testContainer.bind('DynamoDBUtil').toConstantValue(mockDynamoDBUtil);
   testContainer.bind('Logger').toConstantValue(mockLogger);
   testContainer.bind('AffiliateConstants').toConstantValue(mockConstants);
+  testContainer
+    .bind('AuditWriterService')
+    .toConstantValue(mockAuditWriterService);
   
   process.env.AFFILIATES_TABLE_NAME = 'test-affiliates-table';
 });
@@ -61,4 +73,8 @@ export function getMockLogger() {
 
 export function getMockConstants() {
   return testContainer.get('AffiliateConstants');
+}
+
+export function getMockAuditWriterService() {
+  return testContainer.get('AuditWriterService');
 }

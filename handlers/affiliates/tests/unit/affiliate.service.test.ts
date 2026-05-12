@@ -3,10 +3,7 @@ import { AffiliateService } from "../../services/affiliate.service";
 import { CreateAffiliateRequest } from "../../types/affiliate-request.types";
 import { AffiliateStatus } from "../../enums/affiliate-status.enum";
 import { getTestContainer, getMockDynamoDBUtil } from "../setup";
-import {
-  mockAffiliate,
-  mockExistingAffiliate,
-} from "../fixtures/affiliate.fixtures";
+import { mockAffiliate } from "../fixtures/affiliate.fixtures";
 
 describe("AffiliateService", () => {
   let affiliateService: AffiliateService;
@@ -23,15 +20,10 @@ describe("AffiliateService", () => {
     it("should create a new affiliate successfully", async () => {
       const request: CreateAffiliateRequest = {
         name: "Test Affiliate",
-        email: "test@affiliate.com",
         company: "Test Company",
-        phone: "555-0000",
+        notes: "Top performer",
+        affiliate_code: "AFF-001",
       };
-
-      mockDynamoDBUtil.query.mockResolvedValueOnce({
-        items: [],
-        count: 0,
-      });
 
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
@@ -40,31 +32,28 @@ describe("AffiliateService", () => {
       expect(result.result).toBe(true);
       expect(result.data).toBeDefined();
       expect(result.data?.name).toBe(request.name);
-      expect(result.data?.email).toBe(request.email);
       expect(result.data?.company).toBe(request.company);
+      expect(result.data?.notes).toBe(request.notes);
+      expect(result.data?.affiliate_code).toBe(request.affiliate_code);
       expect(result.data?.status).toBe(AffiliateStatus.ACTIVE);
       expect(result.data?.id).toMatch(/^AF[A-Z0-9]{8}$/);
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
-    it("should return error if email already exists", async () => {
+    it("should return error if persistence fails", async () => {
       const request: CreateAffiliateRequest = {
         name: "Test Affiliate",
-        email: "existing@affiliate.com",
         company: "Test Company",
-        phone: "555-0000",
+        notes: "Test",
       };
 
-      mockDynamoDBUtil.query.mockResolvedValueOnce({
-        items: [mockExistingAffiliate],
-        count: 1,
-      });
+      mockDynamoDBUtil.put.mockRejectedValueOnce(new Error("dynamo fail"));
 
       const result = await affiliateService.createAffiliate(request);
 
       expect(result.result).toBe(false);
-      expect(result.error).toContain("already exists");
-      expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
+      expect(result.error).toContain("dynamo fail");
+      expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
     it("rejects extra fields", async () => {
@@ -196,21 +185,7 @@ describe("AffiliateService", () => {
       const spyGet = vi
         .spyOn(affiliateService as any, "getAffiliate")
         .mockResolvedValue({ result: true, data: mockAffiliate });
-      vi.spyOn(
-        affiliateService as any,
-        "getAffiliateByEmail",
-      ).mockResolvedValue({
-        result: false,
-      });
-      mockDynamoDBUtil.buildUpdateExpression.mockReturnValue({
-        UpdateExpression: "set #name = :name",
-        ExpressionAttributeNames: { "#name": "name" },
-        ExpressionAttributeValues: { ":name": "Updated" },
-      });
-      mockDynamoDBUtil.update.mockResolvedValueOnce({
-        ...mockAffiliate,
-        name: "Updated",
-      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
       const result = await affiliateService.updateAffiliate("AF1", {
         name: "Updated",
@@ -219,28 +194,23 @@ describe("AffiliateService", () => {
       expect(result.result).toBe(true);
       expect(result.data?.name).toBe("Updated");
       expect(spyGet).toHaveBeenCalled();
-      expect(mockDynamoDBUtil.update).toHaveBeenCalled();
+      expect(mockDynamoDBUtil.put).toHaveBeenCalled();
     });
 
-    it("rejects when email already used", async () => {
+    it("updates affiliate code when provided", async () => {
       vi.spyOn(affiliateService as any, "getAffiliate").mockResolvedValue({
         result: true,
         data: mockAffiliate,
       });
-      vi.spyOn(
-        affiliateService as any,
-        "getAffiliateByEmail",
-      ).mockResolvedValue({
-        result: true,
-        data: mockAffiliate,
-      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
       const result = await affiliateService.updateAffiliate("AF1", {
-        email: "new@example.com",
+        affiliate_code: "AFF-999",
       });
 
-      expect(result.result).toBe(false);
-      expect(result.error).toContain("already exists");
+      expect(result.result).toBe(true);
+      expect(result.data?.affiliate_code).toBe("AFF-999");
+      expect(mockDynamoDBUtil.put).toHaveBeenCalled();
     });
 
     it("rejects when affiliate missing", async () => {
@@ -264,12 +234,18 @@ describe("AffiliateService", () => {
         result: true,
         data: mockAffiliate,
       });
-      mockDynamoDBUtil.delete.mockResolvedValueOnce(undefined);
+      mockDynamoDBUtil.scan.mockResolvedValue({ items: [], count: 0 });
+      mockDynamoDBUtil.buildUpdateExpression.mockReturnValue({
+        UpdateExpression: "set #is_deleted = :is_deleted",
+        ExpressionAttributeNames: { "#is_deleted": "is_deleted" },
+        ExpressionAttributeValues: { ":is_deleted": true },
+      });
+      mockDynamoDBUtil.update.mockResolvedValueOnce(undefined);
 
       const result = await affiliateService.deleteAffiliate("AF1");
 
       expect(result.result).toBe(true);
-      expect(mockDynamoDBUtil.delete).toHaveBeenCalled();
+      expect(mockDynamoDBUtil.update).toHaveBeenCalled();
     });
 
     it("returns error when missing", async () => {
@@ -281,7 +257,7 @@ describe("AffiliateService", () => {
 
       expect(result.result).toBe(false);
       expect(result.error).toContain("not found");
-      expect(mockDynamoDBUtil.delete).not.toHaveBeenCalled();
+      expect(mockDynamoDBUtil.update).not.toHaveBeenCalled();
     });
   });
 });

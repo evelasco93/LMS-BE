@@ -40,6 +40,8 @@ export interface IDataStackConfig {
     affiliates: ITableConfig;
     campaigns: ITableConfig;
     leads: ITableConfig;
+    /** Metrics domain single-table (item-type model) */
+    metrics: ITableConfig;
     /** Consolidated single table for credentials, credential schemas, and plugin settings */
     tenantSettings: ITableConfig;
     /** Centralized audit log table — one item per mutation across all entity types */

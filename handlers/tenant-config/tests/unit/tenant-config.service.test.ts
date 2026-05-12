@@ -19,7 +19,7 @@ describe("TenantConfigService", () => {
     const result = await service.createCredential({
       provider: "ipqs",
       name: "IPQS API Key",
-      type: "api_key",
+      credential_type: "api_key",
       credentials: { apiKey: "abc123" },
     });
 
@@ -33,7 +33,7 @@ describe("TenantConfigService", () => {
     const result = await service.createCredential({
       provider: "",
       name: "Test",
-      type: "api_key",
+      credential_type: "api_key",
       credentials: { apiKey: "abc123" },
     });
 
@@ -46,7 +46,7 @@ describe("TenantConfigService", () => {
     const result = await service.createCredential({
       provider: "trusted_form",
       name: "TF Creds",
-      type: "basic_auth",
+      credential_type: "basic_auth",
       credentials: { username: "user" } as any,
     });
 
@@ -67,9 +67,10 @@ describe("TenantConfigService", () => {
 
     mockDynamoDBUtil.get.mockResolvedValueOnce({
       id: "crd-001",
+      type: "credential",
       provider: "external_leads_api",
       name: "External API",
-      type: "api_key",
+      credential_type: "api_key",
       credentials: { apiKey: encryptedApiKey },
       created_at: "2026-01-01T00:00:00.000Z",
       updated_at: "2026-01-01T00:00:00.000Z",
@@ -92,12 +93,13 @@ describe("TenantConfigService", () => {
   });
 
   it("lists credentials from DynamoDB", async () => {
-    mockDynamoDBUtil.scanAll.mockResolvedValueOnce([
+    mockDynamoDBUtil.queryAll.mockResolvedValueOnce([
       {
         id: "crd-002",
+        type: "credential",
         provider: "ipqs",
         name: "IPQS",
-        type: "api_key",
+        credential_type: "api_key",
         credentials: {},
         created_at: "2026-01-01T00:00:00.000Z",
         updated_at: "2026-01-01T00:00:00.000Z",
@@ -114,18 +116,20 @@ describe("TenantConfigService", () => {
   it("deletes a credential by id", async () => {
     mockDynamoDBUtil.get.mockResolvedValueOnce({
       id: "crd-003",
+      type: "credential",
       provider: "ipqs",
       name: "IPQS",
-      type: "api_key",
+      credential_type: "api_key",
       credentials: {},
       created_at: "2026-01-01T00:00:00.000Z",
       updated_at: "2026-01-01T00:00:00.000Z",
     });
-    mockDynamoDBUtil.delete.mockResolvedValueOnce(undefined);
+    mockDynamoDBUtil.queryAll.mockResolvedValueOnce([]);
+    mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
     const result = await service.deleteCredential("crd-003");
 
     expect(result.result).toBe(true);
-    expect(mockDynamoDBUtil.delete).toHaveBeenCalledTimes(1);
+    expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
   });
 });

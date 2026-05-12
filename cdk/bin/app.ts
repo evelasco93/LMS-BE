@@ -1,4 +1,3 @@
-import "source-map-support/register";
 import { App } from "aws-cdk-lib";
 import { DataStack } from "../stacks/data/data.stack";
 import { IamStack } from "../stacks/iam/iam.stack";

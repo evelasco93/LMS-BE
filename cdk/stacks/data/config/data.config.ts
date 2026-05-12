@@ -54,6 +54,26 @@ export const dataConfig: IDataStackConfig = {
       deletionProtection: false,
     },
     /**
+     * Metrics domain single table (item-type approach).
+     * PK: pk, SK: sk
+     * GSI: item_type-bucket_start-index for endpoint time-window queries.
+     */
+    metrics: {
+      tableName: nameBuilder.table("metrics"),
+      partitionKey: { name: "pk", type: "S" },
+      sortKey: { name: "sk", type: "S" },
+      gsi: [
+        {
+          indexName: `${nameBuilder.table("metrics")}-item-type-bucket-start-index`,
+          partitionKey: { name: "item_type", type: "S" },
+          sortKey: { name: "bucket_start", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: true,
+      deletionProtection: false,
+    },
+    /**
      * Consolidated single table for all tenant configuration records.
      * Records are discriminated by the `type` field:
      *   credential        → tenant credentials (CR-prefixed id)

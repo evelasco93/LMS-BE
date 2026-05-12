@@ -32,6 +32,7 @@ import { consolidateLambdaApiPermissions } from "./routes/route-helpers";
 import { ClientsAffiliatesRoutes } from "./routes/clients-affiliates-routes";
 import { CampaignsRoutes } from "./routes/campaigns-routes";
 import { LeadsRoutes } from "./routes/leads-routes";
+import { MetricsRoutes } from "./routes/metrics-routes";
 import { TenantConfigRoutes } from "./routes/tenant-config-routes";
 import { QaAuditCherryPickRoutes } from "./routes/qa-audit-routes";
 import * as path from "path";
@@ -455,6 +456,11 @@ export class InternalApiStack extends NestedStack {
     new LeadsRoutes(this, `${logicalIdPrefix}-Leads`, {
       ...sharedProps,
       leadsLambda,
+    });
+
+    new MetricsRoutes(this, `${logicalIdPrefix}-Metrics`, {
+      ...sharedProps,
+      metricsLambda: leadsLambda,
     });
 
     new TenantConfigRoutes(this, `${logicalIdPrefix}-TenantConfig`, {

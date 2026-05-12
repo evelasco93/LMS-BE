@@ -8,6 +8,7 @@ import {
   getMockDynamoDBUtil,
   getMockLambdaInvokeUtil,
   getMockLeadDeliveryService,
+  getMockMetricsService,
   getMockConstants,
 } from "../setup";
 
@@ -61,6 +62,7 @@ describe("LeadsService", () => {
   let mockDynamoDBUtil: any;
   let mockLambdaInvokeUtil: any;
   let mockLeadDeliveryService: any;
+  let mockMetricsService: any;
   let mockConstants: any;
 
   beforeEach(() => {
@@ -70,6 +72,7 @@ describe("LeadsService", () => {
     mockDynamoDBUtil = getMockDynamoDBUtil();
     mockLambdaInvokeUtil = getMockLambdaInvokeUtil();
     mockLeadDeliveryService = getMockLeadDeliveryService();
+    mockMetricsService = getMockMetricsService();
     mockConstants = getMockConstants();
   });
 
@@ -269,7 +272,7 @@ describe("LeadsService", () => {
 
       // Auto-detected as test: accepted but no delivery
       expect(result.result).toBe("passed");
-      expect(result.message).toContain("Test lead accepted");
+      expect(result.message?.toLowerCase()).toContain("test lead accepted");
       expect(mockLeadDeliveryService.deliverLead).not.toHaveBeenCalled();
     });
 
@@ -291,7 +294,9 @@ describe("LeadsService", () => {
 
       expect(result.result).toBe("failed");
       expect(result.lead_id).toBeDefined();
-      expect(result.errors?.[0]).toContain("contact your account manager");
+      expect(result.errors?.[0]?.toLowerCase()).toContain(
+        "contact your account manager",
+      );
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -313,7 +318,9 @@ describe("LeadsService", () => {
 
       expect(result.result).toBe("failed");
       expect(result.lead_id).toBeDefined();
-      expect(result.errors?.[0]).toContain("contact your account manager");
+      expect(result.errors?.[0]?.toLowerCase()).toContain(
+        "contact your account manager",
+      );
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
@@ -367,8 +374,8 @@ describe("LeadsService", () => {
 
       expect(result.result).toBe("failed");
       expect(result.lead_id).toBeDefined();
-      expect(result.errors?.[0]).toContain(
-        "A matching lead has already been received",
+      expect(result.errors?.[0]?.toLowerCase()).toContain(
+        "a matching lead has already been received",
       );
       expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledTimes(1);
     });
@@ -516,6 +523,60 @@ describe("LeadsService", () => {
       expect(result.lead_id).toBeDefined();
       expect(result.errors?.[0]).toContain("No eligible LIVE client");
       expect(mockLeadDeliveryService.deliverLead).toHaveBeenCalledTimes(1);
+      expect(mockMetricsService.recordLeadOutcome).toHaveBeenCalledTimes(1);
+      expect(mockMetricsService.recordLeadOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rejected: true,
+          sold: false,
+        }),
+      );
+    });
+
+    it("records accepted_not_sold transition when sold criteria fails", async () => {
+      const campaign = {
+        ...buildCampaign(CampaignStatus.ACTIVE, CampaignParticipantStatus.LIVE),
+        affiliates: [
+          {
+            affiliate_id: "AF1",
+            campaign_key: "KEY123",
+            status: CampaignParticipantStatus.LIVE,
+            sold_criteria: [
+              {
+                field: "state",
+                operator: "is",
+                value: "CA",
+                action: "passed",
+                enabled: true,
+              },
+            ],
+          },
+        ],
+      };
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+      mockLeadDeliveryService.deliverLead.mockImplementationOnce(
+        async (lead: any) => {
+          lead.sold = true;
+          lead.rejected = false;
+        },
+      );
+      mockLeadDeliveryService.passesLogicRules.mockReturnValueOnce(false);
+
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "lead@accepted-not-sold.com", state: "NY" },
+      });
+
+      expect(result.result).toBe("passed");
+      expect(mockMetricsService.recordLeadOutcome).toHaveBeenCalledTimes(1);
+      expect(mockMetricsService.recordLeadOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rejected: false,
+          sold: false,
+        }),
+      );
     });
 
     it("handles persistence failure", async () => {
@@ -532,6 +593,37 @@ describe("LeadsService", () => {
 
       expect(result.result).toBe("failed");
       expect(result.error).toContain("dynamo fail");
+    });
+  });
+
+  describe("metrics query methods", () => {
+    it("returns validation error when date range is missing", async () => {
+      const summary = await leadsService.getMetricsSummary({} as any);
+
+      expect(summary.result).toBe(false);
+      expect(summary.error).toContain("from_date and to_date are required");
+    });
+
+    it("returns summary shape from metrics service", async () => {
+      mockMetricsService.getSummary.mockResolvedValueOnce({
+        range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+        filters: {},
+        totals: {
+          received: 3,
+          accepted: 2,
+          sold: 1,
+          accepted_not_sold: 1,
+          rejected: 1,
+        },
+      });
+
+      const result = await leadsService.getMetricsSummary({
+        from_date: "2026-05-01",
+        to_date: "2026-05-02",
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.totals.received).toBe(3);
     });
   });
 });

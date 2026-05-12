@@ -37,6 +37,10 @@
       "description": "Submit test and live leads"
     },
     {
+      "name": "metrics",
+      "description": "Query lead outcome counters and health over time windows"
+    },
+    {
       "name": "tenant-config",
       "description": "Manage provider credentials for tenant integrations"
     },
@@ -4936,6 +4940,307 @@
       }
     }
   },
+  "/metrics/summary": {
+    "get": {
+      "summary": "Get aggregate counters for a date range",
+      "tags": ["metrics"],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "from_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "to_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "campaign_id",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "source",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Metrics summary",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricsSummaryResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Invalid query"
+        },
+        "401": {
+          "description": "Unauthorized"
+        }
+      }
+    }
+  },
+  "/metrics/timeseries": {
+    "get": {
+      "summary": "Get day-bucketed counters for a date range",
+      "tags": ["metrics"],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "from_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "to_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "campaign_id",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "source",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Metrics timeseries",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricsTimeseriesResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Invalid query"
+        },
+        "401": {
+          "description": "Unauthorized"
+        }
+      }
+    }
+  },
+  "/metrics/breakdown": {
+    "get": {
+      "summary": "Get campaign/source breakdown counters",
+      "tags": ["metrics"],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "from_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "to_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "campaign_id",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "source",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Metrics breakdown",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricsBreakdownResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Invalid query"
+        },
+        "401": {
+          "description": "Unauthorized"
+        }
+      }
+    }
+  },
+  "/metrics/contracts": {
+    "get": {
+      "summary": "Get contract-level counters",
+      "tags": ["metrics"],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "from_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "to_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "campaign_id",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Contract metrics",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricsContractsResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Invalid query"
+        },
+        "401": {
+          "description": "Unauthorized"
+        }
+      }
+    }
+  },
+  "/metrics/health": {
+    "get": {
+      "summary": "Get metrics consistency health checks",
+      "tags": ["metrics"],
+      "security": [
+        {
+          "BearerAuth": []
+        }
+      ],
+      "parameters": [
+        {
+          "name": "from_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        {
+          "name": "to_date",
+          "in": "query",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Metrics health",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricsHealthResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Invalid query"
+        },
+        "401": {
+          "description": "Unauthorized"
+        }
+      }
+    }
+  },
   "components": {
     "securitySchemes": {
       "BearerAuth": {
@@ -8164,6 +8469,258 @@
           },
           "updated_by": {
             "$ref": "#/components/schemas/RequestActor"
+          }
+        }
+      },
+      "MetricsCounters": {
+        "type": "object",
+        "required": [
+          "received",
+          "accepted",
+          "sold",
+          "accepted_not_sold",
+          "rejected"
+        ],
+        "properties": {
+          "received": {
+            "type": "integer"
+          },
+          "accepted": {
+            "type": "integer"
+          },
+          "sold": {
+            "type": "integer"
+          },
+          "accepted_not_sold": {
+            "type": "integer"
+          },
+          "rejected": {
+            "type": "integer"
+          }
+        }
+      },
+      "MetricsSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "range": {
+                "type": "object",
+                "properties": {
+                  "from_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "to_date": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                }
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "campaign_id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                }
+              },
+              "totals": {
+                "$ref": "#/components/schemas/MetricsCounters"
+              }
+            }
+          }
+        }
+      },
+      "MetricsTimeseriesResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "range": {
+                "type": "object",
+                "properties": {
+                  "from_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "to_date": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                }
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "campaign_id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                }
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bucket_start": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "counters": {
+                      "$ref": "#/components/schemas/MetricsCounters"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "MetricsBreakdownResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "range": {
+                "type": "object",
+                "properties": {
+                  "from_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "to_date": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                }
+              },
+              "campaigns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "counters": {
+                      "$ref": "#/components/schemas/MetricsCounters"
+                    }
+                  }
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "counters": {
+                      "$ref": "#/components/schemas/MetricsCounters"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "MetricsContractsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "contracts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "contract_id": {
+                      "type": "string"
+                    },
+                    "counters": {
+                      "$ref": "#/components/schemas/MetricsCounters"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "MetricsHealthResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["ok", "degraded"]
+              },
+              "totals": {
+                "$ref": "#/components/schemas/MetricsCounters"
+              },
+              "checks": {
+                "type": "object",
+                "properties": {
+                  "received_equals_accepted_plus_rejected": {
+                    "type": "boolean"
+                  },
+                  "accepted_equals_sold_plus_accepted_not_sold": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },

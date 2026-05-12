@@ -29,12 +29,21 @@ export function createMockDynamoDBUtil() {
   };
 }
 
+export function createMockAuditWriterService() {
+  return {
+    writeAuditEvent: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 export function createMockConstants() {
   return {
-    CREDENTIALS_TABLE_NAME: "test-credentials-table",
+    TENANT_SETTINGS_TABLE_NAME: "test-tenant-settings-table",
     CREDENTIALS_ENCRYPTION_KEY:
       "0000000000000000000000000000000000000000000000000000000000000000",
-    PLUGIN_SCHEMAS_TABLE_NAME: "test-plugin-schemas-table",
+    CAMPAIGNS_TABLE_NAME: "test-campaigns-table",
+    AUDIT_LOGS_TABLE_NAME: "test-audit-logs-table",
+    PRESETS_TABLE_NAME: "test-presets-table",
+    PLATFORM_PRESETS_TABLE_NAME: "test-platform-presets-table",
   };
 }
 
@@ -47,6 +56,9 @@ beforeEach(() => {
   testContainer
     .bind("TenantConfigConstants")
     .toConstantValue(createMockConstants());
+  testContainer
+    .bind("AuditWriterService")
+    .toConstantValue(createMockAuditWriterService());
 });
 
 export function getMockDynamoDBUtil() {

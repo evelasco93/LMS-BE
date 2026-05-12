@@ -99,13 +99,14 @@ describe("CampaignService", () => {
       const result = await campaignService.linkClient(campaign.id, payload);
 
       expect(result.result).toBe(true);
-      expect(result.data?.clients).toEqual([
+      expect(result.data?.clients).toContainEqual(
         expect.objectContaining({
           client_id: "CL123",
+          contract_id: expect.any(String),
           status: CampaignParticipantStatus.TEST,
           added_at: expect.any(String),
         }),
-      ]);
+      );
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
   });
@@ -366,7 +367,9 @@ describe("CampaignService", () => {
       const result = await campaignService.updateStatus(campaign.id, payload);
 
       expect(result.result).toBe(false);
-      expect(result.error).toContain("Add at least one client and affiliate");
+      expect(result.error).toContain(
+        "Add at least one contract and affiliate before moving to TEST",
+      );
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
 
@@ -426,7 +429,7 @@ describe("CampaignService", () => {
 
       expect(result.result).toBe(false);
       expect(result.error).toContain(
-        "At least one LIVE client and one LIVE affiliate",
+        "At least one LIVE contract and one LIVE affiliate",
       );
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });

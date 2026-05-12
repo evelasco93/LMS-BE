@@ -61,6 +61,18 @@ export function createMockLeadDeliveryService() {
       statusCode: 200,
       attempts: 1,
     }),
+    passesLogicRules: vi.fn().mockReturnValue(true),
+  };
+}
+
+export function createMockMetricsService() {
+  return {
+    recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
+    getSummary: vi.fn(),
+    getTimeseries: vi.fn(),
+    getBreakdown: vi.fn(),
+    getContracts: vi.fn(),
+    getHealth: vi.fn(),
   };
 }
 
@@ -75,6 +87,7 @@ beforeEach(() => {
   const mockConstants = createMockConstants();
   const mockAuditWriterService = createMockAuditWriterService();
   const mockLeadDeliveryService = createMockLeadDeliveryService();
+  const mockMetricsService = createMockMetricsService();
 
   testContainer.bind("DynamoDBUtil").toConstantValue(mockDynamoDBUtil);
   testContainer.bind("Logger").toConstantValue(mockLogger);
@@ -86,6 +99,7 @@ beforeEach(() => {
   testContainer
     .bind("LeadDeliveryService")
     .toConstantValue(mockLeadDeliveryService);
+  testContainer.bind("MetricsService").toConstantValue(mockMetricsService);
 });
 
 export function getMockDynamoDBUtil() {
@@ -106,4 +120,8 @@ export function getMockConstants() {
 
 export function getMockLeadDeliveryService() {
   return testContainer.get("LeadDeliveryService");
+}
+
+export function getMockMetricsService() {
+  return testContainer.get("MetricsService");
 }

@@ -4,7 +4,8 @@
   "description": "Cherry Pick Lambda Handler",
   "private": true,
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test:unit": "node -e \"console.log('No unit tests for cherry-pick handler')\""
   },
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.600.0",

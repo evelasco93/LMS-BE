@@ -4,6 +4,14 @@ import { injectable } from "inversify";
 export class LeadsConstants {
   public readonly LEADS_TABLE_NAME: string;
   public readonly LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: string;
+  public readonly METRICS_TABLE_NAME: string;
+  public readonly METRICS_TABLE_PARTITION_KEY: string;
+  public readonly METRICS_TABLE_SORT_KEY: string;
+  public readonly METRICS_TABLE_ITEM_TYPE_ATTRIBUTE: string;
+  public readonly METRICS_TABLE_BUCKET_START_ATTRIBUTE: string;
+  public readonly METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME: string;
+  public readonly METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY: string;
+  public readonly METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY: string;
   public readonly CAMPAIGNS_TABLE_NAME: string;
   public readonly QA_ORCHESTRATOR_LAMBDA_NAME: string;
   public readonly CRITERIA_VALIDATION_LAMBDA_NAME: string;
@@ -22,6 +30,22 @@ export class LeadsConstants {
     this.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME =
       process.env.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME ??
       `${this.LEADS_TABLE_NAME}-campaign-created-at-index`;
+    this.METRICS_TABLE_NAME = process.env.METRICS_TABLE_NAME ?? "";
+    this.METRICS_TABLE_PARTITION_KEY =
+      process.env.METRICS_TABLE_PARTITION_KEY ?? "pk";
+    this.METRICS_TABLE_SORT_KEY = process.env.METRICS_TABLE_SORT_KEY ?? "sk";
+    this.METRICS_TABLE_ITEM_TYPE_ATTRIBUTE =
+      process.env.METRICS_TABLE_ITEM_TYPE_ATTRIBUTE ?? "item_type";
+    this.METRICS_TABLE_BUCKET_START_ATTRIBUTE =
+      process.env.METRICS_TABLE_BUCKET_START_ATTRIBUTE ?? "bucket_start";
+    this.METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME =
+      process.env.METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME ?? "";
+    this.METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY =
+      process.env.METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY ??
+      "item_type";
+    this.METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY =
+      process.env.METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY ??
+      "bucket_start";
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
     this.QA_ORCHESTRATOR_LAMBDA_NAME =
       process.env.QA_ORCHESTRATOR_LAMBDA_NAME ?? "";
@@ -48,6 +72,9 @@ export class LeadsConstants {
     }
     if (!this.CAMPAIGNS_TABLE_NAME) {
       throw new Error("CAMPAIGNS_TABLE_NAME env var is required");
+    }
+    if (!this.METRICS_TABLE_NAME) {
+      throw new Error("METRICS_TABLE_NAME env var is required");
     }
   }
 }

@@ -8,6 +8,7 @@ import { validateAllowedFields } from "@shared/utils/payload-validation.util";
 import { IdGenerator } from "@shared/generators/id.generator";
 import { LeadsConstants } from "../constants/leads.constants";
 import { LeadDeliveryService } from "./lead-delivery.service";
+import { MetricsService } from "./metrics.service";
 import {
   CreateLeadRequest,
   ListLeadsQuery,
@@ -15,6 +16,14 @@ import {
   ListIntakeLogsQuery,
 } from "../types/lead-request.types";
 import { LeadIntakeResponse, ServiceResult } from "../types/common.types";
+import {
+  MetricsBreakdownData,
+  MetricsContractsData,
+  MetricsHealthData,
+  MetricsQuery,
+  MetricsSummaryData,
+  MetricsTimeseriesData,
+} from "../types/metrics.types";
 import { ILead, IMappedFieldEntry } from "../interfaces/ILead.interface";
 import {
   ILeadIntakeLog,
@@ -61,6 +70,8 @@ export class LeadsService {
     private readonly auditWriterService: AuditWriterService,
     @inject("LeadDeliveryService")
     private readonly leadDeliveryService: LeadDeliveryService,
+    @inject("MetricsService")
+    private readonly metricsService: MetricsService,
   ) {}
 
   async createLead(
@@ -384,6 +395,13 @@ export class LeadsService {
           normalizedLeadPayload,
           criteriaResponse,
         ).catch((err) => this.logger.error("Failed to write intake log", err));
+
+        await this.metricsService.recordLeadOutcome(lead).catch((err: any) =>
+          this.logger.error("Failed to write lead metrics", {
+            leadId: lead.id,
+            error: err?.message,
+          }),
+        );
 
         return criteriaResponse;
       }
@@ -770,6 +788,13 @@ export class LeadsService {
         normalizedLeadPayload,
         leadResponse,
       ).catch((err) => this.logger.error("Failed to write intake log", err));
+
+      await this.metricsService.recordLeadOutcome(lead).catch((err: any) =>
+        this.logger.error("Failed to write lead metrics", {
+          leadId: lead.id,
+          error: err?.message,
+        }),
+      );
 
       return leadResponse;
     } catch (error: any) {
@@ -1388,6 +1413,143 @@ export class LeadsService {
       return {
         result: false,
         error: error.message || "Failed to list intake logs",
+      };
+    }
+  }
+
+  async getMetricsSummary(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsSummaryData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+
+      const data = await this.metricsService.getSummary({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        source: query.source,
+      });
+
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics summary", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics summary",
+      };
+    }
+  }
+
+  async getMetricsTimeseries(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsTimeseriesData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+
+      const data = await this.metricsService.getTimeseries({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        source: query.source,
+      });
+
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics timeseries", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics timeseries",
+      };
+    }
+  }
+
+  async getMetricsBreakdown(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsBreakdownData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+
+      const data = await this.metricsService.getBreakdown({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        source: query.source,
+      });
+
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics breakdown", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics breakdown",
+      };
+    }
+  }
+
+  async getMetricsContracts(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsContractsData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+
+      const data = await this.metricsService.getContracts({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+      });
+
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics contracts", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics contracts",
+      };
+    }
+  }
+
+  async getMetricsHealth(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsHealthData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+
+      const data = await this.metricsService.getHealth({
+        from_date: query.from_date,
+        to_date: query.to_date,
+      });
+
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics health", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics health",
       };
     }
   }

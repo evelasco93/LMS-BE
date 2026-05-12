@@ -8,6 +8,8 @@ import { LeadsConstants } from "../constants/leads.constants";
 import { LeadsService } from "../services/leads.service";
 import { LeadDeliveryService } from "../services/lead-delivery.service";
 import { LeadsController } from "../controllers/leads.controller";
+import { MetricsService } from "../services/metrics.service";
+import { MetricsController } from "../controllers/metrics.controller";
 
 const container = new Container();
 
@@ -38,6 +40,11 @@ container
   .bind<LeadDeliveryService>("LeadDeliveryService")
   .to(LeadDeliveryService)
   .inSingletonScope();
+container
+  .bind<MetricsService>("MetricsService")
+  .to(MetricsService)
+  .inSingletonScope();
 container.bind<LeadsController>(LeadsController).toSelf();
+container.bind<MetricsController>(MetricsController).toSelf();
 
 export { container };

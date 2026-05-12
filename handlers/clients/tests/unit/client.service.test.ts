@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ClientService } from "../../services/client.service";
 import { CreateClientRequest } from "../../types/client-request.types";
 import { ClientStatus } from "../../enums/client-status.enum";
+import { CampaignParticipantStatus } from "../../../campaigns/enums/campaign-participant-status.enum";
 import { getTestContainer, getMockDynamoDBUtil } from "../setup";
 import { mockClient, mockExistingClient } from "../fixtures/client.fixtures";
 
@@ -20,13 +21,8 @@ describe("ClientService", () => {
     it("should create a new client successfully", async () => {
       const request: CreateClientRequest = {
         name: "Test Client",
-        email: "test@example.com",
+        client_code: "CLCODE123",
       };
-
-      mockDynamoDBUtil.query.mockResolvedValueOnce({
-        items: [],
-        count: 0,
-      });
 
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
@@ -35,34 +31,35 @@ describe("ClientService", () => {
       expect(result.result).toBe(true);
       expect(result.data).toBeDefined();
       expect(result.data?.name).toBe(request.name);
-      expect(result.data?.email).toBe(request.email);
+      expect(result.data?.client_code).toBe(request.client_code);
       expect(result.data?.status).toBe(ClientStatus.ACTIVE);
       expect(result.data?.id).toMatch(/^CL[A-Z0-9]{8}$/);
       expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
     });
 
-    it("should return error if email already exists", async () => {
+    it("should return error for invalid payload fields", async () => {
       const request: CreateClientRequest = {
         name: "Test Client",
-        email: "existing@example.com",
-      };
+        notes: "Client notes",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
 
-      mockDynamoDBUtil.query.mockResolvedValueOnce({
-        items: [mockExistingClient],
-        count: 1,
-      });
-
-      const result = await clientService.createClient(request);
+      const result = await clientService.createClient({
+        ...request,
+        extra: "invalid",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
 
       expect(result.result).toBe(false);
-      expect(result.error).toContain("already exists");
+      expect(result.error).toContain("Invalid fields");
       expect(mockDynamoDBUtil.put).not.toHaveBeenCalled();
     });
 
     it("rejects extra fields", async () => {
       const result = await clientService.createClient({
         name: "Bad Client",
-        email: "bad@example.com",
+        client_code: "CLBAD001",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         extra: "nope",
       } as any);
 
@@ -158,18 +155,7 @@ describe("ClientService", () => {
         result: true,
         data: mockClient,
       });
-      vi.spyOn(clientService as any, "getClientByEmail").mockResolvedValue({
-        result: false,
-      });
-      mockDynamoDBUtil.buildUpdateExpression.mockReturnValue({
-        UpdateExpression: "set #name = :name",
-        ExpressionAttributeNames: { "#name": "name" },
-        ExpressionAttributeValues: { ":name": "Updated" },
-      });
-      mockDynamoDBUtil.update.mockResolvedValueOnce({
-        ...mockClient,
-        name: "Updated",
-      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
       const result = await clientService.updateClient("CL1", {
         name: "Updated",
@@ -177,54 +163,62 @@ describe("ClientService", () => {
 
       expect(result.result).toBe(true);
       expect(result.data?.name).toBe("Updated");
-      expect(mockDynamoDBUtil.update).toHaveBeenCalled();
+      expect(mockDynamoDBUtil.put).toHaveBeenCalled();
     });
 
-    it("rejects when email already used", async () => {
-      vi.spyOn(clientService as any, "getClient").mockResolvedValue({
-        result: true,
-        data: mockClient,
-      });
-      vi.spyOn(clientService as any, "getClientByEmail").mockResolvedValue({
-        result: true,
-        data: mockClient,
-      });
-
-      const result = await clientService.updateClient("CL1", {
-        email: "new@example.com",
-      });
-
-      expect(result.result).toBe(false);
-      expect(result.error).toContain("already exists");
-    });
-
-    it("rejects when client missing", async () => {
+    it("returns not found when client missing", async () => {
       vi.spyOn(clientService as any, "getClient").mockResolvedValue({
         result: false,
       });
 
-      const result = await clientService.updateClient("CL404", {
-        name: "Nope",
+      const result = await clientService.updateClient("CL1", {
+        name: "Changed",
       });
 
       expect(result.result).toBe(false);
       expect(result.error).toContain("not found");
-      expect(mockDynamoDBUtil.update).not.toHaveBeenCalled();
     });
-  });
 
-  describe("deleteClient", () => {
-    it("deletes when found", async () => {
+    it("updates status when provided", async () => {
       vi.spyOn(clientService as any, "getClient").mockResolvedValue({
         result: true,
         data: mockClient,
       });
-      mockDynamoDBUtil.delete.mockResolvedValueOnce(undefined);
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await clientService.updateClient("CL1", {
+        status: ClientStatus.INACTIVE,
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.status).toBe(ClientStatus.INACTIVE);
+    });
+  });
+
+  describe("deleteClient", () => {
+    it("soft-deletes when found with no campaign links", async () => {
+      vi.spyOn(clientService as any, "getClient").mockResolvedValue({
+        result: true,
+        data: mockClient,
+      });
+      mockDynamoDBUtil.scan.mockResolvedValueOnce({
+        items: [],
+      });
+      mockDynamoDBUtil.buildUpdateExpression.mockReturnValue({
+        UpdateExpression: "SET #is_deleted = :is_deleted",
+        ExpressionAttributeNames: {
+          "#is_deleted": "is_deleted",
+        },
+        ExpressionAttributeValues: {
+          ":is_deleted": true,
+        },
+      });
+      mockDynamoDBUtil.update.mockResolvedValueOnce(undefined);
 
       const result = await clientService.deleteClient("CL1");
 
       expect(result.result).toBe(true);
-      expect(mockDynamoDBUtil.delete).toHaveBeenCalled();
+      expect(mockDynamoDBUtil.update).toHaveBeenCalled();
     });
 
     it("returns error when missing", async () => {
@@ -236,7 +230,36 @@ describe("ClientService", () => {
 
       expect(result.result).toBe(false);
       expect(result.error).toContain("not found");
-      expect(mockDynamoDBUtil.delete).not.toHaveBeenCalled();
+      expect(mockDynamoDBUtil.update).not.toHaveBeenCalled();
+    });
+
+    it("blocks soft delete when active campaign link exists", async () => {
+      vi.spyOn(clientService as any, "getClient").mockResolvedValue({
+        result: true,
+        data: mockClient,
+      });
+      mockDynamoDBUtil.scan.mockResolvedValueOnce({
+        items: [
+          {
+            id: "CM1",
+            name: "Campaign 1",
+            clients: [
+              {
+                client_id: "CL1",
+                status: CampaignParticipantStatus.LIVE,
+              },
+            ],
+          },
+        ],
+      });
+      mockDynamoDBUtil.scan.mockResolvedValueOnce({
+        items: [],
+      });
+
+      const result = await clientService.deleteClient("CL1");
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("Disable the client in all campaigns");
     });
   });
 });

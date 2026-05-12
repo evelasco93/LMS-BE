@@ -10,6 +10,7 @@ import { LeadsDataStack } from "./leads-data.stack";
 import { TenantSettingsDataStack } from "./tenant-settings-data.stack";
 import { AuditLogsDataStack } from "./audit-logs-data.stack";
 import { LeadIntakeLogsDataStack } from "./lead-intake-logs-data.stack";
+import { MetricsDataStack } from "./metrics-data.stack";
 import { PresetsDataStack } from "./presets-data.stack";
 import { UserTablePreferencesDataStack } from "./user-table-preferences-data.stack";
 import { PlatformPresetsDataStack } from "./platform-presets-data.stack";
@@ -22,6 +23,8 @@ export class DataStack extends Stack {
   public readonly affiliatesTable: Table;
   public readonly campaignsTable: Table;
   public readonly leadsTable: Table;
+  /** Metrics domain single table */
+  public readonly metricsTable: Table;
   /** Consolidated single table for credentials, credential schemas, and plugin settings */
   public readonly tenantSettingsTable: Table;
   /** Centralized audit log table */
@@ -91,6 +94,17 @@ export class DataStack extends Stack {
     this.affiliatesTable = affiliatesDataStack.table;
     this.campaignsTable = campaignsDataStack.table;
     this.leadsTable = leadsDataStack.table;
+
+    const metricsDataStack = new MetricsDataStack(
+      this,
+      `${config.appPrefix}-MetricsData`,
+      {
+        tableConfig: dataConfig.tables.metrics,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.metricsTable = metricsDataStack.table;
+
     this.tenantSettingsTable = tenantSettingsDataStack.table;
 
     const auditLogsDataStack = new AuditLogsDataStack(

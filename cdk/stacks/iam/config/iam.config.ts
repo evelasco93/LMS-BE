@@ -10,6 +10,7 @@ const campaignsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("campaigns"),
 );
 const leadsTableArn = arnBuilder.dynamoTable(nameBuilder.table("leads"));
+const metricsTableArn = arnBuilder.dynamoTable(nameBuilder.table("metrics"));
 const tenantSettingsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("tenant-settings"),
 );
@@ -255,6 +256,17 @@ export const iamConfig: IIamStackConfig = {
             leadIntakeLogsTableArn,
             `${leadIntakeLogsTableArn}/index/*`,
           ],
+        },
+        {
+          name: "MetricsReadWrite",
+          actions: [
+            "dynamodb:DescribeTable",
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:Query",
+          ],
+          resources: [metricsTableArn, `${metricsTableArn}/index/*`],
         },
         {
           name: "PlatformPresetsRead",
