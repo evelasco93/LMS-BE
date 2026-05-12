@@ -249,8 +249,21 @@ export class MetricsService {
   async getBreakdown(query: MetricsQuery): Promise<MetricsBreakdownData> {
     this.validateQuery(query);
 
+    const requestedCampaignKey = this.normalizeCampaignKey(query.campaign_key);
+
     if (!query.campaign_id) {
-      throw new Error("campaign_id is required for metrics breakdown");
+      return this.getAllCampaignBreakdown(query, requestedCampaignKey);
+    }
+
+    return this.getSingleCampaignBreakdown(query, requestedCampaignKey);
+  }
+
+  private async getSingleCampaignBreakdown(
+    query: MetricsQuery,
+    requestedCampaignKey?: string,
+  ): Promise<MetricsBreakdownData> {
+    if (!query.campaign_id) {
+      return this.emptyBreakdown(query);
     }
 
     const campaign = await this.getCampaign(query.campaign_id);
@@ -263,7 +276,6 @@ export class MetricsService {
       return this.emptyBreakdown(query);
     }
 
-    const requestedCampaignKey = this.normalizeCampaignKey(query.campaign_key);
     const scopedSourceKeys = requestedCampaignKey
       ? new Set(
           liveSourceKeys.has(requestedCampaignKey) ? [requestedCampaignKey] : [],
@@ -304,6 +316,76 @@ export class MetricsService {
         counters: campaignSummary,
       },
       campaigns: [{ key: query.campaign_id, counters: campaignSummary }],
+      sources,
+    };
+  }
+
+  private async getAllCampaignBreakdown(
+    query: MetricsQuery,
+    requestedCampaignKey?: string,
+  ): Promise<MetricsBreakdownData> {
+    const activeCampaigns = await this.getActiveCampaigns();
+    if (activeCampaigns.length === 0) {
+      return this.emptyBreakdown(query);
+    }
+
+    const campaignSourceKeys = new Map<string, Set<string>>();
+    for (const campaign of activeCampaigns) {
+      const liveSourceKeys = this.getLiveCampaignSourceKeys(campaign);
+      const scopedLiveSourceKeys = requestedCampaignKey
+        ? new Set(
+            liveSourceKeys.has(requestedCampaignKey) ? [requestedCampaignKey] : [],
+          )
+        : liveSourceKeys;
+
+      if (scopedLiveSourceKeys.size > 0) {
+        campaignSourceKeys.set(campaign.id, scopedLiveSourceKeys);
+      }
+    }
+
+    if (campaignSourceKeys.size === 0) {
+      return this.emptyBreakdown(query);
+    }
+
+    const byCampaignSource = await this.queryByItemTypeRange(
+      "counter#day#campaign_source",
+      query.from_date,
+      query.to_date,
+    );
+
+    const sourceItems = byCampaignSource.filter((item) => {
+      if (!item.campaign_id || !item.source) {
+        return false;
+      }
+
+      const allowedSourceKeys = campaignSourceKeys.get(item.campaign_id);
+      if (!allowedSourceKeys) {
+        return false;
+      }
+
+      return allowedSourceKeys.has(item.source);
+    });
+
+    const sources = this.aggregateBreakdown(sourceItems, "source");
+    const campaignSummary = this.sumItems(sourceItems);
+    const campaigns = this.aggregateCampaignsForIds(
+      Array.from(campaignSourceKeys.keys()),
+      sourceItems,
+    );
+
+    return {
+      range: {
+        from_date: query.from_date,
+        to_date: query.to_date,
+      },
+      filters: {
+        ...(requestedCampaignKey ? { campaign_key: requestedCampaignKey } : {}),
+      },
+      campaign_summary: {
+        campaign_id: "",
+        counters: campaignSummary,
+      },
+      campaigns,
       sources,
     };
   }
@@ -625,6 +707,30 @@ export class MetricsService {
       .sort((a, b) => b.counters.received - a.counters.received);
   }
 
+  private aggregateCampaignsForIds(
+    campaignIds: string[],
+    items: MetricsCounterItem[],
+  ): Array<{ key: string; counters: MetricsCounters }> {
+    const grouped = new Map<string, MetricsCounters>();
+
+    for (const campaignId of campaignIds) {
+      grouped.set(campaignId, this.emptyCounters());
+    }
+
+    for (const item of items) {
+      if (!item.campaign_id || !grouped.has(item.campaign_id)) {
+        continue;
+      }
+
+      const existing = grouped.get(item.campaign_id) ?? this.emptyCounters();
+      grouped.set(item.campaign_id, this.addCounters(existing, this.toItemCounters(item)));
+    }
+
+    return Array.from(grouped.entries())
+      .map(([key, counters]) => ({ key, counters }))
+      .sort((a, b) => b.counters.received - a.counters.received);
+  }
+
   private toItemCounters(item: MetricsCounterItem): MetricsCounters {
     return {
       received: item.received ?? 0,
@@ -689,6 +795,21 @@ export class MetricsService {
     });
 
     return campaign ?? null;
+  }
+
+  private async getActiveCampaigns(): Promise<ICampaign[]> {
+    const campaigns = await this.dynamoDBUtil.scanAll<ICampaign>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+      FilterExpression: "#status = :status",
+      ExpressionAttributeNames: {
+        "#status": "status",
+      },
+      ExpressionAttributeValues: {
+        ":status": CampaignStatus.ACTIVE,
+      },
+    });
+
+    return (campaigns ?? []).filter((campaign) => !!campaign?.id);
   }
 
   private getLiveCampaignSourceKeys(campaign: ICampaign): Set<string> {

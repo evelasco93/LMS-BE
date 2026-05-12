@@ -13,6 +13,7 @@ describe("MetricsService breakdown cutover", () => {
     dynamoDBUtil = {
       get: vi.fn(),
       queryAll: vi.fn(),
+      scanAll: vi.fn(),
     };
     logger = {
       error: vi.fn(),
@@ -35,13 +36,160 @@ describe("MetricsService breakdown cutover", () => {
     service = new MetricsService(dynamoDBUtil, logger, constants);
   });
 
-  it("requires campaign_id for breakdown", async () => {
+  it("returns all-campaign breakdown using ACTIVE campaigns and LIVE sources", async () => {
+    dynamoDBUtil.scanAll.mockResolvedValue([
+      {
+        id: "CM1",
+        status: CampaignStatus.ACTIVE,
+        affiliates: [
+          {
+            affiliate_id: "AF1",
+            campaign_key: "KEY_A",
+            status: CampaignParticipantStatus.LIVE,
+          },
+          {
+            affiliate_id: "AF2",
+            campaign_key: "KEY_A_TEST",
+            status: CampaignParticipantStatus.TEST,
+          },
+        ],
+      },
+      {
+        id: "CM2",
+        status: CampaignStatus.ACTIVE,
+        affiliates: [
+          {
+            affiliate_id: "AF3",
+            campaign_key: "KEY_B",
+            status: CampaignParticipantStatus.LIVE,
+          },
+        ],
+      },
+      {
+        id: "CM3",
+        status: CampaignStatus.ACTIVE,
+        affiliates: [
+          {
+            affiliate_id: "AF4",
+            campaign_key: "KEY_C",
+            status: CampaignParticipantStatus.PAUSED,
+          },
+        ],
+      },
+    ]);
+
+    dynamoDBUtil.queryAll.mockResolvedValue([
+      {
+        campaign_id: "CM1",
+        source: "KEY_A",
+        received: 10,
+        accepted: 8,
+        sold: 5,
+        accepted_not_sold: 3,
+        rejected: 2,
+      },
+      {
+        campaign_id: "CM1",
+        source: "KEY_A_TEST",
+        received: 4,
+        accepted: 2,
+        sold: 1,
+        accepted_not_sold: 1,
+        rejected: 2,
+      },
+      {
+        campaign_id: "CM2",
+        source: "KEY_B",
+        received: 6,
+        accepted: 5,
+        sold: 2,
+        accepted_not_sold: 3,
+        rejected: 1,
+      },
+      {
+        campaign_id: "CM9",
+        source: "KEY_A",
+        received: 100,
+        accepted: 100,
+        sold: 100,
+        accepted_not_sold: 0,
+        rejected: 0,
+      },
+    ]);
+
+    const result = await service.getBreakdown({
+      from_date: "2026-05-01",
+      to_date: "2026-05-10",
+    });
+
+    expect(result.filters).toEqual({});
+    expect(result.sources).toEqual([
+      {
+        key: "KEY_A",
+        counters: {
+          received: 10,
+          accepted: 8,
+          sold: 5,
+          accepted_not_sold: 3,
+          rejected: 2,
+        },
+      },
+      {
+        key: "KEY_B",
+        counters: {
+          received: 6,
+          accepted: 5,
+          sold: 2,
+          accepted_not_sold: 3,
+          rejected: 1,
+        },
+      },
+    ]);
+    expect(result.campaigns).toEqual([
+      {
+        key: "CM1",
+        counters: {
+          received: 10,
+          accepted: 8,
+          sold: 5,
+          accepted_not_sold: 3,
+          rejected: 2,
+        },
+      },
+      {
+        key: "CM2",
+        counters: {
+          received: 6,
+          accepted: 5,
+          sold: 2,
+          accepted_not_sold: 3,
+          rejected: 1,
+        },
+      },
+    ]);
+    expect(result.campaign_summary).toEqual({
+      campaign_id: "",
+      counters: {
+        received: 16,
+        accepted: 13,
+        sold: 7,
+        accepted_not_sold: 6,
+        rejected: 3,
+      },
+    });
+    expect(dynamoDBUtil.scanAll).toHaveBeenCalledOnce();
+    expect(dynamoDBUtil.get).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when campaign_id is missing", async () => {
+    dynamoDBUtil.scanAll.mockResolvedValue([]);
+
     await expect(
       service.getBreakdown({
         from_date: "2026-05-01",
         to_date: "2026-05-10",
       }),
-    ).rejects.toThrow("campaign_id is required for metrics breakdown");
+    ).resolves.toBeDefined();
   });
 
   it("returns empty data when campaign is not LIVE/ACTIVE", async () => {
