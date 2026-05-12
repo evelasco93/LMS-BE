@@ -7,6 +7,9 @@ import {
 import { Logger } from "@shared/services/logger.util";
 import { DynamoDBUtil } from "@shared/services/dynamodb.util";
 import { LeadsConstants } from "../constants/leads.constants";
+import { CampaignStatus } from "../../campaigns/enums/campaign-status.enum";
+import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
+import { ICampaign } from "../../campaigns/interfaces/ICampaign.interface";
 import {
   MetricsBreakdownData,
   MetricsContractsData,
@@ -57,7 +60,7 @@ export class MetricsService {
 
   async recordLeadOutcome(lead: MetricsLeadSnapshot): Promise<void> {
     const bucketStart = this.toBucketStart(lead.created_at);
-    const source = this.normalizeSource(lead.original_source);
+    const source = this.normalizeCampaignKey(lead.campaign_key);
     const counters = this.toCounters(lead);
     const idempotencyKey = `lead_outcome:${lead.id}`;
     const now = new Date().toISOString();
@@ -208,7 +211,7 @@ export class MetricsService {
       },
       filters: {
         ...(query.campaign_id ? { campaign_id: query.campaign_id } : {}),
-        ...(query.source ? { source: query.source } : {}),
+        ...(query.campaign_key ? { campaign_key: query.campaign_key } : {}),
       },
       totals,
     };
@@ -237,7 +240,7 @@ export class MetricsService {
       },
       filters: {
         ...(query.campaign_id ? { campaign_id: query.campaign_id } : {}),
-        ...(query.source ? { source: query.source } : {}),
+        ...(query.campaign_key ? { campaign_key: query.campaign_key } : {}),
       },
       points: normalized,
     };
@@ -246,78 +249,46 @@ export class MetricsService {
   async getBreakdown(query: MetricsQuery): Promise<MetricsBreakdownData> {
     this.validateQuery(query);
 
-    let campaignItems: MetricsCounterItem[] = [];
-    let sourceItems: MetricsCounterItem[] = [];
-
-    if (query.campaign_id && query.source) {
-      const combo = await this.queryByPartition(
-        this.pkCampaignSource(query.campaign_id, this.normalizeSource(query.source)!),
-        query.from_date,
-        query.to_date,
-      );
-      const combined = this.sumItems(combo);
-      campaignItems = [
-        { campaign_id: query.campaign_id, ...combined } satisfies MetricsCounterItem,
-      ];
-      sourceItems = [
-        { source: this.normalizeSource(query.source)!, ...combined } satisfies MetricsCounterItem,
-      ];
-    } else if (query.campaign_id) {
-      const byCampaignSource = await this.queryByItemTypeRange(
-        "counter#day#campaign_source",
-        query.from_date,
-        query.to_date,
-      );
-      sourceItems = byCampaignSource.filter(
-        (item) => item.campaign_id === query.campaign_id,
-      );
-
-      const campaignTotals = this.sumItems(
-        await this.queryByPartition(
-          this.pkCampaign(query.campaign_id),
-          query.from_date,
-          query.to_date,
-        ),
-      );
-      campaignItems = [
-        { campaign_id: query.campaign_id, ...campaignTotals } satisfies MetricsCounterItem,
-      ];
-    } else if (query.source) {
-      const normalizedSource = this.normalizeSource(query.source)!;
-      const byCampaignSource = await this.queryByItemTypeRange(
-        "counter#day#campaign_source",
-        query.from_date,
-        query.to_date,
-      );
-      campaignItems = byCampaignSource.filter(
-        (item) => item.source === normalizedSource,
-      );
-
-      const sourceTotals = this.sumItems(
-        await this.queryByPartition(
-          this.pkSource(normalizedSource),
-          query.from_date,
-          query.to_date,
-        ),
-      );
-      sourceItems = [
-        { source: normalizedSource, ...sourceTotals } satisfies MetricsCounterItem,
-      ];
-    } else {
-      campaignItems = await this.queryByItemTypeRange(
-        "counter#day#campaign",
-        query.from_date,
-        query.to_date,
-      );
-      sourceItems = await this.queryByItemTypeRange(
-        "counter#day#source",
-        query.from_date,
-        query.to_date,
-      );
+    if (!query.campaign_id) {
+      throw new Error("campaign_id is required for metrics breakdown");
     }
 
-    const campaigns = this.aggregateBreakdown(campaignItems, "campaign_id");
+    const campaign = await this.getCampaign(query.campaign_id);
+    if (!campaign || campaign.status !== CampaignStatus.ACTIVE) {
+      return this.emptyBreakdown(query);
+    }
+
+    const liveSourceKeys = this.getLiveCampaignSourceKeys(campaign);
+    if (liveSourceKeys.size === 0) {
+      return this.emptyBreakdown(query);
+    }
+
+    const requestedCampaignKey = this.normalizeCampaignKey(query.campaign_key);
+    const scopedSourceKeys = requestedCampaignKey
+      ? new Set(
+          liveSourceKeys.has(requestedCampaignKey) ? [requestedCampaignKey] : [],
+        )
+      : liveSourceKeys;
+
+    if (scopedSourceKeys.size === 0) {
+      return this.emptyBreakdown(query);
+    }
+
+    const byCampaignSource = await this.queryByItemTypeRange(
+      "counter#day#campaign_source",
+      query.from_date,
+      query.to_date,
+    );
+
+    const sourceItems = byCampaignSource.filter(
+      (item) =>
+        item.campaign_id === query.campaign_id &&
+        !!item.source &&
+        scopedSourceKeys.has(item.source),
+    );
+
     const sources = this.aggregateBreakdown(sourceItems, "source");
+    const campaignSummary = this.sumItems(sourceItems);
 
     return {
       range: {
@@ -325,10 +296,14 @@ export class MetricsService {
         to_date: query.to_date,
       },
       filters: {
-        ...(query.campaign_id ? { campaign_id: query.campaign_id } : {}),
-        ...(query.source ? { source: query.source } : {}),
+        campaign_id: query.campaign_id,
+        ...(requestedCampaignKey ? { campaign_key: requestedCampaignKey } : {}),
       },
-      campaigns,
+      campaign_summary: {
+        campaign_id: query.campaign_id,
+        counters: campaignSummary,
+      },
+      campaigns: [{ key: query.campaign_id, counters: campaignSummary }],
       sources,
     };
   }
@@ -423,9 +398,9 @@ export class MetricsService {
     return new Date(isoTimestamp).toISOString().slice(0, 10);
   }
 
-  private normalizeSource(source?: string): string | undefined {
+  private normalizeCampaignKey(source?: string): string | undefined {
     if (!source) return undefined;
-    const trimmed = source.trim().toLowerCase();
+    const trimmed = source.trim();
     return trimmed.length > 0 ? trimmed : undefined;
   }
 
@@ -559,7 +534,7 @@ export class MetricsService {
   private async getPointsForSummary(query: MetricsQuery): Promise<
     Array<{ bucket_start: string; counters: MetricsCounters }>
   > {
-    const source = this.normalizeSource(query.source);
+    const source = this.normalizeCampaignKey(query.campaign_key);
     const pk = query.campaign_id
       ? source
         ? this.pkCampaignSource(query.campaign_id, source)
@@ -705,5 +680,42 @@ export class MetricsService {
     }
 
     return output;
+  }
+
+  private async getCampaign(id: string): Promise<ICampaign | null> {
+    const campaign = await this.dynamoDBUtil.get<ICampaign>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+      Key: { id },
+    });
+
+    return campaign ?? null;
+  }
+
+  private getLiveCampaignSourceKeys(campaign: ICampaign): Set<string> {
+    return new Set(
+      (campaign.affiliates ?? [])
+        .filter((affiliate) => affiliate.status === CampaignParticipantStatus.LIVE)
+        .map((affiliate) => this.normalizeCampaignKey(affiliate.campaign_key))
+        .filter((key): key is string => !!key),
+    );
+  }
+
+  private emptyBreakdown(query: MetricsQuery): MetricsBreakdownData {
+    return {
+      range: {
+        from_date: query.from_date,
+        to_date: query.to_date,
+      },
+      filters: {
+        ...(query.campaign_id ? { campaign_id: query.campaign_id } : {}),
+        ...(query.campaign_key ? { campaign_key: query.campaign_key } : {}),
+      },
+      campaign_summary: {
+        campaign_id: query.campaign_id ?? "",
+        counters: this.emptyCounters(),
+      },
+      campaigns: [],
+      sources: [],
+    };
   }
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MetricsController } from "../../controllers/metrics.controller";
 
 describe("MetricsController", () => {
@@ -7,14 +7,14 @@ describe("MetricsController", () => {
 
   beforeEach(() => {
     service = {
-      getMetricsSummary: async () => ({ result: true, data: { totals: {} } }),
-      getMetricsTimeseries: async () => ({ result: true, data: { points: [] } }),
-      getMetricsBreakdown: async () => ({
+      getMetricsSummary: vi.fn(async () => ({ result: true, data: { totals: {} } })),
+      getMetricsTimeseries: vi.fn(async () => ({ result: true, data: { points: [] } })),
+      getMetricsBreakdown: vi.fn(async () => ({
         result: true,
         data: { campaigns: [], sources: [] },
-      }),
-      getMetricsContracts: async () => ({ result: true, data: { contracts: [] } }),
-      getMetricsHealth: async () => ({ result: true, data: { status: "ok" } }),
+      })),
+      getMetricsContracts: vi.fn(async () => ({ result: true, data: { contracts: [] } })),
+      getMetricsHealth: vi.fn(async () => ({ result: true, data: { status: "ok" } })),
     };
     controller = new MetricsController(service);
   });
@@ -46,5 +46,21 @@ describe("MetricsController", () => {
       }),
     );
     expect(response.error).toContain("from_date and to_date are required");
+  });
+
+  it("passes campaign_key to breakdown service", async () => {
+    await controller.breakdown(
+      "2026-05-01",
+      "2026-05-02",
+      "CM123",
+      "KEY123",
+    );
+
+    expect(service.getMetricsBreakdown).toHaveBeenCalledWith({
+      from_date: "2026-05-01",
+      to_date: "2026-05-02",
+      campaign_id: "CM123",
+      campaign_key: "KEY123",
+    });
   });
 });

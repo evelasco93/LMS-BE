@@ -23,13 +23,13 @@ export class MetricsController extends Controller {
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
     @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("source") source?: string,
+    @queryParam("campaign_key") campaign_key?: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.getMetricsSummary({
       from_date,
       to_date,
       campaign_id,
-      source,
+      campaign_key,
     });
 
     if (!result.result) {
@@ -53,13 +53,13 @@ export class MetricsController extends Controller {
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
     @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("source") source?: string,
+    @queryParam("campaign_key") campaign_key?: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.getMetricsTimeseries({
       from_date,
       to_date,
       campaign_id,
-      source,
+      campaign_key,
     });
 
     if (!result.result) {
@@ -77,19 +77,19 @@ export class MetricsController extends Controller {
     };
   }
 
-  @GET("/breakdown")
+  @GET("/campaign-by-source")
   @produces("application/json")
   async breakdown(
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
     @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("source") source?: string,
+    @queryParam("campaign_key") campaign_key?: string,
   ): Promise<RestApiResponse> {
     const result = await this.service.getMetricsBreakdown({
       from_date,
       to_date,
       campaign_id,
-      source,
+      campaign_key,
     });
 
     if (!result.result) {

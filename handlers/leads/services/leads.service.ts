@@ -1432,7 +1432,7 @@ export class LeadsService {
         from_date: query.from_date,
         to_date: query.to_date,
         campaign_id: query.campaign_id,
-        source: query.source,
+        campaign_key: query.campaign_key,
       });
 
       return { result: true, data };
@@ -1460,7 +1460,7 @@ export class LeadsService {
         from_date: query.from_date,
         to_date: query.to_date,
         campaign_id: query.campaign_id,
-        source: query.source,
+        campaign_key: query.campaign_key,
       });
 
       return { result: true, data };
@@ -1488,7 +1488,7 @@ export class LeadsService {
         from_date: query.from_date,
         to_date: query.to_date,
         campaign_id: query.campaign_id,
-        source: query.source,
+        campaign_key: query.campaign_key,
       });
 
       return { result: true, data };

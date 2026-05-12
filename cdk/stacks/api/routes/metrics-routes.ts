@@ -33,9 +33,12 @@ export class MetricsRoutes extends Construct {
     protect(metricsResource.addResource("timeseries"), "GET", integration, [
       readScope,
     ]);
-    protect(metricsResource.addResource("breakdown"), "GET", integration, [
-      readScope,
-    ]);
+    protect(
+      metricsResource.addResource("campaign-by-source"),
+      "GET",
+      integration,
+      [readScope],
+    );
     protect(metricsResource.addResource("contracts"), "GET", integration, [
       readScope,
     ]);

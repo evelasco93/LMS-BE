@@ -4971,13 +4971,13 @@
         {
           "name": "campaign_id",
           "in": "query",
-          "required": false,
+          "required": true,
           "schema": {
             "type": "string"
           }
         },
         {
-          "name": "source",
+          "name": "campaign_key",
           "in": "query",
           "required": false,
           "schema": {
@@ -5042,7 +5042,7 @@
           }
         },
         {
-          "name": "source",
+          "name": "campaign_key",
           "in": "query",
           "required": false,
           "schema": {
@@ -5070,9 +5070,9 @@
       }
     }
   },
-  "/metrics/breakdown": {
+  "/metrics/campaign-by-source": {
     "get": {
-      "summary": "Get campaign/source breakdown counters",
+      "summary": "Get campaign-by-source (campaign_key) breakdown counters for a campaign",
       "tags": ["metrics"],
       "security": [
         {
@@ -5101,13 +5101,13 @@
         {
           "name": "campaign_id",
           "in": "query",
-          "required": false,
+          "required": true,
           "schema": {
             "type": "string"
           }
         },
         {
-          "name": "source",
+          "name": "campaign_key",
           "in": "query",
           "required": false,
           "schema": {
@@ -8530,7 +8530,7 @@
                   "campaign_id": {
                     "type": "string"
                   },
-                  "source": {
+                  "campaign_key": {
                     "type": "string"
                   }
                 }
@@ -8573,7 +8573,7 @@
                   "campaign_id": {
                     "type": "string"
                   },
-                  "source": {
+                  "campaign_key": {
                     "type": "string"
                   }
                 }
@@ -8619,6 +8619,28 @@
                   "to_date": {
                     "type": "string",
                     "format": "date"
+                  }
+                }
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "campaign_id": {
+                    "type": "string"
+                  },
+                  "campaign_key": {
+                    "type": "string"
+                  }
+                }
+              },
+              "campaign_summary": {
+                "type": "object",
+                "properties": {
+                  "campaign_id": {
+                    "type": "string"
+                  },
+                  "counters": {
+                    "$ref": "#/components/schemas/MetricsCounters"
                   }
                 }
               },

@@ -13,7 +13,7 @@ export type MetricsQuery = {
   from_date: string;
   to_date: string;
   campaign_id?: string;
-  source?: string;
+  campaign_key?: string;
 };
 
 export type MetricsTimePoint = {
@@ -28,7 +28,7 @@ export type MetricsSummaryData = {
   };
   filters: {
     campaign_id?: string;
-    source?: string;
+    campaign_key?: string;
   };
   totals: MetricsCounters;
 };
@@ -40,7 +40,7 @@ export type MetricsTimeseriesData = {
   };
   filters: {
     campaign_id?: string;
-    source?: string;
+    campaign_key?: string;
   };
   points: MetricsTimePoint[];
 };
@@ -57,7 +57,11 @@ export type MetricsBreakdownData = {
   };
   filters: {
     campaign_id?: string;
-    source?: string;
+    campaign_key?: string;
+  };
+  campaign_summary: {
+    campaign_id: string;
+    counters: MetricsCounters;
   };
   campaigns: MetricsBreakdownEntry[];
   sources: MetricsBreakdownEntry[];
@@ -95,5 +99,12 @@ export type MetricsHealthData = {
 
 export type MetricsLeadSnapshot = Pick<
   ILead,
-  "id" | "campaign_id" | "original_source" | "rejected" | "sold" | "sold_to_contract_id" | "created_at"
+  | "id"
+  | "campaign_id"
+  | "campaign_key"
+  | "original_source"
+  | "rejected"
+  | "sold"
+  | "sold_to_contract_id"
+  | "created_at"
 >;
