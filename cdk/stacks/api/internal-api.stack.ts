@@ -246,7 +246,7 @@ export class InternalApiStack extends NestedStack {
         bundling: {
           minify: true,
           sourceMap: true,
-          target: "node20",
+          target: "node22",
           keepNames: true,
           sourcesContent: false,
           tsconfig: path.join(
@@ -288,7 +288,7 @@ export class InternalApiStack extends NestedStack {
         bundling: {
           minify: true,
           sourceMap: true,
-          target: "node20",
+          target: "node22",
           keepNames: true,
           sourcesContent: false,
           tsconfig: path.join(

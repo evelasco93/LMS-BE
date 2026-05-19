@@ -1,4 +1,4 @@
-import { Stack, CfnOutput } from "aws-cdk-lib";
+import { Stack, CfnOutput, RemovalPolicy } from "aws-cdk-lib";
 import { Table } from "aws-cdk-lib/aws-dynamodb";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -44,12 +44,18 @@ export class DataStack extends Stack {
     super(scope, id, props);
 
     const { config, dataConfig } = props;
+    const statefulRemovalPolicy = ["prod", "production"].includes(
+      config.environment,
+    )
+      ? RemovalPolicy.RETAIN
+      : RemovalPolicy.DESTROY;
 
     const clientsDataStack = new ClientsDataStack(
       this,
       `${config.appPrefix}-ClientsData`,
       {
         tableConfig: dataConfig.tables.clients,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -59,6 +65,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-AffiliatesData`,
       {
         tableConfig: dataConfig.tables.affiliates,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -68,6 +75,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-CampaignsData`,
       {
         tableConfig: dataConfig.tables.campaigns,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -77,6 +85,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-LeadsData`,
       {
         tableConfig: dataConfig.tables.leads,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -86,6 +95,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-TenantSettingsData`,
       {
         tableConfig: dataConfig.tables.tenantSettings,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -100,6 +110,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-MetricsData`,
       {
         tableConfig: dataConfig.tables.metrics,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -113,6 +124,7 @@ export class DataStack extends Stack {
       {
         tableConfig: dataConfig.tables.auditLogs,
         s3BucketName: dataConfig.auditLogsBucketName,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -124,6 +136,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-LeadIntakeLogsData`,
       {
         tableConfig: dataConfig.tables.leadIntakeLogs,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -134,6 +147,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-PresetsData`,
       {
         tableConfig: dataConfig.tables.presets,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -144,6 +158,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-UserTablePreferencesData`,
       {
         tableConfig: dataConfig.tables.userTablePreferences,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -154,6 +169,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-PlatformPresetsData`,
       {
         tableConfig: dataConfig.tables.platformPresets,
+        removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
     );

@@ -60,21 +60,14 @@ export function consolidateLambdaApiPermissions(fn: IFunction): void {
       typeof perm?.principal?.service === "string"
         ? perm.principal.service
         : "";
-
-    // CDK's LambdaIntegration creates permission IDs like "ApiPermission.{desc}"
-    // and uses the apigateway.amazonaws.com service principal.
     if (id.startsWith("ApiPermission") || svc.includes("apigateway")) {
       if (!permGranted) {
         permGranted = true;
-        // Use sourceAccount instead of sourceArn to avoid a cross-stack token
-        // reference (Lambda in ServicesStack, API in ApiStack) that would create
-        // a cyclic dependency. sourceAccount still prevents confused deputy attacks.
         origAddPermission("ApiGateway-InvokeAll", {
           principal: perm.principal,
           sourceAccount: Stack.of(fn).account,
         });
       }
-      // Drop all subsequent per-route permissions.
       return;
     }
 

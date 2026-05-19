@@ -1,38 +1,38 @@
-import { defineConfig } from 'vitest/config';
-import path from 'path';
+import { defineConfig } from "vitest/config";
+import path from "path";
 
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',
+    environment: "node",
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      provider: "v8",
+      reporter: ["text", "json", "html"],
       exclude: [
-        'node_modules/',
-        'dist/',
-        'cdk.out/',
-        '**/*.config.ts',
-        '**/*.d.ts',
-        '**/types/**',
-        'handlers/**/tests/**',
+        "node_modules/",
+        "dist/",
+        "cdk.out/",
+        "**/*.config.ts",
+        "**/*.d.ts",
+        "**/types/**",
+        "handlers/**/tests/**",
       ],
     },
-    include: [],
+    include: ["cdk/tests/**/*.test.ts"],
     exclude: [
-      'node_modules/**',
-      '**/node_modules/**',
-      'dist/**',
-      'cdk.out/**',
-      'handlers/**',
-      '**/*.d.ts',
+      "node_modules/**",
+      "**/node_modules/**",
+      "dist/**",
+      "cdk.out/**",
+      "handlers/**",
+      "**/*.d.ts",
     ],
   },
   resolve: {
     alias: {
-      '@cdk': path.resolve(__dirname, './cdk'),
-      '@handlers': path.resolve(__dirname, './handlers'),
-      '@utils': path.resolve(__dirname, './utils'),
+      "@cdk": path.resolve(__dirname, "./cdk"),
+      "@handlers": path.resolve(__dirname, "./handlers"),
+      "@utils": path.resolve(__dirname, "./utils"),
     },
   },
 });

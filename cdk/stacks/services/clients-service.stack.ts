@@ -25,30 +25,38 @@ export class ClientsServiceStack extends NestedStack {
     const { lambdaConfig, roleName, logicalIdPrefix } = props;
 
     // Import existing IAM role
-    const role = Role.fromRoleName(this, `${logicalIdPrefix}-ClientsLambdaRole`, roleName);
+    const role = Role.fromRoleName(
+      this,
+      `${logicalIdPrefix}-ClientsLambdaRole`,
+      roleName,
+    );
 
     // Create Lambda function with bundling
-    this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-ClientsFunction`, {
-      functionName: lambdaConfig.functionName,
-      entry: lambdaConfig.entry,
-      handler: lambdaConfig.handler,
-      runtime: Runtime.NODEJS_22_X,
-      role,
-      memorySize: lambdaConfig.memorySize || 512,
-      timeout: Duration.seconds(lambdaConfig.timeout || 30),
-      environment: lambdaConfig.environment,
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        target: "node20",
-        keepNames: true,
-        sourcesContent: false,
-        tsconfig: path.join(
-          __dirname,
-          "../../../handlers/clients/tsconfig.build.json",
-        ),
-        externalModules: ["@aws-sdk/*", "js-yaml"],
+    this.lambda = new NodejsFunction(
+      this,
+      `${logicalIdPrefix}-ClientsFunction`,
+      {
+        functionName: lambdaConfig.functionName,
+        entry: lambdaConfig.entry,
+        handler: lambdaConfig.handler,
+        runtime: Runtime.NODEJS_22_X,
+        role,
+        memorySize: lambdaConfig.memorySize || 512,
+        timeout: Duration.seconds(lambdaConfig.timeout || 30),
+        environment: lambdaConfig.environment,
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          target: "node22",
+          keepNames: true,
+          sourcesContent: false,
+          tsconfig: path.join(
+            __dirname,
+            "../../../handlers/clients/tsconfig.build.json",
+          ),
+          externalModules: ["@aws-sdk/*", "js-yaml"],
+        },
       },
-    });
+    );
   }
 }

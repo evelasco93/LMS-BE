@@ -23,29 +23,37 @@ export class QaOrchestratorServiceStack extends NestedStack {
     super(scope, id, props);
 
     const { lambdaConfig, roleName, logicalIdPrefix } = props;
-    const role = Role.fromRoleName(this, `${logicalIdPrefix}-QaOrchestratorLambdaRole`, roleName);
+    const role = Role.fromRoleName(
+      this,
+      `${logicalIdPrefix}-QaOrchestratorLambdaRole`,
+      roleName,
+    );
 
-    this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-QaOrchestratorFunction`, {
-      functionName: lambdaConfig.functionName,
-      entry: lambdaConfig.entry,
-      handler: lambdaConfig.handler,
-      runtime: Runtime.NODEJS_22_X,
-      role,
-      memorySize: lambdaConfig.memorySize || 512,
-      timeout: Duration.seconds(lambdaConfig.timeout || 30),
-      environment: lambdaConfig.environment,
-      bundling: {
-        minify: true,
-        sourceMap: true,
-        target: "node20",
-        keepNames: true,
-        sourcesContent: false,
-        tsconfig: path.join(
-          __dirname,
-          "../../../handlers/qa/orchestrator/tsconfig.build.json",
-        ),
-        externalModules: ["@aws-sdk/*", "js-yaml"],
+    this.lambda = new NodejsFunction(
+      this,
+      `${logicalIdPrefix}-QaOrchestratorFunction`,
+      {
+        functionName: lambdaConfig.functionName,
+        entry: lambdaConfig.entry,
+        handler: lambdaConfig.handler,
+        runtime: Runtime.NODEJS_22_X,
+        role,
+        memorySize: lambdaConfig.memorySize || 512,
+        timeout: Duration.seconds(lambdaConfig.timeout || 30),
+        environment: lambdaConfig.environment,
+        bundling: {
+          minify: true,
+          sourceMap: true,
+          target: "node22",
+          keepNames: true,
+          sourcesContent: false,
+          tsconfig: path.join(
+            __dirname,
+            "../../../handlers/qa/orchestrator/tsconfig.build.json",
+          ),
+          externalModules: ["@aws-sdk/*", "js-yaml"],
+        },
       },
-    });
+    );
   }
 }

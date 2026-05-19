@@ -1,5 +1,13 @@
 import { IDataStackConfig } from "../types/data.types";
-import { nameBuilder, platformNameBuilder } from "../../../config/base.config";
+import {
+  nameBuilder,
+  platformNameBuilder,
+  baseConfig,
+} from "../../../config/base.config";
+
+const isProductionLike = ["prod", "production"].includes(
+  baseConfig.environment,
+);
 
 export const dataConfig: IDataStackConfig = {
   tables: {
@@ -7,31 +15,29 @@ export const dataConfig: IDataStackConfig = {
       tableName: nameBuilder.table("clients"),
       partitionKey: { name: "id", type: "S" },
       gsi: [
-        // NOTE: Can only add one GSI per deployment - uncomment and deploy one at a time
-        // {
-        //   indexName: nameBuilder.index('clients', 'status'),
-        //   partitionKey: { name: 'status', type: 'S' },
-        //   sortKey: { name: 'created_at', type: 'S' },
-        //   projectionType: 'ALL',
-        // },
+        {
+          indexName: nameBuilder.index("clients", "status"),
+          partitionKey: { name: "status", type: "S" },
+          sortKey: { name: "created_at", type: "S" },
+          projectionType: "ALL",
+        },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     affiliates: {
       tableName: nameBuilder.table("affiliates"),
       partitionKey: { name: "id", type: "S" },
       gsi: [
-        // NOTE: Can only add one GSI per deployment - uncomment and deploy one at a time
-        // {
-        //   indexName: nameBuilder.index('affiliates', 'status'),
-        //   partitionKey: { name: 'status', type: 'S' },
-        //   sortKey: { name: 'created_at', type: 'S' },
-        //   projectionType: 'ALL',
-        // },
+        {
+          indexName: nameBuilder.index("affiliates", "status"),
+          partitionKey: { name: "status", type: "S" },
+          sortKey: { name: "created_at", type: "S" },
+          projectionType: "ALL",
+        },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     campaigns: {
       tableName: nameBuilder.table("campaigns"),
@@ -45,13 +51,13 @@ export const dataConfig: IDataStackConfig = {
         },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     leads: {
       tableName: nameBuilder.table("leads"),
       partitionKey: { name: "id", type: "S" },
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     /**
      * Metrics domain single table (item-type approach).
@@ -71,7 +77,7 @@ export const dataConfig: IDataStackConfig = {
         },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     /**
      * Consolidated single table for all tenant configuration records.
@@ -108,7 +114,7 @@ export const dataConfig: IDataStackConfig = {
         },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     /**
      * Centralized audit log table.
@@ -142,7 +148,7 @@ export const dataConfig: IDataStackConfig = {
         },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     /**
      * Lead intake log table.
@@ -160,8 +166,8 @@ export const dataConfig: IDataStackConfig = {
           projectionType: "ALL",
         },
       ],
-      pointInTimeRecovery: false,
-      deletionProtection: false,
+      pointInTimeRecovery: isProductionLike,
+      deletionProtection: isProductionLike,
     },
     /**
      * Presets table (criteria catalog, logic catalog, tenant presets).
@@ -179,7 +185,7 @@ export const dataConfig: IDataStackConfig = {
         },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
     /**
      * User Table Preferences table.
@@ -189,8 +195,8 @@ export const dataConfig: IDataStackConfig = {
       tableName: nameBuilder.table("user-table-preferences"),
       partitionKey: { name: "user_id", type: "S" },
       sortKey: { name: "table_id", type: "S" },
-      pointInTimeRecovery: false,
-      deletionProtection: false,
+      pointInTimeRecovery: isProductionLike,
+      deletionProtection: isProductionLike,
     },
     /**
      * Platform Presets table (global, tenantless).
@@ -209,7 +215,7 @@ export const dataConfig: IDataStackConfig = {
         },
       ],
       pointInTimeRecovery: true,
-      deletionProtection: false,
+      deletionProtection: isProductionLike,
     },
   },
   auditLogsBucketName:

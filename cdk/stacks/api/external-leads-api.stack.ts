@@ -38,6 +38,8 @@ export class ExternalLeadsApiStack extends NestedStack {
       deployOptions: {
         stageName: apiConfig.stageName,
         metricsEnabled: true,
+        throttlingRateLimit: apiConfig.rateLimitPerSecond,
+        throttlingBurstLimit: apiConfig.burstLimit,
       },
       defaultCorsPreflightOptions: {
         allowOrigins: Cors.ALL_ORIGINS,

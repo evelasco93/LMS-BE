@@ -7,6 +7,19 @@ import {
 } from "../../../config/base.config";
 import * as path from "path";
 
+const credentialsEncryptionKey = process.env.CREDENTIALS_ENCRYPTION_KEY ?? "";
+const requiresCredentialsEncryptionKey = [
+  "staging",
+  "prod",
+  "production",
+].includes(baseConfig.environment);
+
+if (requiresCredentialsEncryptionKey && !credentialsEncryptionKey) {
+  throw new Error(
+    "CREDENTIALS_ENCRYPTION_KEY environment variable is required for staging/production deployments.",
+  );
+}
+
 export const servicesConfig: IServicesStackConfig = {
   clients: {
     lambda: {
@@ -61,7 +74,8 @@ export const servicesConfig: IServicesStackConfig = {
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
         PRESETS_TABLE_NAME: nameBuilder.table("presets"),
-        PLATFORM_PRESETS_TABLE_NAME: platformNameBuilder.table("platform-presets"),
+        PLATFORM_PRESETS_TABLE_NAME:
+          platformNameBuilder.table("platform-presets"),
         LEADS_BASE_URL: process.env.LEADS_BASE_URL ?? "",
         EXTERNAL_LEADS_API_NAME: nameBuilder.api("external-leads"),
         EXTERNAL_LEADS_API_STAGE: baseConfig.environment,
@@ -93,7 +107,8 @@ export const servicesConfig: IServicesStackConfig = {
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
         LEAD_INTAKE_LOGS_TABLE_NAME: nameBuilder.table("lead-intake-logs"),
-        PLATFORM_PRESETS_TABLE_NAME: platformNameBuilder.table("platform-presets"),
+        PLATFORM_PRESETS_TABLE_NAME:
+          platformNameBuilder.table("platform-presets"),
         QA_ORCHESTRATOR_LAMBDA_NAME: nameBuilder.lambda("qa-orchestrator"),
         CRITERIA_VALIDATION_LAMBDA_NAME: nameBuilder.lambda(
           "qa-criteria-validation",
@@ -120,11 +135,11 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
-        CREDENTIALS_ENCRYPTION_KEY:
-          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
+        CREDENTIALS_ENCRYPTION_KEY: credentialsEncryptionKey,
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
         PRESETS_TABLE_NAME: nameBuilder.table("presets"),
-        PLATFORM_PRESETS_TABLE_NAME: platformNameBuilder.table("platform-presets"),
+        PLATFORM_PRESETS_TABLE_NAME:
+          platformNameBuilder.table("platform-presets"),
         AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
         NODE_ENV: "production",
       },
@@ -148,8 +163,7 @@ export const servicesConfig: IServicesStackConfig = {
         TRUSTED_FORM_LAMBDA_NAME: nameBuilder.lambda("qa-trusted-form"),
         IPQS_LAMBDA_NAME: nameBuilder.lambda("qa-ipqs"),
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
-        CREDENTIALS_ENCRYPTION_KEY:
-          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
+        CREDENTIALS_ENCRYPTION_KEY: credentialsEncryptionKey,
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-orchestrator-lambda"),
@@ -188,8 +202,7 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
-        CREDENTIALS_ENCRYPTION_KEY:
-          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
+        CREDENTIALS_ENCRYPTION_KEY: credentialsEncryptionKey,
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-trusted-form-lambda"),
@@ -209,8 +222,7 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
-        CREDENTIALS_ENCRYPTION_KEY:
-          "9a58cde97e3fb1426006314ab9e9c68e7c9ba4a2d8f1f95a1ce4dcc1fc7b97f5",
+        CREDENTIALS_ENCRYPTION_KEY: credentialsEncryptionKey,
         NODE_ENV: "production",
       },
       roleName: nameBuilder.role("qa-ipqs-lambda"),

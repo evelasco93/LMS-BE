@@ -19,7 +19,11 @@ export class LeadsServiceStack extends NestedStack {
     super(scope, id, props);
 
     const { lambdaConfig, roleName, logicalIdPrefix } = props;
-    const role = Role.fromRoleName(this, `${logicalIdPrefix}-LeadsLambdaRole`, roleName);
+    const role = Role.fromRoleName(
+      this,
+      `${logicalIdPrefix}-LeadsLambdaRole`,
+      roleName,
+    );
 
     this.lambda = new NodejsFunction(this, `${logicalIdPrefix}-LeadsFunction`, {
       functionName: lambdaConfig.functionName,
@@ -33,7 +37,7 @@ export class LeadsServiceStack extends NestedStack {
       bundling: {
         minify: true,
         sourceMap: true,
-        target: "node20",
+        target: "node22",
         keepNames: true,
         sourcesContent: false,
         tsconfig: path.join(
