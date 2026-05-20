@@ -21,7 +21,11 @@ import {
 import { UpsertTablePreferenceRequest } from "../interfaces/IUserTablePreference.interface";
 import { RestApiResponse } from "../types/common.types";
 import { isAdmin } from "../guards/admin.guard";
-import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
+import {
+  extractRequestActorFromHeaders,
+  withCorrelationId,
+} from "@shared/utils/request-audit.util";
+import { mapServiceErrorToHttpStatus } from "@shared/utils/http-status.util";
 
 @injectable()
 @apiController("/users")
@@ -36,6 +40,26 @@ export class UsersController extends Controller {
     return extractRequestActorFromHeaders(
       this.request.headers as Record<string, string | string[] | undefined>,
     );
+  }
+
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
   }
 
   /**
@@ -69,26 +93,25 @@ export class UsersController extends Controller {
   @produces("application/json")
   async createUser(@body payload: CreateUserRequest): Promise<RestApiResponse> {
     if (!this.guardAdmin()) {
-      return {
+      return this.withCorrelation({
         success: false,
         message: "Forbidden",
         error: "Admin access required",
-      };
+      });
     }
 
     const result = await this.usersService.createUser(payload, this.getActor());
 
     if (!result.result) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "Failed to create user",
-        error: result.error,
-      };
+      return this.fail("Failed to create user", result.error);
     }
 
     this.response.status(201);
-    return { success: true, message: "User created", data: result.data };
+    return this.withCorrelation({
+      success: true,
+      message: "User created",
+      data: result.data,
+    });
   }
 
   /**
@@ -100,25 +123,24 @@ export class UsersController extends Controller {
   @produces("application/json")
   async listUsers(): Promise<RestApiResponse> {
     if (!this.guardAdmin()) {
-      return {
+      return this.withCorrelation({
         success: false,
         message: "Forbidden",
         error: "Admin access required",
-      };
+      });
     }
 
     const result = await this.usersService.listUsers();
 
     if (!result.result) {
-      this.response.status(500);
-      return {
-        success: false,
-        message: "Failed to list users",
-        error: result.error,
-      };
+      return this.fail("Failed to list users", result.error, 500);
     }
 
-    return { success: true, message: "Users retrieved", data: result.data };
+    return this.withCorrelation({
+      success: true,
+      message: "Users retrieved",
+      data: result.data,
+    });
   }
 
   /**
@@ -130,25 +152,24 @@ export class UsersController extends Controller {
   @produces("application/json")
   async getUser(@pathParam("id") id: string): Promise<RestApiResponse> {
     if (!this.guardAdmin()) {
-      return {
+      return this.withCorrelation({
         success: false,
         message: "Forbidden",
         error: "Admin access required",
-      };
+      });
     }
 
     const result = await this.usersService.getUser(decodeURIComponent(id));
 
     if (!result.result) {
-      this.response.status(result.error === "User not found" ? 404 : 500);
-      return {
-        success: false,
-        message: result.error ?? "Not found",
-        error: result.error,
-      };
+      return this.fail(result.error ?? "Not found", result.error, 500);
     }
 
-    return { success: true, message: "User retrieved", data: result.data };
+    return this.withCorrelation({
+      success: true,
+      message: "User retrieved",
+      data: result.data,
+    });
   }
 
   /**
@@ -178,12 +199,7 @@ export class UsersController extends Controller {
     );
 
     if (!result.result) {
-      this.response.status(result.error === "User not found" ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update user",
-        error: result.error,
-      };
+      return this.fail("Failed to update user", result.error);
     }
 
     return { success: true, message: "User updated", data: result.data };
@@ -216,12 +232,7 @@ export class UsersController extends Controller {
     );
 
     if (!result.result) {
-      this.response.status(result.error === "User not found" ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to reset password",
-        error: result.error,
-      };
+      return this.fail("Failed to reset password", result.error);
     }
 
     return { success: true, message: "Password updated" };
@@ -249,12 +260,11 @@ export class UsersController extends Controller {
     );
 
     if (!result.result) {
-      this.response.status(result.error === "User not found" ? 404 : 500);
-      return {
-        success: false,
-        message: result.error ?? "Failed to enable user",
-        error: result.error,
-      };
+      return this.fail(
+        result.error ?? "Failed to enable user",
+        result.error,
+        500,
+      );
     }
 
     return { success: true, message: "User enabled", data: result.data };
@@ -289,15 +299,13 @@ export class UsersController extends Controller {
     );
 
     if (!result.result) {
-      this.response.status(result.error === "User not found" ? 404 : 500);
-      return {
-        success: false,
-        message: result.error ?? "Failed to delete user",
-        error: result.error,
-      };
+      return this.fail(
+        result.error ?? "Failed to delete user",
+        result.error,
+        500,
+      );
     }
 
-    this.response.status(200);
     return {
       success: true,
       message:
@@ -322,18 +330,18 @@ export class UsersController extends Controller {
     const actor = this.getActor();
     if (!actor?.sub) {
       this.response.status(401);
-      return { success: false, message: "Unauthorized" };
+      return this.withCorrelation({ success: false, message: "Unauthorized" });
     }
     const result = await this.usersService.getTablePreference(
       actor.sub,
       tableId,
     );
     if (!result.result) {
-      this.response.status(404);
-      return {
-        success: false,
-        message: result.error ?? "Preference not found",
-      };
+      return this.fail(
+        result.error ?? "Preference not found",
+        result.error,
+        404,
+      );
     }
     return {
       success: true,
@@ -355,7 +363,7 @@ export class UsersController extends Controller {
     const actor = this.getActor();
     if (!actor?.sub) {
       this.response.status(401);
-      return { success: false, message: "Unauthorized" };
+      return this.withCorrelation({ success: false, message: "Unauthorized" });
     }
     const result = await this.usersService.upsertTablePreference(
       actor.sub,
@@ -364,11 +372,10 @@ export class UsersController extends Controller {
       actor,
     );
     if (!result.result) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: result.error ?? "Failed to save preference",
-      };
+      return this.fail(
+        result.error ?? "Failed to save preference",
+        result.error,
+      );
     }
     return { success: true, message: "Preference saved", data: result.data };
   }
@@ -385,7 +392,7 @@ export class UsersController extends Controller {
     const actor = this.getActor();
     if (!actor?.sub) {
       this.response.status(401);
-      return { success: false, message: "Unauthorized" };
+      return this.withCorrelation({ success: false, message: "Unauthorized" });
     }
     const result = await this.usersService.deleteTablePreference(
       actor.sub,
@@ -393,11 +400,10 @@ export class UsersController extends Controller {
       actor,
     );
     if (!result.result) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: result.error ?? "Failed to delete preference",
-      };
+      return this.fail(
+        result.error ?? "Failed to delete preference",
+        result.error,
+      );
     }
     return { success: true, message: "Preference deleted" };
   }

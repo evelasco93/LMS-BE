@@ -19,7 +19,11 @@ import {
 } from "../types/affiliate-request.types";
 import { AffiliateStatus } from "../enums/affiliate-status.enum";
 import { RestApiResponse } from "../types/common.types";
-import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
+import {
+  extractRequestActorFromHeaders,
+  withCorrelationId,
+} from "@shared/utils/request-audit.util";
+import { mapServiceErrorToHttpStatus } from "@shared/utils/http-status.util";
 
 @injectable()
 @apiController("/affiliates")
@@ -37,6 +41,26 @@ export class AffiliateController extends Controller {
     );
   }
 
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
+  }
+
   @POST("/")
   @produces("application/json")
   async createAffiliate(
@@ -48,18 +72,16 @@ export class AffiliateController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to create affiliate",
-        error: result.error,
-      };
+      return this.fail("Failed to create affiliate", result.error);
     }
 
-    return {
+    this.response.status(201);
+
+    return this.withCorrelation({
       success: true,
       message: "Affiliate created successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/:id")
@@ -68,18 +90,14 @@ export class AffiliateController extends Controller {
     const result = await this.affiliateService.getAffiliate(id);
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Affiliate not found",
-        error: result.error,
-      };
+      return this.fail("Affiliate not found", result.error, 404);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/")
@@ -99,19 +117,15 @@ export class AffiliateController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to list affiliates",
-        error: result.error,
-      };
+      return this.fail("Failed to list affiliates", result.error, 500);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliates retrieved successfully",
       count: result.data?.count,
       data: result.data?.items,
-    };
+    });
   }
 
   @PUT("/:id")
@@ -127,18 +141,14 @@ export class AffiliateController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update affiliate",
-        error: result.error,
-      };
+      return this.fail("Failed to update affiliate", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate updated successfully",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id")
@@ -156,19 +166,15 @@ export class AffiliateController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to delete affiliate",
-        error: result.error,
-      };
+      return this.fail("Failed to delete affiliate", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message:
         permanent === "true" || permanent === "1"
           ? "Affiliate permanently deleted successfully"
           : "Affiliate deleted successfully",
-    };
+    });
   }
 }

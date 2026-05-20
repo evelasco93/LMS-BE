@@ -9,12 +9,33 @@ import {
 } from "ts-lambda-api";
 import { LeadsService } from "../services/leads.service";
 import { RestApiResponse } from "../types/common.types";
+import { mapServiceErrorToHttpStatus, withCorrelationId } from "@shared/utils";
 
 @injectable()
 @apiController("/metrics")
 export class MetricsController extends Controller {
   constructor(@inject("LeadsService") private readonly service: LeadsService) {
     super();
+  }
+
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
   }
 
   @GET("/summary")
@@ -33,18 +54,14 @@ export class MetricsController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to retrieve metrics summary",
-        error: result.error,
-      };
+      return this.fail("Failed to retrieve metrics summary", result.error, 400);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Metrics summary retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/timeseries")
@@ -63,18 +80,18 @@ export class MetricsController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to retrieve metrics timeseries",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to retrieve metrics timeseries",
+        result.error,
+        400,
+      );
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Metrics timeseries retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/campaign-by-source")
@@ -93,18 +110,18 @@ export class MetricsController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to retrieve metrics breakdown",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to retrieve metrics breakdown",
+        result.error,
+        400,
+      );
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Metrics breakdown retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/contracts")
@@ -121,18 +138,18 @@ export class MetricsController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to retrieve contract metrics",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to retrieve contract metrics",
+        result.error,
+        400,
+      );
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract metrics retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/health")
@@ -147,17 +164,13 @@ export class MetricsController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to retrieve metrics health",
-        error: result.error,
-      };
+      return this.fail("Failed to retrieve metrics health", result.error, 400);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Metrics health retrieved successfully",
       data: result.data,
-    };
+    });
   }
 }

@@ -38,6 +38,45 @@ export function extractAuthorizationHeader(
   return undefined;
 }
 
+function getHeaderValue(
+  headers: Record<string, string | string[] | undefined>,
+  key: string,
+): string | undefined {
+  const value = headers[key];
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0]?.trim();
+    return first ? first : undefined;
+  }
+  return undefined;
+}
+
+export function extractCorrelationIdFromHeaders(
+  headers?: Record<string, string | string[] | undefined>,
+): string | undefined {
+  if (!headers) return undefined;
+
+  return (
+    getHeaderValue(headers, "x-correlation-id") ??
+    getHeaderValue(headers, "X-Correlation-Id") ??
+    getHeaderValue(headers, "x-request-id") ??
+    getHeaderValue(headers, "X-Request-Id")
+  );
+}
+
+export function withCorrelationId<T extends Record<string, unknown>>(
+  response: T,
+  headers?: Record<string, string | string[] | undefined>,
+): T & { correlation_id?: string } {
+  const correlationId = extractCorrelationIdFromHeaders(headers);
+  return correlationId
+    ? { ...response, correlation_id: correlationId }
+    : (response as T & { correlation_id?: string });
+}
+
 export function extractRequestActorFromAuthHeader(
   authorizationHeader?: string,
 ): RequestActor | undefined {

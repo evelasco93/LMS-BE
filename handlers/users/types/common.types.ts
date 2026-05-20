@@ -9,4 +9,5 @@ export interface RestApiResponse {
   message: string;
   data?: any;
   error?: string;
+  correlation_id?: string;
 }

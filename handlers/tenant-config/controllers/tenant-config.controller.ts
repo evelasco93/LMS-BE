@@ -28,7 +28,11 @@ import {
   UpdateTenantPresetRequest,
 } from "../types/tenant-config-request.types";
 import { RestApiResponse } from "../types/common.types";
-import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
+import {
+  extractRequestActorFromHeaders,
+  withCorrelationId,
+} from "@shared/utils/request-audit.util";
+import { mapServiceErrorToHttpStatus } from "@shared/utils/http-status.util";
 
 @injectable()
 @apiController("/tenant-config")
@@ -46,6 +50,26 @@ export class TenantConfigController extends Controller {
     );
   }
 
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
+  }
+
   // ── Credentials ─────────────────────────────────────────────────────────────
 
   @POST("/credentials")
@@ -58,16 +82,13 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to create credential",
-        error: result.error,
-      };
-    return {
+      return this.fail("Failed to create credential", result.error);
+    this.response.status(201);
+    return this.withCorrelation({
       success: true,
       message: "Credential created successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/credentials")
@@ -81,16 +102,12 @@ export class TenantConfigController extends Controller {
       includeDeleted === "true",
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to list credentials",
-        error: result.error,
-      };
-    return {
+      return this.fail("Failed to list credentials", result.error, 500);
+    return this.withCorrelation({
       success: true,
       message: "Credentials retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/credentials/:id")
@@ -98,16 +115,12 @@ export class TenantConfigController extends Controller {
   async getCredential(@pathParam("id") id: string): Promise<RestApiResponse> {
     const result = await this.service.getCredential(id);
     if (!result.result)
-      return {
-        success: false,
-        message: "Credential not found",
-        error: result.error,
-      };
-    return {
+      return this.fail("Credential not found", result.error, 404);
+    return this.withCorrelation({
       success: true,
       message: "Credential retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/credentials/:id")
@@ -122,16 +135,12 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to update credential",
-        error: result.error,
-      };
-    return {
+      return this.fail("Failed to update credential", result.error);
+    return this.withCorrelation({
       success: true,
       message: "Credential updated successfully",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/credentials/:id")
@@ -146,11 +155,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to delete credential",
-        error: result.error,
-      };
+      return this.fail("Failed to delete credential", result.error);
     return {
       success: true,
       message:
@@ -167,11 +172,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.restoreCredential(id, this.getActor());
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to restore credential",
-        error: result.error,
-      };
+      return this.fail("Failed to restore credential", result.error);
     return { success: true, message: "Credential restored", data: result.data };
   }
 
@@ -182,11 +183,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.disableCredential(id, this.getActor());
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to disable credential",
-        error: result.error,
-      };
+      return this.fail("Failed to disable credential", result.error);
     return { success: true, message: "Credential disabled", data: result.data };
   }
 
@@ -197,11 +194,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.enableCredential(id, this.getActor());
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to enable credential",
-        error: result.error,
-      };
+      return this.fail("Failed to enable credential", result.error);
     return { success: true, message: "Credential enabled", data: result.data };
   }
 
@@ -217,11 +210,8 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to create credential schema",
-        error: result.error,
-      };
+      return this.fail("Failed to create credential schema", result.error);
+    this.response.status(201);
     return {
       success: true,
       message: "Credential schema created successfully",
@@ -238,11 +228,7 @@ export class TenantConfigController extends Controller {
       includeDeleted === "true",
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to list credential schemas",
-        error: result.error,
-      };
+      return this.fail("Failed to list credential schemas", result.error, 500);
     return {
       success: true,
       message: "Credential schemas retrieved successfully",
@@ -257,11 +243,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.getCredentialSchema(id);
     if (!result.result)
-      return {
-        success: false,
-        message: "Credential schema not found",
-        error: result.error,
-      };
+      return this.fail("Credential schema not found", result.error, 404);
     return {
       success: true,
       message: "Credential schema retrieved successfully",
@@ -281,11 +263,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to update credential schema",
-        error: result.error,
-      };
+      return this.fail("Failed to update credential schema", result.error);
     return {
       success: true,
       message: "Credential schema updated successfully",
@@ -305,11 +283,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to delete credential schema",
-        error: result.error,
-      };
+      return this.fail("Failed to delete credential schema", result.error);
     return {
       success: true,
       message:
@@ -329,11 +303,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to restore credential schema",
-        error: result.error,
-      };
+      return this.fail("Failed to restore credential schema", result.error);
     return {
       success: true,
       message: "Credential schema restored",
@@ -377,11 +347,7 @@ export class TenantConfigController extends Controller {
       includeDeleted === "true",
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to list plugin settings",
-        error: result.error,
-      };
+      return this.fail("Failed to list plugin settings", result.error, 500);
     return {
       success: true,
       message: "Plugin settings retrieved successfully",
@@ -400,11 +366,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.getPluginSetting(provider);
     if (!result.result)
-      return {
-        success: false,
-        message: "Plugin setting not found",
-        error: result.error,
-      };
+      return this.fail("Plugin setting not found", result.error, 404);
     return {
       success: true,
       message: "Plugin setting retrieved successfully",
@@ -429,11 +391,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to set plugin setting",
-        error: result.error,
-      };
+      return this.fail("Failed to set plugin setting", result.error);
     return {
       success: true,
       message: "Plugin setting saved successfully",
@@ -457,11 +415,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to update plugin setting",
-        error: result.error,
-      };
+      return this.fail("Failed to update plugin setting", result.error);
     return {
       success: true,
       message: "Plugin setting updated successfully",
@@ -481,11 +435,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to delete plugin setting",
-        error: result.error,
-      };
+      return this.fail("Failed to delete plugin setting", result.error);
     return {
       success: true,
       message:
@@ -505,11 +455,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to disable plugin setting",
-        error: result.error,
-      };
+      return this.fail("Failed to disable plugin setting", result.error);
     return {
       success: true,
       message: "Plugin setting disabled",
@@ -527,11 +473,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to enable plugin setting",
-        error: result.error,
-      };
+      return this.fail("Failed to enable plugin setting", result.error);
     return {
       success: true,
       message: "Plugin setting enabled",
@@ -549,11 +491,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to restore plugin setting",
-        error: result.error,
-      };
+      return this.fail("Failed to restore plugin setting", result.error);
     return {
       success: true,
       message: "Plugin setting restored",
@@ -572,11 +510,7 @@ export class TenantConfigController extends Controller {
       includeDeleted === "true",
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to list tag definitions",
-        error: result.error,
-      };
+      return this.fail("Failed to list tag definitions", result.error, 500);
     return {
       success: true,
       message: "Tag definitions retrieved successfully",
@@ -597,11 +531,8 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to create tag definition",
-        error: result.error,
-      };
+      return this.fail("Failed to create tag definition", result.error);
+    this.response.status(201);
     return {
       success: true,
       message: "Tag definition created successfully",
@@ -621,11 +552,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to update tag definition",
-        error: result.error,
-      };
+      return this.fail("Failed to update tag definition", result.error);
     return {
       success: true,
       message: "Tag definition updated successfully",
@@ -645,11 +572,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to delete tag definition",
-        error: result.error,
-      };
+      return this.fail("Failed to delete tag definition", result.error);
     return {
       success: true,
       message:
@@ -666,11 +589,7 @@ export class TenantConfigController extends Controller {
   async listPlatformPresets(): Promise<RestApiResponse> {
     const result = await this.service.listPlatformPresets();
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to list platform presets",
-        error: result.error,
-      };
+      return this.fail("Failed to list platform presets", result.error, 500);
     return { success: true, data: result.data };
   }
 
@@ -681,11 +600,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.getPlatformPreset(id);
     if (!result.result)
-      return {
-        success: false,
-        message: "Platform preset not found",
-        error: result.error,
-      };
+      return this.fail("Platform preset not found", result.error, 404);
     return { success: true, data: result.data };
   }
 
@@ -695,20 +610,14 @@ export class TenantConfigController extends Controller {
     @body payload: CreatePlatformPresetRequest,
   ): Promise<RestApiResponse> {
     if (!payload.name || !payload.data_type)
-      return {
-        success: false,
-        message: "name and data_type are required",
-      };
+      return this.fail("name and data_type are required", undefined, 400);
     const result = await this.service.createPlatformPreset(
       payload,
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to create platform preset",
-        error: result.error,
-      };
+      return this.fail("Failed to create platform preset", result.error);
+    this.response.status(201);
     return {
       success: true,
       message: "Platform preset created",
@@ -728,11 +637,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to update platform preset",
-        error: result.error,
-      };
+      return this.fail("Failed to update platform preset", result.error);
     return {
       success: true,
       message: "Platform preset updated",
@@ -750,11 +655,7 @@ export class TenantConfigController extends Controller {
     const tagList = tags ? tags.split(",").map((t) => t.trim()) : undefined;
     const result = await this.service.listTenantPresets(tagList);
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to list tenant presets",
-        error: result.error,
-      };
+      return this.fail("Failed to list tenant presets", result.error, 500);
     return { success: true, data: result.data };
   }
 
@@ -764,21 +665,15 @@ export class TenantConfigController extends Controller {
     @body payload: CreateTenantPresetRequest,
   ): Promise<RestApiResponse> {
     if (!payload.name || !payload.data_type) {
-      return {
-        success: false,
-        message: "name and data_type are required",
-      };
+      return this.fail("name and data_type are required", undefined, 400);
     }
     const result = await this.service.createTenantPreset(
       payload,
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to create tenant preset",
-        error: result.error,
-      };
+      return this.fail("Failed to create tenant preset", result.error);
+    this.response.status(201);
     return {
       success: true,
       message: "Tenant preset created",
@@ -791,11 +686,7 @@ export class TenantConfigController extends Controller {
   async getTenantPreset(@pathParam("id") id: string): Promise<RestApiResponse> {
     const result = await this.service.getTenantPreset(id);
     if (!result.result)
-      return {
-        success: false,
-        message: "Tenant preset not found",
-        error: result.error,
-      };
+      return this.fail("Tenant preset not found", result.error, 404);
     return { success: true, data: result.data };
   }
 
@@ -811,11 +702,7 @@ export class TenantConfigController extends Controller {
       this.getActor(),
     );
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to update tenant preset",
-        error: result.error,
-      };
+      return this.fail("Failed to update tenant preset", result.error);
     return {
       success: true,
       message: "Tenant preset updated",
@@ -830,11 +717,7 @@ export class TenantConfigController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.service.deleteTenantPreset(id, this.getActor());
     if (!result.result)
-      return {
-        success: false,
-        message: "Failed to delete tenant preset",
-        error: result.error,
-      };
+      return this.fail("Failed to delete tenant preset", result.error);
     return { success: true, message: "Tenant preset deleted" };
   }
 }

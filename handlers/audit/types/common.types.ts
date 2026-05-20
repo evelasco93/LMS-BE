@@ -3,4 +3,5 @@ export interface RestApiResponse {
   message: string;
   data?: unknown;
   error?: string;
+  correlation_id?: string;
 }
