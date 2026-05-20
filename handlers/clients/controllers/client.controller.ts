@@ -19,7 +19,11 @@ import {
 } from "../types/client-request.types";
 import { ClientStatus } from "../enums/client-status.enum";
 import { RestApiResponse } from "../types/common.types";
-import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
+import {
+  extractRequestActorFromHeaders,
+  withCorrelationId,
+} from "@shared/utils/request-audit.util";
+import { mapServiceErrorToHttpStatus } from "@shared/utils/http-status.util";
 
 @injectable()
 @apiController("/clients")
@@ -36,6 +40,26 @@ export class ClientController extends Controller {
     );
   }
 
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
+  }
+
   @POST("/")
   @produces("application/json")
   async createClient(
@@ -47,18 +71,16 @@ export class ClientController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to create client",
-        error: result.error,
-      };
+      return this.fail("Failed to create client", result.error);
     }
 
-    return {
+    this.response.status(201);
+
+    return this.withCorrelation({
       success: true,
       message: "Client created successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/:id")
@@ -72,18 +94,14 @@ export class ClientController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Client not found",
-        error: result.error,
-      };
+      return this.fail("Client not found", result.error, 404);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Client retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/")
@@ -106,19 +124,15 @@ export class ClientController extends Controller {
     });
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to list clients",
-        error: result.error,
-      };
+      return this.fail("Failed to list clients", result.error, 500);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Clients retrieved successfully",
       count: result.data?.count,
       data: result.data?.items,
-    };
+    });
   }
 
   @PUT("/:id")
@@ -134,18 +148,14 @@ export class ClientController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update client",
-        error: result.error,
-      };
+      return this.fail("Failed to update client", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Client updated successfully",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id")
@@ -163,19 +173,15 @@ export class ClientController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to delete client",
-        error: result.error,
-      };
+      return this.fail("Failed to delete client", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message:
         permanent === "true" || permanent === "1"
           ? "Client permanently deleted successfully"
           : "Client deleted successfully",
-    };
+    });
   }
 }

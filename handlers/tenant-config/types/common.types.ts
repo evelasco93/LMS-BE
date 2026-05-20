@@ -9,4 +9,5 @@ export type RestApiResponse<T = any> = {
   message?: string;
   data?: T;
   error?: string;
+  correlation_id?: string;
 };

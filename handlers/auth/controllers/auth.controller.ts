@@ -11,6 +11,7 @@ import {
 import { AuthService } from "../services/auth.service";
 import { LoginRequest, RefreshRequest } from "../types/auth-request.types";
 import { RestApiResponse } from "../types/common.types";
+import { mapServiceErrorToHttpStatus, withCorrelationId } from "@shared/utils";
 
 @injectable()
 @apiController("/auth")
@@ -19,6 +20,27 @@ export class AuthController extends Controller {
     @inject("AuthService") private readonly authService: AuthService,
   ) {
     super();
+  }
+
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 401,
+  ): RestApiResponse {
+    const mappedStatus = mapServiceErrorToHttpStatus(error, fallbackStatus);
+    this.response.status(mappedStatus === 400 ? fallbackStatus : mappedStatus);
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
   }
 
   /**
@@ -32,19 +54,14 @@ export class AuthController extends Controller {
     const result = await this.authService.login(payload);
 
     if (!result.result) {
-      this.response.status(401);
-      return {
-        success: false,
-        message: "Authentication failed",
-        error: result.error,
-      };
+      return this.fail("Authentication failed", result.error, 401);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Login successful",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -57,18 +74,13 @@ export class AuthController extends Controller {
     const result = await this.authService.refresh(payload);
 
     if (!result.result) {
-      this.response.status(401);
-      return {
-        success: false,
-        message: "Token refresh failed",
-        error: result.error,
-      };
+      return this.fail("Token refresh failed", result.error, 401);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Token refreshed",
       data: result.data,
-    };
+    });
   }
 }

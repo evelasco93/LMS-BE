@@ -59,7 +59,8 @@ export class MetricsService {
   }
 
   async recordLeadOutcome(lead: MetricsLeadSnapshot): Promise<void> {
-    const bucketStart = this.toBucketStart(lead.created_at);
+    const dayBucketStart = this.toDayBucketStart(lead.created_at);
+    const hourBucketStart = this.toHourBucketStart(lead.created_at);
     const source = this.normalizeCampaignKey(lead.campaign_key);
     const counters = this.toCounters(lead);
     const idempotencyKey = `lead_outcome:${lead.id}`;
@@ -68,17 +69,34 @@ export class MetricsService {
     const updates = [
       this.buildCounterUpdate({
         pk: this.pkGlobal(),
-        sk: this.skBucket(bucketStart),
+        sk: this.skBucket(dayBucketStart),
         itemType: "counter#day#global",
-        bucketStart,
+        bucketStart: dayBucketStart,
         counters,
         now,
       }),
       this.buildCounterUpdate({
         pk: this.pkCampaign(lead.campaign_id),
-        sk: this.skBucket(bucketStart),
+        sk: this.skBucket(dayBucketStart),
         itemType: "counter#day#campaign",
-        bucketStart,
+        bucketStart: dayBucketStart,
+        campaignId: lead.campaign_id,
+        counters,
+        now,
+      }),
+      this.buildCounterUpdate({
+        pk: this.pkGlobal("hour"),
+        sk: this.skBucket(hourBucketStart),
+        itemType: "counter#hour#global",
+        bucketStart: hourBucketStart,
+        counters,
+        now,
+      }),
+      this.buildCounterUpdate({
+        pk: this.pkCampaign(lead.campaign_id, "hour"),
+        sk: this.skBucket(hourBucketStart),
+        itemType: "counter#hour#campaign",
+        bucketStart: hourBucketStart,
         campaignId: lead.campaign_id,
         counters,
         now,
@@ -89,9 +107,9 @@ export class MetricsService {
       updates.push(
         this.buildCounterUpdate({
           pk: this.pkSource(source),
-          sk: this.skBucket(bucketStart),
+          sk: this.skBucket(dayBucketStart),
           itemType: "counter#day#source",
-          bucketStart,
+          bucketStart: dayBucketStart,
           source,
           counters,
           now,
@@ -101,9 +119,34 @@ export class MetricsService {
       updates.push(
         this.buildCounterUpdate({
           pk: this.pkCampaignSource(lead.campaign_id, source),
-          sk: this.skBucket(bucketStart),
+          sk: this.skBucket(dayBucketStart),
           itemType: "counter#day#campaign_source",
-          bucketStart,
+          bucketStart: dayBucketStart,
+          campaignId: lead.campaign_id,
+          source,
+          counters,
+          now,
+        }),
+      );
+
+      updates.push(
+        this.buildCounterUpdate({
+          pk: this.pkSource(source, "hour"),
+          sk: this.skBucket(hourBucketStart),
+          itemType: "counter#hour#source",
+          bucketStart: hourBucketStart,
+          source,
+          counters,
+          now,
+        }),
+      );
+
+      updates.push(
+        this.buildCounterUpdate({
+          pk: this.pkCampaignSource(lead.campaign_id, source, "hour"),
+          sk: this.skBucket(hourBucketStart),
+          itemType: "counter#hour#campaign_source",
+          bucketStart: hourBucketStart,
           campaignId: lead.campaign_id,
           source,
           counters,
@@ -116,9 +159,9 @@ export class MetricsService {
       updates.push(
         this.buildCounterUpdate({
           pk: this.pkContract(lead.sold_to_contract_id),
-          sk: this.skBucket(bucketStart),
+          sk: this.skBucket(dayBucketStart),
           itemType: "counter#day#contract",
-          bucketStart,
+          bucketStart: dayBucketStart,
           campaignId: lead.campaign_id,
           source,
           contractId: lead.sold_to_contract_id,
@@ -128,10 +171,45 @@ export class MetricsService {
       );
       updates.push(
         this.buildCounterUpdate({
-          pk: this.pkContractCampaign(lead.sold_to_contract_id, lead.campaign_id),
-          sk: this.skBucket(bucketStart),
+          pk: this.pkContractCampaign(
+            lead.sold_to_contract_id,
+            lead.campaign_id,
+          ),
+          sk: this.skBucket(dayBucketStart),
           itemType: "counter#day#contract_campaign",
-          bucketStart,
+          bucketStart: dayBucketStart,
+          campaignId: lead.campaign_id,
+          source,
+          contractId: lead.sold_to_contract_id,
+          counters,
+          now,
+        }),
+      );
+
+      updates.push(
+        this.buildCounterUpdate({
+          pk: this.pkContract(lead.sold_to_contract_id, "hour"),
+          sk: this.skBucket(hourBucketStart),
+          itemType: "counter#hour#contract",
+          bucketStart: hourBucketStart,
+          campaignId: lead.campaign_id,
+          source,
+          contractId: lead.sold_to_contract_id,
+          counters,
+          now,
+        }),
+      );
+
+      updates.push(
+        this.buildCounterUpdate({
+          pk: this.pkContractCampaign(
+            lead.sold_to_contract_id,
+            lead.campaign_id,
+            "hour",
+          ),
+          sk: this.skBucket(hourBucketStart),
+          itemType: "counter#hour#contract_campaign",
+          bucketStart: hourBucketStart,
           campaignId: lead.campaign_id,
           source,
           contractId: lead.sold_to_contract_id,
@@ -153,7 +231,7 @@ export class MetricsService {
       [pkName]: idempotencyPk,
       [skName]: idempotencySk,
       [itemTypeName]: "idempotency",
-      [bucketStartName]: bucketStart,
+      [bucketStartName]: hourBucketStart,
       idempotency_key: idempotencyKey,
       lead_id: lead.id,
       created_at: now,
@@ -203,6 +281,11 @@ export class MetricsService {
 
     const points = await this.getPointsForSummary(query);
     const totals = this.sumPoints(points);
+    const hourlyPoints = await this.getHourlyPointsForSummary(query);
+    const peakLeadWindow = this.pickPeakLeadWindow(
+      hourlyPoints,
+      totals.received,
+    );
 
     return {
       range: {
@@ -214,6 +297,7 @@ export class MetricsService {
         ...(query.campaign_key ? { campaign_key: query.campaign_key } : {}),
       },
       totals,
+      peak_lead_window: peakLeadWindow,
     };
   }
 
@@ -278,7 +362,9 @@ export class MetricsService {
 
     const scopedSourceKeys = requestedCampaignKey
       ? new Set(
-          liveSourceKeys.has(requestedCampaignKey) ? [requestedCampaignKey] : [],
+          liveSourceKeys.has(requestedCampaignKey)
+            ? [requestedCampaignKey]
+            : [],
         )
       : liveSourceKeys;
 
@@ -334,7 +420,9 @@ export class MetricsService {
       const liveSourceKeys = this.getLiveCampaignSourceKeys(campaign);
       const scopedLiveSourceKeys = requestedCampaignKey
         ? new Set(
-            liveSourceKeys.has(requestedCampaignKey) ? [requestedCampaignKey] : [],
+            liveSourceKeys.has(requestedCampaignKey)
+              ? [requestedCampaignKey]
+              : [],
           )
         : liveSourceKeys;
 
@@ -412,7 +500,10 @@ export class MetricsService {
       const contractId = item.contract_id;
       if (!contractId) continue;
       const existing = grouped.get(contractId) ?? this.emptyCounters();
-      grouped.set(contractId, this.addCounters(existing, this.toItemCounters(item)));
+      grouped.set(
+        contractId,
+        this.addCounters(existing, this.toItemCounters(item)),
+      );
     }
 
     const contracts = Array.from(grouped.entries())
@@ -473,11 +564,17 @@ export class MetricsService {
     }
   }
 
-  private toBucketStart(isoTimestamp: string): string {
+  private toDayBucketStart(isoTimestamp: string): string {
     if (/^\d{4}-\d{2}-\d{2}$/.test(isoTimestamp)) {
       return isoTimestamp;
     }
     return new Date(isoTimestamp).toISOString().slice(0, 10);
+  }
+
+  private toHourBucketStart(isoTimestamp: string): string {
+    const date = new Date(isoTimestamp);
+    date.setUTCMinutes(0, 0, 0);
+    return date.toISOString();
   }
 
   private normalizeCampaignKey(source?: string): string | undefined {
@@ -501,28 +598,45 @@ export class MetricsService {
     };
   }
 
-  private pkGlobal(): string {
-    return "counter#day#global";
+  private pkGlobal(granularity: "day" | "hour" = "day"): string {
+    return `counter#${granularity}#global`;
   }
 
-  private pkCampaign(campaignId: string): string {
-    return `counter#day#campaign#${campaignId}`;
+  private pkCampaign(
+    campaignId: string,
+    granularity: "day" | "hour" = "day",
+  ): string {
+    return `counter#${granularity}#campaign#${campaignId}`;
   }
 
-  private pkSource(source: string): string {
-    return `counter#day#source#${source}`;
+  private pkSource(
+    source: string,
+    granularity: "day" | "hour" = "day",
+  ): string {
+    return `counter#${granularity}#source#${source}`;
   }
 
-  private pkCampaignSource(campaignId: string, source: string): string {
-    return `counter#day#campaign_source#${campaignId}#${source}`;
+  private pkCampaignSource(
+    campaignId: string,
+    source: string,
+    granularity: "day" | "hour" = "day",
+  ): string {
+    return `counter#${granularity}#campaign_source#${campaignId}#${source}`;
   }
 
-  private pkContract(contractId: string): string {
-    return `counter#day#contract#${contractId}`;
+  private pkContract(
+    contractId: string,
+    granularity: "day" | "hour" = "day",
+  ): string {
+    return `counter#${granularity}#contract#${contractId}`;
   }
 
-  private pkContractCampaign(contractId: string, campaignId: string): string {
-    return `counter#day#contract_campaign#${contractId}#${campaignId}`;
+  private pkContractCampaign(
+    contractId: string,
+    campaignId: string,
+    granularity: "day" | "hour" = "day",
+  ): string {
+    return `counter#${granularity}#contract_campaign#${contractId}#${campaignId}`;
   }
 
   private skBucket(bucketStart: string): string {
@@ -584,7 +698,9 @@ export class MetricsService {
     if (args.campaignId) {
       names["#campaign_id"] = "campaign_id";
       values[":campaign_id"] = args.campaignId;
-      setSegments.push("#campaign_id = if_not_exists(#campaign_id, :campaign_id)");
+      setSegments.push(
+        "#campaign_id = if_not_exists(#campaign_id, :campaign_id)",
+      );
     }
     if (args.source) {
       names["#source"] = "source";
@@ -594,7 +710,9 @@ export class MetricsService {
     if (args.contractId) {
       names["#contract_id"] = "contract_id";
       values[":contract_id"] = args.contractId;
-      setSegments.push("#contract_id = if_not_exists(#contract_id, :contract_id)");
+      setSegments.push(
+        "#contract_id = if_not_exists(#contract_id, :contract_id)",
+      );
     }
 
     return {
@@ -613,9 +731,9 @@ export class MetricsService {
     };
   }
 
-  private async getPointsForSummary(query: MetricsQuery): Promise<
-    Array<{ bucket_start: string; counters: MetricsCounters }>
-  > {
+  private async getPointsForSummary(
+    query: MetricsQuery,
+  ): Promise<Array<{ bucket_start: string; counters: MetricsCounters }>> {
     const source = this.normalizeCampaignKey(query.campaign_key);
     const pk = query.campaign_id
       ? source
@@ -625,7 +743,11 @@ export class MetricsService {
         ? this.pkSource(source)
         : this.pkGlobal();
 
-    const items = await this.queryByPartition(pk, query.from_date, query.to_date);
+    const items = await this.queryByPartition(
+      pk,
+      query.from_date,
+      query.to_date,
+    );
 
     return items
       .map((item) => ({
@@ -633,6 +755,65 @@ export class MetricsService {
         counters: this.toItemCounters(item),
       }))
       .filter((point) => point.bucket_start);
+  }
+
+  private async getHourlyPointsForSummary(
+    query: MetricsQuery,
+  ): Promise<Array<{ bucket_start: string; counters: MetricsCounters }>> {
+    const source = this.normalizeCampaignKey(query.campaign_key);
+    const pk = query.campaign_id
+      ? source
+        ? this.pkCampaignSource(query.campaign_id, source, "hour")
+        : this.pkCampaign(query.campaign_id, "hour")
+      : source
+        ? this.pkSource(source, "hour")
+        : this.pkGlobal("hour");
+
+    const fromHour = `${query.from_date}T00:00:00.000Z`;
+    const toHour = `${query.to_date}T23:59:59.999Z`;
+
+    const items = await this.queryByPartition(pk, fromHour, toHour);
+
+    return items
+      .map((item) => ({
+        bucket_start: item.bucket_start ?? "",
+        counters: this.toItemCounters(item),
+      }))
+      .filter((point) => point.bucket_start);
+  }
+
+  private pickPeakLeadWindow(
+    points: Array<{ bucket_start: string; counters: MetricsCounters }>,
+    totalReceived: number,
+  ): MetricsSummaryData["peak_lead_window"] {
+    if (points.length === 0 || totalReceived <= 0) {
+      return null;
+    }
+
+    const peak = [...points].sort((a, b) => {
+      if (b.counters.received !== a.counters.received) {
+        return b.counters.received - a.counters.received;
+      }
+      return a.bucket_start.localeCompare(b.bucket_start);
+    })[0];
+
+    if (!peak || peak.counters.received <= 0) {
+      return null;
+    }
+
+    const startDate = new Date(peak.bucket_start);
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    const startHour = startDate.getUTCHours().toString().padStart(2, "0");
+    const endHour = endDate.getUTCHours().toString().padStart(2, "0");
+
+    return {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      label: `${startHour}:00-${endHour}:00 UTC`,
+      received: peak.counters.received,
+      total_received: totalReceived,
+      share_percent: Math.round((peak.counters.received / totalReceived) * 100),
+    };
   }
 
   private async queryByPartition(
@@ -667,13 +848,16 @@ export class MetricsService {
     toDate: string,
   ): Promise<MetricsCounterItem[]> {
     const indexName = this.constants.METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME;
-    const itemTypePk = this.constants.METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY;
-    const bucketSk = this.constants.METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY;
+    const itemTypePk =
+      this.constants.METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY;
+    const bucketSk =
+      this.constants.METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY;
 
     const result = await this.dynamoDBUtil.queryAll<MetricsCounterItem>({
       TableName: this.constants.METRICS_TABLE_NAME,
       IndexName: indexName,
-      KeyConditionExpression: "#item_type = :item_type AND #bucket_start BETWEEN :from_date AND :to_date",
+      KeyConditionExpression:
+        "#item_type = :item_type AND #bucket_start BETWEEN :from_date AND :to_date",
       ExpressionAttributeNames: {
         "#item_type": itemTypePk,
         "#bucket_start": bucketSk,
@@ -723,7 +907,10 @@ export class MetricsService {
       }
 
       const existing = grouped.get(item.campaign_id) ?? this.emptyCounters();
-      grouped.set(item.campaign_id, this.addCounters(existing, this.toItemCounters(item)));
+      grouped.set(
+        item.campaign_id,
+        this.addCounters(existing, this.toItemCounters(item)),
+      );
     }
 
     return Array.from(grouped.entries())
@@ -768,7 +955,9 @@ export class MetricsService {
     );
   }
 
-  private sumPoints(points: Array<{ counters: MetricsCounters }>): MetricsCounters {
+  private sumPoints(
+    points: Array<{ counters: MetricsCounters }>,
+  ): MetricsCounters {
     return points.reduce(
       (acc, point) => this.addCounters(acc, point.counters),
       this.emptyCounters(),
@@ -815,7 +1004,9 @@ export class MetricsService {
   private getLiveCampaignSourceKeys(campaign: ICampaign): Set<string> {
     return new Set(
       (campaign.affiliates ?? [])
-        .filter((affiliate) => affiliate.status === CampaignParticipantStatus.LIVE)
+        .filter(
+          (affiliate) => affiliate.status === CampaignParticipantStatus.LIVE,
+        )
         .map((affiliate) => this.normalizeCampaignKey(affiliate.campaign_key))
         .filter((key): key is string => !!key),
     );

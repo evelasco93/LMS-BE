@@ -31,6 +31,14 @@ export type MetricsSummaryData = {
     campaign_key?: string;
   };
   totals: MetricsCounters;
+  peak_lead_window: {
+    start: string;
+    end: string;
+    label: string;
+    received: number;
+    total_received: number;
+    share_percent: number;
+  } | null;
 };
 
 export type MetricsTimeseriesData = {

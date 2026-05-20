@@ -4,6 +4,11 @@ import { apiController, POST, body, produces, Controller } from "ts-lambda-api";
 import { OrchestratorService } from "../services/orchestrator.service";
 import { Logger } from "@shared/services/logger.util";
 import { RestApiResponse } from "../types/common.types";
+import {
+  extractCorrelationIdFromHeaders,
+  mapServiceErrorToHttpStatus,
+  withCorrelationId,
+} from "@shared/utils";
 
 @injectable()
 @apiController("/qa")
@@ -14,6 +19,32 @@ export class OrchestratorController extends Controller {
     @inject("Logger") private readonly logger: Logger,
   ) {
     super();
+  }
+
+  private getCorrelationId(): string | undefined {
+    return extractCorrelationIdFromHeaders(
+      this.request.headers as Record<string, string | string[] | undefined>,
+    );
+  }
+
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
   }
 
   /**
@@ -32,7 +63,7 @@ export class OrchestratorController extends Controller {
     @body payload: { cert_id: string },
   ): Promise<RestApiResponse> {
     if (!payload?.cert_id) {
-      return { success: false, error: "cert_id is required" };
+      return this.fail("Invalid request", "cert_id is required", 400);
     }
 
     try {
@@ -40,20 +71,25 @@ export class OrchestratorController extends Controller {
         payload.cert_id,
       );
 
-      return {
+      return this.withCorrelation({
         success: result.outcome === "success",
         message:
           result.outcome === "success"
             ? "Certificate is valid"
             : "Certificate validation failed",
         data: result,
-      };
+      });
     } catch (error: any) {
-      this.logger.error("Failed to validate TrustedForm cert", error);
-      return {
-        success: false,
-        error: error?.message || "TrustedForm validation failed",
-      };
+      const correlation_id = this.getCorrelationId();
+      this.logger.error("Failed to validate TrustedForm cert", {
+        correlation_id,
+        error,
+      });
+      return this.fail(
+        "Failed to validate TrustedForm cert",
+        error?.message || "TrustedForm validation failed",
+        500,
+      );
     }
   }
 
@@ -73,10 +109,11 @@ export class OrchestratorController extends Controller {
     @body payload: { phone?: string; email?: string; ip_address?: string },
   ): Promise<RestApiResponse> {
     if (!payload?.phone && !payload?.email && !payload?.ip_address) {
-      return {
-        success: false,
-        error: "At least one of phone, email, or ip_address is required",
-      };
+      return this.fail(
+        "Invalid request",
+        "At least one of phone, email, or ip_address is required",
+        400,
+      );
     }
 
     try {
@@ -84,11 +121,11 @@ export class OrchestratorController extends Controller {
         await this.orchestratorService.resolveDefaultCredentialsId("ipqs");
 
       if (!credentialsId) {
-        return {
-          success: false,
-          error:
-            "No active IPQS credential found in tenant settings. Configure a plugin setting first.",
-        };
+        return this.fail(
+          "Missing IPQS credentials",
+          "No active IPQS credential found in tenant settings. Configure a plugin setting first.",
+          404,
+        );
       }
 
       const result = await this.orchestratorService.runIpqsCheck({
@@ -98,16 +135,22 @@ export class OrchestratorController extends Controller {
         ip_address: payload.ip_address,
       });
 
-      return {
+      return this.withCorrelation({
         success: result.success,
+        message: result.success ? "IPQS check completed" : "IPQS check failed",
         data: result,
-      };
+      });
     } catch (error: any) {
-      this.logger.error("Failed to run IPQS check", error);
-      return {
-        success: false,
-        error: error?.message || "IPQS check failed",
-      };
+      const correlation_id = this.getCorrelationId();
+      this.logger.error("Failed to run IPQS check", {
+        correlation_id,
+        error,
+      });
+      return this.fail(
+        "Failed to run IPQS check",
+        error?.message || "IPQS check failed",
+        500,
+      );
     }
   }
 }

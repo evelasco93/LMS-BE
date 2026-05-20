@@ -12,6 +12,7 @@ export type LeadIntakeResponse = {
   data?: {
     lead_id: string;
   };
+  correlation_id?: string;
 };
 
 export type ServiceResult<T = any> = {
@@ -27,6 +28,7 @@ export type RestApiResponse<T = any> = {
   error?: string;
   count?: number;
   lastEvaluatedKey?: string;
+  correlation_id?: string;
 };
 
 export type PaginatedData<T> = {
@@ -40,4 +42,5 @@ export type PaginatedRestApiResponse<T> = {
   message?: string;
   data?: PaginatedData<T>;
   error?: string;
+  correlation_id?: string;
 };
