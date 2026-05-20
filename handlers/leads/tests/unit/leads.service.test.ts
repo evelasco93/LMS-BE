@@ -615,6 +615,14 @@ describe("LeadsService", () => {
           accepted_not_sold: 1,
           rejected: 1,
         },
+        peak_lead_window: {
+          start: "2026-05-01T14:00:00.000Z",
+          end: "2026-05-01T15:00:00.000Z",
+          label: "14:00-15:00 UTC",
+          received: 2,
+          total_received: 3,
+          share_percent: 67,
+        },
       });
 
       const result = await leadsService.getMetricsSummary({

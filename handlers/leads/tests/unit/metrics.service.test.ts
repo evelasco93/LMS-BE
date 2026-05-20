@@ -36,6 +36,109 @@ describe("MetricsService breakdown cutover", () => {
     service = new MetricsService(dynamoDBUtil, logger, constants);
   });
 
+  it("returns peak_lead_window in summary using hourly counters", async () => {
+    dynamoDBUtil.queryAll
+      .mockResolvedValueOnce([
+        {
+          bucket_start: "2026-05-01",
+          received: 10,
+          accepted: 7,
+          sold: 4,
+          accepted_not_sold: 3,
+          rejected: 3,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucket_start: "2026-05-01T14:00:00.000Z",
+          received: 4,
+          accepted: 3,
+          sold: 2,
+          accepted_not_sold: 1,
+          rejected: 1,
+        },
+        {
+          bucket_start: "2026-05-01T09:00:00.000Z",
+          received: 5,
+          accepted: 3,
+          sold: 2,
+          accepted_not_sold: 1,
+          rejected: 2,
+        },
+      ]);
+
+    const result = await service.getSummary({
+      from_date: "2026-05-01",
+      to_date: "2026-05-01",
+    });
+
+    expect(result.totals.received).toBe(10);
+    expect(result.peak_lead_window).toEqual({
+      start: "2026-05-01T09:00:00.000Z",
+      end: "2026-05-01T10:00:00.000Z",
+      label: "09:00-10:00 UTC",
+      received: 5,
+      total_received: 10,
+      share_percent: 50,
+    });
+  });
+
+  it("picks earliest hourly bucket when peak received ties", async () => {
+    dynamoDBUtil.queryAll
+      .mockResolvedValueOnce([
+        {
+          bucket_start: "2026-05-02",
+          received: 8,
+          accepted: 5,
+          sold: 2,
+          accepted_not_sold: 3,
+          rejected: 3,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucket_start: "2026-05-02T15:00:00.000Z",
+          received: 4,
+        },
+        {
+          bucket_start: "2026-05-02T10:00:00.000Z",
+          received: 4,
+        },
+      ]);
+
+    const result = await service.getSummary({
+      from_date: "2026-05-02",
+      to_date: "2026-05-02",
+    });
+
+    expect(result.peak_lead_window).toEqual({
+      start: "2026-05-02T10:00:00.000Z",
+      end: "2026-05-02T11:00:00.000Z",
+      label: "10:00-11:00 UTC",
+      received: 4,
+      total_received: 8,
+      share_percent: 50,
+    });
+  });
+
+  it("returns null peak_lead_window when there is no data", async () => {
+    dynamoDBUtil.queryAll.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await service.getSummary({
+      from_date: "2026-05-03",
+      to_date: "2026-05-03",
+    });
+
+    expect(result.totals).toEqual({
+      received: 0,
+      accepted: 0,
+      sold: 0,
+      accepted_not_sold: 0,
+      rejected: 0,
+    });
+    expect(result.peak_lead_window).toBeNull();
+  });
+
   it("returns all-campaign breakdown using ACTIVE campaigns and LIVE sources", async () => {
     dynamoDBUtil.scanAll.mockResolvedValue([
       {
@@ -365,6 +468,9 @@ describe("MetricsService breakdown cutover", () => {
         },
       },
     ]);
-    expect(result.filters).toEqual({ campaign_id: "CM1", campaign_key: "KEY_B" });
+    expect(result.filters).toEqual({
+      campaign_id: "CM1",
+      campaign_key: "KEY_B",
+    });
   });
 });

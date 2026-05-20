@@ -8499,6 +8499,45 @@
           }
         }
       },
+      "MetricsPeakLeadWindow": {
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "label",
+          "received",
+          "total_received",
+          "share_percent"
+        ],
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC start timestamp for the peak one-hour lead intake window"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC end timestamp for the peak one-hour lead intake window"
+          },
+          "label": {
+            "type": "string",
+            "description": "Display label for the window (for example, 14:00-15:00 UTC)"
+          },
+          "received": {
+            "type": "integer",
+            "description": "Lead volume received in the peak window"
+          },
+          "total_received": {
+            "type": "integer",
+            "description": "Total lead volume received for the selected filter range"
+          },
+          "share_percent": {
+            "type": "integer",
+            "description": "Rounded percentage share of total leads represented by the peak window"
+          }
+        }
+      },
       "MetricsSummaryResponse": {
         "type": "object",
         "properties": {
@@ -8537,6 +8576,17 @@
               },
               "totals": {
                 "$ref": "#/components/schemas/MetricsCounters"
+              },
+              "peak_lead_window": {
+                "description": "Peak one-hour lead intake window for the selected range and filters; null when there is no lead data",
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MetricsPeakLeadWindow"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           }

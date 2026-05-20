@@ -10,7 +10,17 @@ describe("MetricsController", () => {
     service = {
       getMetricsSummary: vi.fn(async () => ({
         result: true,
-        data: { totals: {} },
+        data: {
+          totals: {},
+          peak_lead_window: {
+            start: "2026-05-01T14:00:00.000Z",
+            end: "2026-05-01T15:00:00.000Z",
+            label: "14:00-15:00 UTC",
+            received: 8,
+            total_received: 16,
+            share_percent: 50,
+          },
+        },
       })),
       getMetricsTimeseries: vi.fn(async () => ({
         result: true,
@@ -51,6 +61,7 @@ describe("MetricsController", () => {
       }),
     );
     expect(response.data).toBeDefined();
+    expect(response.data.peak_lead_window?.label).toBe("14:00-15:00 UTC");
   });
 
   it("returns failure envelope when service fails", async () => {
