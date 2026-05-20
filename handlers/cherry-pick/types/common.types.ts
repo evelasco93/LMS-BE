@@ -10,4 +10,5 @@ export type RestApiResponse = {
   data?: unknown;
   count?: number;
   error?: string;
+  correlation_id?: string;
 };

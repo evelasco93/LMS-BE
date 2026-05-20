@@ -48,7 +48,11 @@ import {
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
-import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
+import {
+  extractRequestActorFromHeaders,
+  mapServiceErrorToHttpStatus,
+  withCorrelationId,
+} from "@shared/utils";
 
 @injectable()
 @apiController("/campaigns")
@@ -66,6 +70,26 @@ export class CampaignController extends Controller {
     );
   }
 
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
+  }
+
   @POST("/")
   @produces("application/json")
   async createCampaign(
@@ -77,18 +101,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to create campaign",
-        error: result.error,
-      };
+      return this.fail("Failed to create campaign", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaign created successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/")
@@ -108,20 +128,16 @@ export class CampaignController extends Controller {
     } satisfies ListCampaignsQuery);
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to list campaigns",
-        error: result.error,
-      };
+      return this.fail("Failed to list campaigns", result.error, 500);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaigns retrieved successfully",
       count: result.data?.count,
       data: result.data?.items,
       lastEvaluatedKey: result.data?.lastEvaluatedKey,
-    };
+    });
   }
 
   @PUT("/:id")
@@ -137,18 +153,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update campaign",
-        error: result.error,
-      };
+      return this.fail("Failed to update campaign", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaign updated successfully",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/contracts")
@@ -164,18 +176,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to link contract",
-        error: result.error,
-      };
+      return this.fail("Failed to link contract", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract linked successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/contracts/:contractId")
@@ -193,18 +201,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update contract status",
-        error: result.error,
-      };
+      return this.fail("Failed to update contract status", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract status updated",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/contracts/:contractId/delivery")
@@ -222,18 +226,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to set contract delivery config",
-        error: result.error,
-      };
+      return this.fail("Failed to set contract delivery config", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract delivery config updated",
       data: result.data,
-    };
+    });
   }
 
   // ── Destination CRUD ──────────────────────────────────────────────────────
@@ -250,18 +250,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to list destinations",
-        error: result.error,
-      };
+      return this.fail("Failed to list destinations", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Destinations retrieved",
       data: result.data,
-    };
+    });
   }
 
   @GET("/:id/contracts/:contractId/destinations/:destId")
@@ -278,18 +274,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to get destination",
-        error: result.error,
-      };
+      return this.fail("Failed to get destination", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Destination retrieved",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/contracts/:contractId/destinations")
@@ -307,18 +299,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to add destination",
-        error: result.error,
-      };
+      return this.fail("Failed to add destination", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Destination added",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/contracts/:contractId/destinations/:destId")
@@ -338,18 +326,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update destination",
-        error: result.error,
-      };
+      return this.fail("Failed to update destination", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Destination updated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/contracts/:contractId/destinations/:destId")
@@ -367,18 +351,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to delete destination",
-        error: result.error,
-      };
+      return this.fail("Failed to delete destination", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Destination deleted",
       data: result.data,
-    };
+    });
   }
 
   // ── Response Validation ─────────────────────────────────────────────────────
@@ -398,18 +378,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to set response validation",
-        error: result.error,
-      };
+      return this.fail("Failed to set response validation", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Response validation updated",
       data: result.data,
-    };
+    });
   }
 
   @GET("/:id/contracts/:contractId/response-validation")
@@ -424,18 +400,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to get response validation",
-        error: result.error,
-      };
+      return this.fail("Failed to get response validation", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Response validation retrieved",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/contracts/:contractId")
@@ -451,18 +423,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to delete contract from campaign",
-        error: result.error,
-      };
+      return this.fail("Failed to delete contract from campaign", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract removed from campaign",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/affiliates")
@@ -478,18 +446,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to link affiliate",
-        error: result.error,
-      };
+      return this.fail("Failed to link affiliate", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate linked successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId")
@@ -507,19 +471,15 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update affiliate status",
-        error: result.error,
-      };
+      return this.fail("Failed to update affiliate status", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate status updated",
       data: result.data?.campaign,
       submit_url: result.data?.submit_url,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/cap")
@@ -537,18 +497,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to set affiliate lead cap",
-        error: result.error,
-      };
+      return this.fail("Failed to set affiliate lead cap", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate lead cap updated",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/validation-bypass")
@@ -566,18 +522,17 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to set affiliate validation bypass",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to set affiliate validation bypass",
+        result.error,
+      );
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate validation bypass updated",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/tags")
@@ -593,18 +548,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update campaign tags",
-        error: result.error,
-      };
+      return this.fail("Failed to update campaign tags", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaign tags updated",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/pixel")
@@ -622,18 +573,17 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to set affiliate sold pixel config",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to set affiliate sold pixel config",
+        result.error,
+      );
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate sold pixel config updated",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/affiliates/:affiliateId/rotate-key")
@@ -649,18 +599,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to rotate affiliate campaign key",
-        error: result.error,
-      };
+      return this.fail("Failed to rotate affiliate campaign key", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate campaign key rotated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/affiliates/:affiliateId")
@@ -676,18 +622,17 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to delete affiliate from campaign",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete affiliate from campaign",
+        result.error,
+      );
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate removed from campaign",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/distribution")
@@ -703,18 +648,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to set distribution config",
-        error: result.error,
-      };
+      return this.fail("Failed to set distribution config", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Distribution config updated",
       data: result.data,
-    };
+    });
   }
 
   @GET("/:id")
@@ -723,19 +664,15 @@ export class CampaignController extends Controller {
     const result = await this.campaignService.getCampaign(id);
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Campaign not found",
-        error: result.error,
-      };
+      return this.fail("Campaign not found", result.error, 404);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaign retrieved successfully",
       data: result.data?.campaign,
       submit_url: result.data?.submit_url,
-    };
+    });
   }
 
   @DELETE("/:id")
@@ -751,21 +688,17 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to delete campaign",
-        error: result.error,
-      };
+      return this.fail("Failed to delete campaign", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message:
         permanent === "true" || permanent === "1"
           ? "Campaign permanently deleted"
           : "Campaign soft-deleted successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/status")
@@ -781,18 +714,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      return {
-        success: false,
-        message: "Failed to update campaign status",
-        error: result.error,
-      };
+      return this.fail("Failed to update campaign status", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaign status updated successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/plugins")
@@ -808,20 +737,14 @@ export class CampaignController extends Controller {
     );
 
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update campaign plugins",
-        error: result.error,
-      };
+      return this.fail("Failed to update campaign plugins", result.error, 400);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Campaign plugins updated successfully",
       data: result.data,
-    };
+    });
   }
 
   // ── Base Criteria ─────────────────────────────────────────────────────────
@@ -831,19 +754,13 @@ export class CampaignController extends Controller {
   async getCriteria(@pathParam("id") id: string): Promise<RestApiResponse> {
     const result = await this.campaignService.getCriteria(id);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to get criteria",
-        error: result.error,
-      };
+      return this.fail("Failed to get criteria", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -859,19 +776,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to add base criteria fields",
-        error: result.error,
-      };
+      return this.fail("Failed to add base criteria fields", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Base criteria fields added successfully",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/criteria")
@@ -886,19 +797,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to add criteria field",
-        error: result.error,
-      };
+      return this.fail("Failed to add criteria field", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria field added successfully",
       data: result.data,
-    };
+    });
   }
 
   /** Must be declared before /:id/criteria/:fieldId to avoid route shadowing */
@@ -914,19 +819,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to reorder criteria fields",
-        error: result.error,
-      };
+      return this.fail("Failed to reorder criteria fields", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria fields reordered successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/criteria/:fieldId")
@@ -943,19 +842,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update criteria field",
-        error: result.error,
-      };
+      return this.fail("Failed to update criteria field", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria field updated successfully",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/criteria/:fieldId")
@@ -970,19 +863,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete criteria field",
-        error: result.error,
-      };
+      return this.fail("Failed to delete criteria field", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria field deleted successfully",
       data: result.data,
-    };
+    });
   }
 
   @GET("/:id/criteria/history")
@@ -992,19 +879,13 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.getCriteriaHistory(id);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to get criteria history",
-        error: result.error,
-      };
+      return this.fail("Failed to get criteria history", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria history retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   /** Must be declared before /:id/criteria/:fieldId/mappings to avoid route shadowing */
@@ -1016,19 +897,13 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.getCriteriaField(id, fieldId);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to get criteria field",
-        error: result.error,
-      };
+      return this.fail("Failed to get criteria field", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria field retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/criteria/:fieldId/mappings")
@@ -1046,19 +921,13 @@ export class CampaignController extends Controller {
       actor,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to set value mappings",
-        error: result.error,
-      };
+      return this.fail("Failed to set value mappings", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Value mappings updated successfully",
       data: result.data,
-    };
+    });
   }
 
   // ── Logic Rules ─────────────────────────────────────────────────────────
@@ -1071,19 +940,13 @@ export class CampaignController extends Controller {
   async listLogicRules(@pathParam("id") id: string): Promise<RestApiResponse> {
     const result = await this.campaignService.listLogicRules(id);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to list logic rules",
-        error: result.error,
-      };
+      return this.fail("Failed to list logic rules", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic rules retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1097,19 +960,13 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.getLogicRule(id, ruleId);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to get logic rule",
-        error: result.error,
-      };
+      return this.fail("Failed to get logic rule", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic rule retrieved successfully",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1127,19 +984,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to create logic rule",
-        error: result.error,
-      };
+      return this.fail("Failed to create logic rule", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic rule created successfully",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1159,19 +1010,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update logic rule",
-        error: result.error,
-      };
+      return this.fail("Failed to update logic rule", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic rule updated successfully",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1189,19 +1034,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete logic rule",
-        error: result.error,
-      };
+      return this.fail("Failed to delete logic rule", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic rule deleted successfully",
       data: result.data,
-    };
+    });
   }
 
   // ── Posting Instructions ──────────────────────────────────────────────────
@@ -1222,19 +1061,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to generate posting instructions",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to generate posting instructions",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Posting instructions generated successfully",
       data: result.data,
-    };
+    });
   }
 
   // ── Per-Affiliate Logic Rule Overrides ────────────────────────────────────
@@ -1250,19 +1087,17 @@ export class CampaignController extends Controller {
       affiliateId,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to list affiliate logic rules",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to list affiliate logic rules",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate logic rules retrieved",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/affiliates/:affiliateId/logic-rules")
@@ -1279,20 +1114,18 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to create affiliate logic rule",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to create affiliate logic rule",
+        result.error,
+        400,
+      );
     }
     this.response.status(201);
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate logic rule created",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/logic-rules/:ruleId")
@@ -1311,19 +1144,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update affiliate logic rule",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to update affiliate logic rule",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate logic rule updated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/affiliates/:affiliateId/logic-rules/:ruleId")
@@ -1340,19 +1171,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete affiliate logic rule",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete affiliate logic rule",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate logic rule deleted",
       data: result.data,
-    };
+    });
   }
 
   // ── Per-Affiliate Pixel Criteria ──────────────────────────────────────────
@@ -1368,19 +1197,17 @@ export class CampaignController extends Controller {
       affiliateId,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to list affiliate pixel criteria",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to list affiliate pixel criteria",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate pixel criteria retrieved",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/affiliates/:affiliateId/pixel-criteria")
@@ -1397,20 +1224,18 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to create affiliate pixel criterion",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to create affiliate pixel criterion",
+        result.error,
+        400,
+      );
     }
     this.response.status(201);
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate pixel criterion created",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/pixel-criteria/:ruleId")
@@ -1429,19 +1254,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update affiliate pixel criterion",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to update affiliate pixel criterion",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate pixel criterion updated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/affiliates/:affiliateId/pixel-criteria/:ruleId")
@@ -1458,19 +1281,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete affiliate pixel criterion",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete affiliate pixel criterion",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate pixel criterion deleted",
       data: result.data,
-    };
+    });
   }
 
   // ── Per-Affiliate Sold Criteria ───────────────────────────────────────────
@@ -1486,19 +1307,17 @@ export class CampaignController extends Controller {
       affiliateId,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to list affiliate sold criteria",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to list affiliate sold criteria",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate sold criteria retrieved",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/affiliates/:affiliateId/sold-criteria")
@@ -1515,20 +1334,18 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to create affiliate sold criterion",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to create affiliate sold criterion",
+        result.error,
+        400,
+      );
     }
     this.response.status(201);
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate sold criterion created",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/sold-criteria/:ruleId")
@@ -1547,19 +1364,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update affiliate sold criterion",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to update affiliate sold criterion",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate sold criterion updated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/affiliates/:affiliateId/sold-criteria/:ruleId")
@@ -1576,19 +1391,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete affiliate sold criterion",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete affiliate sold criterion",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Affiliate sold criterion deleted",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/affiliates/:affiliateId/cherry-pick-override")
@@ -1603,11 +1416,11 @@ export class CampaignController extends Controller {
       payload?.value !== false &&
       payload?.value !== null
     ) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "value must be true, false, or null",
-      };
+      return this.fail(
+        "Invalid request",
+        "value must be true, false, or null",
+        400,
+      );
     }
     const result = await this.campaignService.updateAffiliateCherryPickOverride(
       id,
@@ -1616,19 +1429,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update cherry pick override",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to update cherry pick override",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Cherry pick override updated",
       data: this.enrichCampaignForResponse(result.data!),
-    };
+    });
   }
 
   @POST("/:id/affiliates/:affiliateId/logic/apply-catalog")
@@ -1645,19 +1456,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to apply logic catalog to affiliate",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to apply logic catalog to affiliate",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog applied to affiliate",
       data: result.data,
-    };
+    });
   }
 
   // ── Per-Contract Logic Rule Overrides ────────────────────────────────────
@@ -1673,19 +1482,17 @@ export class CampaignController extends Controller {
       contractId,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to list contract logic rules",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to list contract logic rules",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract logic rules retrieved",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/contracts/:contractId/logic-rules")
@@ -1702,20 +1509,18 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to create contract logic rule",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to create contract logic rule",
+        result.error,
+        400,
+      );
     }
     this.response.status(201);
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract logic rule created",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/:id/contracts/:contractId/logic-rules/:ruleId")
@@ -1734,19 +1539,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update contract logic rule",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to update contract logic rule",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract logic rule updated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/:id/contracts/:contractId/logic-rules/:ruleId")
@@ -1763,19 +1566,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete contract logic rule",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete contract logic rule",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract logic rule deleted",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/contracts/:contractId/logic/apply-catalog")
@@ -1792,19 +1593,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to apply logic catalog to contract",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to apply logic catalog to contract",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog applied to contract",
       data: result.data,
-    };
+    });
   }
 
   @POST("/:id/contracts/:contractId/logic/sync-to-campaign")
@@ -1819,19 +1618,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to sync contract logic to campaign",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to sync contract logic to campaign",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Contract logic synced to campaign",
       data: result.data,
-    };
+    });
   }
 
   // ── Criteria Catalog ────────────────────────────────────────────────────
@@ -1852,19 +1649,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to apply criteria catalog",
-        error: result.error,
-      };
+      return this.fail("Failed to apply criteria catalog", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog applied",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1876,18 +1667,13 @@ export class CampaignController extends Controller {
   async listCriteriaCatalog(): Promise<RestApiResponse> {
     const result = await this.campaignService.listCriteriaCatalog();
     if (!result.result) {
-      this.response.status(500);
-      return {
-        success: false,
-        message: "Failed to list criteria catalog",
-        error: result.error,
-      };
+      return this.fail("Failed to list criteria catalog", result.error, 500);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog sets retrieved",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1904,19 +1690,18 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "Failed to create criteria catalog set",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to create criteria catalog set",
+        result.error,
+        400,
+      );
     }
     this.response.status(201);
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog set created",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1930,19 +1715,13 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.getCriteriaCatalogSet(setId);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Criteria catalog set not found",
-        error: result.error,
-      };
+      return this.fail("Criteria catalog set not found", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog set retrieved",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1957,27 +1736,24 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const versionNum = parseInt(version, 10);
     if (isNaN(versionNum) || versionNum < 1) {
-      this.response.status(400);
-      return { success: false, message: "version must be a positive integer" };
+      return this.fail(
+        "Invalid request",
+        "version must be a positive integer",
+        400,
+      );
     }
     const result = await this.campaignService.getCriteriaCatalogVersion(
       setId,
       versionNum,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Criteria catalog version not found",
-        error: result.error,
-      };
+      return this.fail("Criteria catalog version not found", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog version retrieved",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -1996,19 +1772,17 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update criteria catalog set",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to update criteria catalog set",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog set updated",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -2023,8 +1797,11 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const versionNum = parseInt(version, 10);
     if (isNaN(versionNum) || versionNum < 1) {
-      this.response.status(400);
-      return { success: false, message: "version must be a positive integer" };
+      return this.fail(
+        "Invalid request",
+        "version must be a positive integer",
+        400,
+      );
     }
     const result = await this.campaignService.deleteCriteriaCatalogVersion(
       setId,
@@ -2032,18 +1809,16 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete criteria catalog version",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete criteria catalog version",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog version deleted",
-    };
+    });
   }
 
   /**
@@ -2060,18 +1835,16 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete criteria catalog set",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete criteria catalog set",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Criteria catalog set deleted",
-    };
+    });
   }
 
   /**
@@ -2090,19 +1863,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to apply logic catalog",
-        error: result.error,
-      };
+      return this.fail("Failed to apply logic catalog", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog applied",
       data: result.data,
-    };
+    });
   }
 
   @GET("/logic-catalog")
@@ -2110,18 +1877,13 @@ export class CampaignController extends Controller {
   async listLogicCatalog(): Promise<RestApiResponse> {
     const result = await this.campaignService.listLogicCatalog();
     if (!result.result) {
-      this.response.status(500);
-      return {
-        success: false,
-        message: "Failed to list logic catalog",
-        error: result.error,
-      };
+      return this.fail("Failed to list logic catalog", result.error, 500);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog sets retrieved",
       data: result.data,
-    };
+    });
   }
 
   @POST("/logic-catalog")
@@ -2134,19 +1896,14 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "Failed to create logic catalog set",
-        error: result.error,
-      };
+      return this.fail("Failed to create logic catalog set", result.error, 400);
     }
     this.response.status(201);
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog set created",
       data: result.data,
-    };
+    });
   }
 
   @GET("/logic-catalog/:setId")
@@ -2156,19 +1913,13 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.getLogicCatalogSet(setId);
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Logic catalog set not found",
-        error: result.error,
-      };
+      return this.fail("Logic catalog set not found", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog set retrieved",
       data: result.data,
-    };
+    });
   }
 
   @GET("/logic-catalog/:setId/versions/:version")
@@ -2179,27 +1930,24 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const versionNum = parseInt(version, 10);
     if (isNaN(versionNum) || versionNum < 1) {
-      this.response.status(400);
-      return { success: false, message: "version must be a positive integer" };
+      return this.fail(
+        "Invalid request",
+        "version must be a positive integer",
+        400,
+      );
     }
     const result = await this.campaignService.getLogicCatalogVersion(
       setId,
       versionNum,
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Logic catalog version not found",
-        error: result.error,
-      };
+      return this.fail("Logic catalog version not found", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog version retrieved",
       data: result.data,
-    };
+    });
   }
 
   @PUT("/logic-catalog/:setId")
@@ -2214,19 +1962,13 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update logic catalog set",
-        error: result.error,
-      };
+      return this.fail("Failed to update logic catalog set", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog set updated",
       data: result.data,
-    };
+    });
   }
 
   @DELETE("/logic-catalog/:setId/versions/:version")
@@ -2237,8 +1979,11 @@ export class CampaignController extends Controller {
   ): Promise<RestApiResponse> {
     const versionNum = parseInt(version, 10);
     if (isNaN(versionNum) || versionNum < 1) {
-      this.response.status(400);
-      return { success: false, message: "version must be a positive integer" };
+      return this.fail(
+        "Invalid request",
+        "version must be a positive integer",
+        400,
+      );
     }
     const result = await this.campaignService.deleteLogicCatalogVersion(
       setId,
@@ -2246,18 +1991,16 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete logic catalog version",
-        error: result.error,
-      };
+      return this.fail(
+        "Failed to delete logic catalog version",
+        result.error,
+        400,
+      );
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog version deleted",
-    };
+    });
   }
 
   @DELETE("/logic-catalog/:setId")
@@ -2270,17 +2013,11 @@ export class CampaignController extends Controller {
       this.getActor(),
     );
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to delete logic catalog set",
-        error: result.error,
-      };
+      return this.fail("Failed to delete logic catalog set", result.error, 400);
     }
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Logic catalog set deleted",
-    };
+    });
   }
 }

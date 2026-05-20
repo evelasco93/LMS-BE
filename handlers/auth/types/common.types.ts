@@ -3,6 +3,7 @@ export interface RestApiResponse<T = unknown> {
   message: string;
   data?: T;
   error?: string;
+  correlation_id?: string;
 }
 
 export interface ServiceResult<T = unknown> {

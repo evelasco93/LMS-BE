@@ -17,7 +17,11 @@ import {
   UpdatePickabilityRequest,
 } from "../types/cherry-pick-request.types";
 import { RestApiResponse } from "../types/common.types";
-import { extractRequestActorFromHeaders } from "@shared/utils/request-audit.util";
+import {
+  extractRequestActorFromHeaders,
+  withCorrelationId,
+} from "@shared/utils/request-audit.util";
+import { mapServiceErrorToHttpStatus } from "@shared/utils/http-status.util";
 
 @injectable()
 @apiController("/cherry-pick")
@@ -35,6 +39,26 @@ export class CherryPickController extends Controller {
     );
   }
 
+  private withCorrelation<T extends RestApiResponse>(response: T): T {
+    return withCorrelationId(
+      response,
+      this.request.headers as Record<string, string | string[] | undefined>,
+    ) as T;
+  }
+
+  private fail(
+    message: string,
+    error?: string,
+    fallbackStatus = 400,
+  ): RestApiResponse {
+    this.response.status(mapServiceErrorToHttpStatus(error, fallbackStatus));
+    return this.withCorrelation({
+      success: false,
+      message,
+      error,
+    });
+  }
+
   /**
    * GET /cherry-pick/eligible-clients?lead_id=...
    * List clients available for cherry-picking for the given lead's campaign.
@@ -45,30 +69,20 @@ export class CherryPickController extends Controller {
     @queryParam("lead_id") leadId?: string,
   ): Promise<RestApiResponse> {
     if (!leadId) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "lead_id query parameter is required",
-      };
+      return this.fail("lead_id query parameter is required", undefined, 400);
     }
 
     const result = await this.cherryPickService.listEligibleClients(leadId);
 
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to list eligible clients",
-        error: result.error,
-      };
+      return this.fail("Failed to list eligible clients", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Eligible clients retrieved",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -82,11 +96,7 @@ export class CherryPickController extends Controller {
     @body payload: UpdatePickabilityRequest,
   ): Promise<RestApiResponse> {
     if (typeof payload?.cherry_pickable !== "boolean") {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "cherry_pickable must be a boolean",
-      };
+      return this.fail("cherry_pickable must be a boolean", undefined, 400);
     }
 
     const result = await this.cherryPickService.updatePickability(
@@ -96,20 +106,14 @@ export class CherryPickController extends Controller {
     );
 
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to update pickability",
-        error: result.error,
-      };
+      return this.fail("Failed to update pickability", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Pickability updated",
       data: result.data,
-    };
+    });
   }
 
   /**
@@ -123,22 +127,18 @@ export class CherryPickController extends Controller {
     @body payload: ExecuteCherryPickRequest,
   ): Promise<RestApiResponse> {
     if (!payload?.target_client_id) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "target_client_id is required",
-      };
+      return this.fail("target_client_id is required", undefined, 400);
     }
 
     if (
       payload.fire_affiliate_pixel !== undefined &&
       typeof payload.fire_affiliate_pixel !== "boolean"
     ) {
-      this.response.status(400);
-      return {
-        success: false,
-        message: "fire_affiliate_pixel must be a boolean",
-      };
+      return this.fail(
+        "fire_affiliate_pixel must be a boolean",
+        undefined,
+        400,
+      );
     }
 
     const result = await this.cherryPickService.executeCherryPick(
@@ -148,19 +148,13 @@ export class CherryPickController extends Controller {
     );
 
     if (!result.result) {
-      const isNotFound = result.error?.includes("not found");
-      this.response.status(isNotFound ? 404 : 400);
-      return {
-        success: false,
-        message: "Failed to execute cherry-pick",
-        error: result.error,
-      };
+      return this.fail("Failed to execute cherry-pick", result.error);
     }
 
-    return {
+    return this.withCorrelation({
       success: true,
       message: "Cherry-pick executed",
       data: result.data,
-    };
+    });
   }
 }

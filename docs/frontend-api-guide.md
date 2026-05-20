@@ -2317,6 +2317,69 @@ Response: the updated `Campaign` object.
 
 ---
 
+## Metrics Summary
+
+`GET /metrics/summary` returns aggregate totals for the selected date range and optional campaign filters.
+
+### Query parameters
+
+| Name           | Required | Type   | Description                            |
+| -------------- | -------- | ------ | -------------------------------------- |
+| `from_date`    | Yes      | string | Start date (inclusive) in `YYYY-MM-DD` |
+| `to_date`      | Yes      | string | End date (inclusive) in `YYYY-MM-DD`   |
+| `campaign_id`  | No       | string | Scope to one campaign                  |
+| `campaign_key` | No       | string | Scope to one source/campaign key       |
+
+### Response additions
+
+The summary payload includes `peak_lead_window`, which identifies the one-hour UTC window with the highest lead intake (`received`) for the selected filter scope.
+
+`peak_lead_window` fields:
+
+| Field            | Type   | Description                                                          |
+| ---------------- | ------ | -------------------------------------------------------------------- |
+| `start`          | string | ISO timestamp for window start (UTC)                                 |
+| `end`            | string | ISO timestamp for window end (UTC)                                   |
+| `label`          | string | Display label like `14:00-15:00 UTC`                                 |
+| `received`       | number | Leads received in that one-hour window                               |
+| `total_received` | number | Total leads received in the whole selected range                     |
+| `share_percent`  | number | Rounded share of total represented by this window (`received/total`) |
+
+When no leads match the selected range/filters, `peak_lead_window` is `null`.
+
+### Example response
+
+```json
+{
+  "success": true,
+  "message": "Metrics summary retrieved successfully",
+  "data": {
+    "range": {
+      "from_date": "2026-05-01",
+      "to_date": "2026-05-10"
+    },
+    "filters": {
+      "campaign_id": "CM123"
+    },
+    "totals": {
+      "received": 120,
+      "accepted": 90,
+      "sold": 40,
+      "accepted_not_sold": 50,
+      "rejected": 30
+    },
+    "peak_lead_window": {
+      "start": "2026-05-08T14:00:00.000Z",
+      "end": "2026-05-08T15:00:00.000Z",
+      "label": "14:00-15:00 UTC",
+      "received": 18,
+      "total_received": 120,
+      "share_percent": 15
+    }
+  }
+}
+```
+
 ## User Table Preferences
 
 Per-user, per-table UI configuration. Lets each user persist their own column visibility, column ordering, sort preferences, and active filters for any data table in the frontend.
