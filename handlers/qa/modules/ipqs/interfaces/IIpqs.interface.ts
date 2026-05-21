@@ -103,6 +103,8 @@ export interface IpqsIpApiResponse {
 export interface IIpqsCheckResult {
   /** Whether this individual check passed all enabled criteria */
   success: boolean;
+  /** Per-criterion pass/fail (keys only for enabled criteria). */
+  criteria_results?: Record<string, boolean>;
   fraud_score?: number;
   valid?: boolean;
   country?: string;

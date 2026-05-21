@@ -257,10 +257,11 @@ export class IpqsService {
         `/api/json/phone/${encodeURIComponent(apiKey)}/${encodeURIComponent(normalizedPhone)}`,
       );
 
-      const passes = this.evaluatePhoneCriteria(raw, cfg.criteria);
+      const evaluation = this.evaluatePhoneCriteria(raw, cfg.criteria);
 
       return {
-        success: passes,
+        success: evaluation.success,
+        criteria_results: evaluation.criteria_results,
         fraud_score: raw.fraud_score,
         valid: raw.valid,
         country: raw.country,
@@ -278,35 +279,41 @@ export class IpqsService {
   private evaluatePhoneCriteria(
     raw: IpqsPhoneApiResponse,
     criteria: IIpqsPhoneCriteria,
-  ): boolean {
-    if (!raw.success) return false;
+  ): { success: boolean; criteria_results: Record<string, boolean> } {
+    const criteriaResults: Record<string, boolean> = {
+      api_success: !!raw.success,
+    };
+    if (!raw.success) {
+      return { success: false, criteria_results: criteriaResults };
+    }
 
     const validCheck = criteria?.valid;
     const fraudScoreCheck = criteria?.fraud_score;
     const countryCheck = criteria?.country;
 
-    if (validCheck?.enabled && raw.valid !== validCheck.required) {
-      return false;
+    if (validCheck?.enabled) {
+      criteriaResults.valid = raw.valid === validCheck.required;
     }
 
-    if (
-      fraudScoreCheck?.enabled &&
-      raw.fraud_score !== undefined &&
-      !this.evalScore(raw.fraud_score, fraudScoreCheck)
-    ) {
-      return false;
+    if (fraudScoreCheck?.enabled) {
+      criteriaResults.fraud_score =
+        raw.fraud_score === undefined
+          ? true
+          : this.evalScore(raw.fraud_score, fraudScoreCheck);
     }
 
-    if (countryCheck?.enabled && raw.country !== undefined) {
+    if (countryCheck?.enabled) {
       const allowedCountries = Array.isArray(countryCheck.allowed)
         ? countryCheck.allowed
         : [];
-      if (!allowedCountries.includes(raw.country)) {
-        return false;
-      }
+      criteriaResults.country =
+        raw.country === undefined
+          ? true
+          : allowedCountries.includes(raw.country);
     }
 
-    return true;
+    const success = Object.values(criteriaResults).every(Boolean);
+    return { success, criteria_results: criteriaResults };
   }
 
   // ── Email check ─────────────────────────────────────────────────────────────
@@ -322,10 +329,11 @@ export class IpqsService {
         `/api/json/email/${encodeURIComponent(apiKey)}/${encodeURIComponent(email)}`,
       );
 
-      const passes = this.evaluateEmailCriteria(raw, cfg.criteria);
+      const evaluation = this.evaluateEmailCriteria(raw, cfg.criteria);
 
       return {
-        success: passes,
+        success: evaluation.success,
+        criteria_results: evaluation.criteria_results,
         fraud_score: raw.fraud_score,
         valid: raw.valid,
         ...(raw.success === false ? { error: raw.message } : {}),
@@ -342,25 +350,30 @@ export class IpqsService {
   private evaluateEmailCriteria(
     raw: IpqsEmailApiResponse,
     criteria: IIpqsEmailCriteria,
-  ): boolean {
-    if (!raw.success) return false;
+  ): { success: boolean; criteria_results: Record<string, boolean> } {
+    const criteriaResults: Record<string, boolean> = {
+      api_success: !!raw.success,
+    };
+    if (!raw.success) {
+      return { success: false, criteria_results: criteriaResults };
+    }
 
     const validCheck = criteria?.valid;
     const fraudScoreCheck = criteria?.fraud_score;
 
-    if (validCheck?.enabled && raw.valid !== validCheck.required) {
-      return false;
+    if (validCheck?.enabled) {
+      criteriaResults.valid = raw.valid === validCheck.required;
     }
 
-    if (
-      fraudScoreCheck?.enabled &&
-      raw.fraud_score !== undefined &&
-      !this.evalScore(raw.fraud_score, fraudScoreCheck)
-    ) {
-      return false;
+    if (fraudScoreCheck?.enabled) {
+      criteriaResults.fraud_score =
+        raw.fraud_score === undefined
+          ? true
+          : this.evalScore(raw.fraud_score, fraudScoreCheck);
     }
 
-    return true;
+    const success = Object.values(criteriaResults).every(Boolean);
+    return { success, criteria_results: criteriaResults };
   }
 
   // ── IP check ─────────────────────────────────────────────────────────────────
@@ -376,10 +389,11 @@ export class IpqsService {
         `/api/json/ip/${encodeURIComponent(apiKey)}/${encodeURIComponent(ipAddress)}`,
       );
 
-      const passes = this.evaluateIpCriteria(raw, cfg.criteria);
+      const evaluation = this.evaluateIpCriteria(raw, cfg.criteria);
 
       return {
-        success: passes,
+        success: evaluation.success,
+        criteria_results: evaluation.criteria_results,
         fraud_score: raw.fraud_score,
         country: raw.country_code,
         proxy: raw.proxy,
@@ -397,48 +411,48 @@ export class IpqsService {
   private evaluateIpCriteria(
     raw: IpqsIpApiResponse,
     criteria: IIpqsIpCriteria,
-  ): boolean {
-    if (!raw.success) return false;
+  ): { success: boolean; criteria_results: Record<string, boolean> } {
+    const criteriaResults: Record<string, boolean> = {
+      api_success: !!raw.success,
+    };
+    if (!raw.success) {
+      return { success: false, criteria_results: criteriaResults };
+    }
 
     const fraudScoreCheck = criteria?.fraud_score;
     const countryCodeCheck = criteria?.country_code;
     const proxyCheck = criteria?.proxy;
     const vpnCheck = criteria?.vpn;
 
-    if (
-      fraudScoreCheck?.enabled &&
-      raw.fraud_score !== undefined &&
-      !this.evalScore(raw.fraud_score, fraudScoreCheck)
-    ) {
-      return false;
+    if (fraudScoreCheck?.enabled) {
+      criteriaResults.fraud_score =
+        raw.fraud_score === undefined
+          ? true
+          : this.evalScore(raw.fraud_score, fraudScoreCheck);
     }
 
-    if (countryCodeCheck?.enabled && raw.country_code !== undefined) {
+    if (countryCodeCheck?.enabled) {
       const allowedCountries = Array.isArray(countryCodeCheck.allowed)
         ? countryCodeCheck.allowed
         : [];
-      if (!allowedCountries.includes(raw.country_code)) {
-        return false;
-      }
+      criteriaResults.country_code =
+        raw.country_code === undefined
+          ? true
+          : allowedCountries.includes(raw.country_code);
     }
 
-    if (
-      proxyCheck?.enabled &&
-      raw.proxy !== undefined &&
-      raw.proxy !== proxyCheck.allowed
-    ) {
-      return false;
+    if (proxyCheck?.enabled) {
+      criteriaResults.proxy =
+        raw.proxy === undefined ? true : raw.proxy === proxyCheck.allowed;
     }
 
-    if (
-      vpnCheck?.enabled &&
-      raw.vpn !== undefined &&
-      raw.vpn !== vpnCheck.allowed
-    ) {
-      return false;
+    if (vpnCheck?.enabled) {
+      criteriaResults.vpn =
+        raw.vpn === undefined ? true : raw.vpn === vpnCheck.allowed;
     }
 
-    return true;
+    const success = Object.values(criteriaResults).every(Boolean);
+    return { success, criteria_results: criteriaResults };
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────

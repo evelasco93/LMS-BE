@@ -81,6 +81,8 @@ describe("IpqsService", () => {
     expect(result.data.success).toBe(true);
     expect(result.data.phone?.success).toBe(true);
     expect(result.data.email?.success).toBe(true);
+    expect(result.data.phone?.criteria_results?.valid).toBe(true);
+    expect(result.data.email?.criteria_results?.valid).toBe(true);
     expect(dynamoDBUtil.get).toHaveBeenCalledTimes(1);
     expect(logger.error).not.toHaveBeenCalled();
   });
