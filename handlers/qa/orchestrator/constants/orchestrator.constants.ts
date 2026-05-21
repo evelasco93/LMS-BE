@@ -15,7 +15,8 @@ export class OrchestratorConstants {
     this.IPQS_LAMBDA_NAME = process.env.IPQS_LAMBDA_NAME ?? "";
     this.TENANT_SETTINGS_TABLE_NAME =
       process.env.TENANT_SETTINGS_TABLE_NAME ?? "";
-    this.CREDENTIALS_ENCRYPTION_KEY =
-      process.env.CREDENTIALS_ENCRYPTION_KEY ?? "";
+    this.CREDENTIALS_ENCRYPTION_KEY = (
+      process.env.CREDENTIALS_ENCRYPTION_KEY ?? ""
+    ).trim();
   }
 }

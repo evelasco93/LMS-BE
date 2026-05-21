@@ -44,12 +44,12 @@ export class TenantConfigConstants {
   constructor() {
     this.TENANT_SETTINGS_TABLE_NAME =
       process.env.TENANT_SETTINGS_TABLE_NAME ?? "";
-    this.CREDENTIALS_ENCRYPTION_KEY =
-      process.env.CREDENTIALS_ENCRYPTION_KEY ?? "";
+    this.CREDENTIALS_ENCRYPTION_KEY = (
+      process.env.CREDENTIALS_ENCRYPTION_KEY ?? ""
+    ).trim();
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
     this.AUDIT_LOGS_TABLE_NAME = process.env.AUDIT_LOGS_TABLE_NAME ?? "";
-    this.PRESETS_TABLE_NAME =
-      process.env.PRESETS_TABLE_NAME ?? "";
+    this.PRESETS_TABLE_NAME = process.env.PRESETS_TABLE_NAME ?? "";
     this.PLATFORM_PRESETS_TABLE_NAME =
       process.env.PLATFORM_PRESETS_TABLE_NAME ?? "";
 

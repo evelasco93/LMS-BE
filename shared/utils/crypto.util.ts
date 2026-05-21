@@ -5,12 +5,15 @@ const IV_LENGTH = 12; // 96-bit IV for GCM
 const TAG_LENGTH = 16;
 
 function resolveKeyBuffer(hexKey: string): Buffer {
-  if (!/^[0-9a-fA-F]{64}$/.test(hexKey)) {
+  const normalizedHexKey = String(hexKey ?? "").trim();
+
+  if (!/^[0-9a-fA-F]{64}$/.test(normalizedHexKey)) {
     throw new Error(
       "CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string",
     );
   }
-  const key = Buffer.from(hexKey, "hex");
+
+  const key = Buffer.from(normalizedHexKey, "hex");
   if (key.length !== 32) {
     throw new Error("CREDENTIALS_ENCRYPTION_KEY must be 32 bytes");
   }
