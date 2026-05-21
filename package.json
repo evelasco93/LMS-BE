@@ -5,6 +5,8 @@
   "scripts": {
     "build": "tsc && npm run build:handlers",
     "typecheck": "tsc --noEmit",
+    "credentials:key:upsert": "bash ./scripts/upsert-credentials-key-ssm.sh",
+    "credentials:reencrypt": "ts-node ./scripts/reencrypt-tenant-credentials.ts",
     "build:clients": "cd handlers/clients && tsc",
     "build:affiliates": "cd handlers/affiliates && tsc",
     "build:handlers": "bash ./scripts/run-handler-packages.sh --cmd \"npm run build\"",

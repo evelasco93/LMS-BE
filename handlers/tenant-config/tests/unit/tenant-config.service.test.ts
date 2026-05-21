@@ -25,6 +25,9 @@ describe("TenantConfigService", () => {
 
     expect(result.result).toBe(true);
     expect(mockDynamoDBUtil.put).toHaveBeenCalledTimes(1);
+    const putCall = mockDynamoDBUtil.put.mock.calls[0]?.[0];
+    expect(putCall?.Item?.credentials?.apiKey).toBeDefined();
+    expect(putCall?.Item?.credentials?.apiKey).not.toBe("abc123");
     expect(result.data?.provider).toBe("ipqs");
     expect(result.data?.credentials.apiKey).toBe("abc123");
   });
@@ -81,6 +84,24 @@ describe("TenantConfigService", () => {
     expect(result.result).toBe(true);
     expect(result.data?.provider).toBe("external_leads_api");
     expect(result.data?.credentials.apiKey).toBe("secret-key-999");
+  });
+
+  it("returns plaintext credential values unchanged for legacy records", async () => {
+    mockDynamoDBUtil.get.mockResolvedValueOnce({
+      id: "crd-legacy-1",
+      type: "credential",
+      provider: "ipqs",
+      name: "Legacy IPQS",
+      credential_type: "api_key",
+      credentials: { apiKey: "legacy-plain-api-key" },
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const result = await service.getCredential("crd-legacy-1");
+
+    expect(result.result).toBe(true);
+    expect(result.data?.credentials.apiKey).toBe("legacy-plain-api-key");
   });
 
   it("returns error when credential is not found", async () => {

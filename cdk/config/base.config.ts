@@ -7,11 +7,6 @@ const tenant = process.env.TENANT;
 const system = process.env.SYSTEM || "lms";
 const region = process.env.CDK_DEFAULT_REGION || "us-east-1";
 const account = process.env.CDK_DEFAULT_ACCOUNT;
-const requiresCredentialsEncryptionKey = [
-  "staging",
-  "prod",
-  "production",
-].includes(environment);
 
 // Validate required environment variables
 if (!tenant) {
@@ -26,12 +21,9 @@ if (!environment) {
   );
 }
 
-if (
-  requiresCredentialsEncryptionKey &&
-  !process.env.CREDENTIALS_ENCRYPTION_KEY
-) {
+if (!process.env.CREDENTIALS_ENCRYPTION_KEY) {
   throw new Error(
-    "CREDENTIALS_ENCRYPTION_KEY environment variable is required for staging/production deployments.",
+    "CREDENTIALS_ENCRYPTION_KEY environment variable is required for deployments.",
   );
 }
 

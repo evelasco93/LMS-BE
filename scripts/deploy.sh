@@ -80,6 +80,42 @@ validate_aws_account_guard() {
   fi
 }
 
+validate_encryption_key_format() {
+  local key="$1"
+  if [[ ! "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo -e "${RED}Error: CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)${NC}"
+    exit 1
+  fi
+}
+
+resolve_credentials_encryption_key() {
+  if [[ -n "${CREDENTIALS_ENCRYPTION_KEY:-}" ]]; then
+    validate_encryption_key_format "$CREDENTIALS_ENCRYPTION_KEY"
+    return
+  fi
+
+  if ! command -v aws >/dev/null 2>&1; then
+    echo -e "${RED}Error: aws CLI is required to load CREDENTIALS_ENCRYPTION_KEY from SSM${NC}"
+    echo "Set CREDENTIALS_ENCRYPTION_KEY manually or install/configure aws CLI credentials."
+    exit 1
+  fi
+
+  local param_name="${CREDENTIALS_ENCRYPTION_KEY_SSM_PARAM:-/${TENANT}/${SYSTEM:-lms}/${ENVIRONMENT}/credentials-encryption-key}"
+  local key
+  key="$(aws ssm get-parameter --name "$param_name" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || true)"
+
+  if [[ -z "$key" ]] || [[ "$key" == "None" ]]; then
+    echo -e "${RED}Error: CREDENTIALS_ENCRYPTION_KEY is not set and SSM parameter was not found${NC}"
+    echo "Expected parameter: $param_name"
+    echo "Run: ./scripts/upsert-credentials-key-ssm.sh"
+    exit 1
+  fi
+
+  export CREDENTIALS_ENCRYPTION_KEY="$key"
+  validate_encryption_key_format "$CREDENTIALS_ENCRYPTION_KEY"
+  echo -e "${GREEN}Loaded CREDENTIALS_ENCRYPTION_KEY from SSM parameter: $param_name${NC}"
+}
+
 # Print usage
 print_usage() {
   echo -e "${YELLOW}Usage: ./scripts/deploy.sh [stack] [action]${NC}"
@@ -181,6 +217,7 @@ main() {
   fi
 
   validate_aws_account_guard
+  resolve_credentials_encryption_key
   
   # Get the stack names
   STACK_NAMES=$(get_stack_names "$STACK" "$ENVIRONMENT")

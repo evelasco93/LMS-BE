@@ -8,15 +8,10 @@ import {
 import * as path from "path";
 
 const credentialsEncryptionKey = process.env.CREDENTIALS_ENCRYPTION_KEY ?? "";
-const requiresCredentialsEncryptionKey = [
-  "staging",
-  "prod",
-  "production",
-].includes(baseConfig.environment);
 
-if (requiresCredentialsEncryptionKey && !credentialsEncryptionKey) {
+if (!credentialsEncryptionKey) {
   throw new Error(
-    "CREDENTIALS_ENCRYPTION_KEY environment variable is required for staging/production deployments.",
+    "CREDENTIALS_ENCRYPTION_KEY environment variable is required for deployments.",
   );
 }
 

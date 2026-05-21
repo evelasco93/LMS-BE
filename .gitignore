@@ -3,7 +3,10 @@
 *.d.ts
 node_modules
 dist
+# Test artifacts
+coverage/
 **/coverage/
+.nyc_output/
 **/.nyc_output/
 
 # CDK asset staging directory
