@@ -14,6 +14,7 @@ import { QaCriteriaValidationServiceStack } from "./qa-criteria-validation-servi
 import { QaLogicRulesServiceStack } from "./qa-logic-rules-service.stack";
 import { AuditServiceStack } from "./audit-service.stack";
 import { CherryPickServiceStack } from "./cherry-pick-service.stack";
+import { MetricsDlqStack } from "./metrics-dlq.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
 
 export class ServicesStack extends Stack {
@@ -30,6 +31,7 @@ export class ServicesStack extends Stack {
   public readonly qaLogicRulesLambda: IFunction;
   public readonly auditLambda: IFunction;
   public readonly cherryPickLambda: IFunction;
+  public readonly metricsDlqRetryLambda: IFunction;
 
   constructor(scope: Construct, id: string, props: IServicesStackProps) {
     super(scope, id, props);
@@ -180,6 +182,40 @@ export class ServicesStack extends Stack {
     );
     this.cherryPickLambda = cherryPickServiceStack.lambda;
 
+    // CR-001: Metrics emit DLQ pipeline (queues + retry consumer + alarms).
+    const metricsDlqStack = new MetricsDlqStack(
+      this,
+      `${config.appPrefix}-MetricsDlq`,
+      {
+        lambdaConfig: servicesConfig.metricsDlqRetry.lambda,
+        roleName: servicesConfig.metricsDlqRetry.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+        dlqVisibilityTimeoutSeconds:
+          servicesConfig.metricsDlqRetry.dlqVisibilityTimeoutSeconds,
+        retentionDays: servicesConfig.metricsDlqRetry.retentionDays,
+        maxReceiveCount: servicesConfig.metricsDlqRetry.maxReceiveCount,
+        batchSize: servicesConfig.metricsDlqRetry.batchSize,
+        maxBatchingWindowSeconds:
+          servicesConfig.metricsDlqRetry.maxBatchingWindowSeconds,
+      },
+    );
+    this.metricsDlqRetryLambda = metricsDlqStack.retryLambda;
+
+    // CR-001: hand the resolved DLQ URL to the producer (leads lambda).
+    // SendMessage permission is granted via the leads IAM role inline policy.
+    leadsServiceStack.lambda.addEnvironment(
+      "METRICS_DLQ_URL",
+      metricsDlqStack.dlq.queueUrl,
+    );
+
+    // Cherry-pick lambda also enqueues to the same metrics DLQ on emit
+    // failure (orthogonal `cherry_picked` counter). SendMessage permission is
+    // granted via the cherry-pick IAM role `MetricsDlqSend` inline policy.
+    cherryPickServiceStack.lambda.addEnvironment(
+      "METRICS_DLQ_URL",
+      metricsDlqStack.dlq.queueUrl,
+    );
+
     new CfnOutput(this, `${config.appPrefix}-CampaignsLambdaArn`, {
       value: this.campaignsLambda.functionArn,
       description: "Campaigns Lambda Function ARN",
@@ -256,6 +292,13 @@ export class ServicesStack extends Stack {
       value: this.cherryPickLambda.functionArn,
       description: "Cherry Pick Lambda Function ARN",
       exportName: `${config.appPrefix}-cherry-pick-lambda-arn`,
+    });
+
+    // CR-001
+    new CfnOutput(this, `${config.appPrefix}-MetricsDlqRetryLambdaArn`, {
+      value: this.metricsDlqRetryLambda.functionArn,
+      description: "Metrics DLQ Retry Consumer Lambda Function ARN",
+      exportName: `${config.appPrefix}-metrics-dlq-retry-lambda-arn`,
     });
 
     if (config.tags) {

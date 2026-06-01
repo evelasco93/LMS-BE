@@ -9,6 +9,7 @@ import { LeadsService } from "../services/leads.service";
 import { LeadDeliveryService } from "../services/lead-delivery.service";
 import { LeadsController } from "../controllers/leads.controller";
 import { MetricsService } from "../services/metrics.service";
+import { MetricsDlqClient } from "../services/metrics-dlq.client";
 import { MetricsController } from "../controllers/metrics.controller";
 
 const container = new Container();
@@ -43,6 +44,10 @@ container
 container
   .bind<MetricsService>("MetricsService")
   .to(MetricsService)
+  .inSingletonScope();
+container
+  .bind<MetricsDlqClient>("MetricsDlqClient")
+  .to(MetricsDlqClient)
   .inSingletonScope();
 container.bind<LeadsController>(LeadsController).toSelf();
 container.bind<MetricsController>(MetricsController).toSelf();

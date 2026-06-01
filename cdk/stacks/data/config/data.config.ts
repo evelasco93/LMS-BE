@@ -75,6 +75,15 @@ export const dataConfig: IDataStackConfig = {
           sortKey: { name: "bucket_start", type: "S" },
           projectionType: "ALL",
         },
+        {
+          // CR-001 GSI2 — affiliate-as-source pivot. Sparse: only items carrying
+          // affiliate_id project. SK is bucket_start_composite =
+          // `{bucket_start}#{item_type}#{campaign_id|"_"}`.
+          indexName: `${nameBuilder.table("metrics")}-affiliate-id-bucket-start-composite-index`,
+          partitionKey: { name: "affiliate_id", type: "S" },
+          sortKey: { name: "bucket_start_composite", type: "S" },
+          projectionType: "ALL",
+        },
       ],
       pointInTimeRecovery: true,
       deletionProtection: isProductionLike,

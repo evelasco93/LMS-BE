@@ -12,6 +12,12 @@ export class LeadsConstants {
   public readonly METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME: string;
   public readonly METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY: string;
   public readonly METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY: string;
+  // CR-001 GSI2: affiliate-as-source pivot.
+  public readonly METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_NAME: string;
+  public readonly METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_PARTITION_KEY: string;
+  public readonly METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_SORT_KEY: string;
+  // CR-001 DLQ: leads-lambda → metrics-dlq on emit failure.
+  public readonly METRICS_DLQ_URL: string;
   public readonly CAMPAIGNS_TABLE_NAME: string;
   public readonly QA_ORCHESTRATOR_LAMBDA_NAME: string;
   public readonly CRITERIA_VALIDATION_LAMBDA_NAME: string;
@@ -46,6 +52,16 @@ export class LeadsConstants {
     this.METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY =
       process.env.METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY ??
       "bucket_start";
+    this.METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_NAME =
+      process.env.METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_NAME ?? "";
+    this.METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_PARTITION_KEY =
+      process.env
+        .METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_PARTITION_KEY ??
+      "affiliate_id";
+    this.METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_SORT_KEY =
+      process.env.METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_SORT_KEY ??
+      "bucket_start_composite";
+    this.METRICS_DLQ_URL = process.env.METRICS_DLQ_URL ?? "";
     this.CAMPAIGNS_TABLE_NAME = process.env.CAMPAIGNS_TABLE_NAME ?? "";
     this.QA_ORCHESTRATOR_LAMBDA_NAME =
       process.env.QA_ORCHESTRATOR_LAMBDA_NAME ?? "";

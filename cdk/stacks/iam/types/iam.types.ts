@@ -45,6 +45,8 @@ export interface IIamStackConfig {
     users: IRoleConfig;
     audit: IRoleConfig;
     cherryPick: IRoleConfig;
+    /** CR-001: retry consumer for metrics emit DLQ */
+    metricsDlqRetry: IRoleConfig;
   };
 }
 

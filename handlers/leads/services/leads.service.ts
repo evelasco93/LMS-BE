@@ -9,6 +9,8 @@ import { IdGenerator } from "@shared/generators/id.generator";
 import { LeadsConstants } from "../constants/leads.constants";
 import { LeadDeliveryService } from "./lead-delivery.service";
 import { MetricsService } from "./metrics.service";
+import { MetricsDlqClient } from "./metrics-dlq.client";
+import { buildLeadOutcomeEvent } from "./lead-outcome-event.builder";
 import {
   CreateLeadRequest,
   ListLeadsQuery,
@@ -20,8 +22,10 @@ import {
   MetricsBreakdownData,
   MetricsContractsData,
   MetricsHealthData,
+  MetricsHourlyData,
   MetricsQuery,
   MetricsSummaryData,
+  MetricsTimeseriesBySourceData,
   MetricsTimeseriesData,
 } from "../types/metrics.types";
 import { ILead, IMappedFieldEntry } from "../interfaces/ILead.interface";
@@ -72,6 +76,8 @@ export class LeadsService {
     private readonly leadDeliveryService: LeadDeliveryService,
     @inject("MetricsService")
     private readonly metricsService: MetricsService,
+    @inject("MetricsDlqClient")
+    private readonly metricsDlqClient: MetricsDlqClient,
   ) {}
 
   async createLead(
@@ -286,6 +292,7 @@ export class LeadsService {
           id: IdGenerator.generateLeadId(),
           campaign_id: campaignId,
           campaign_key: campaignKey,
+          affiliate_id: affiliate.affiliate_id,
           test: isTest,
           ...(originalSource !== undefined
             ? { original_source: originalSource }
@@ -396,12 +403,15 @@ export class LeadsService {
           criteriaResponse,
         ).catch((err) => this.logger.error("Failed to write intake log", err));
 
-        await this.metricsService.recordLeadOutcome(lead).catch((err: any) =>
+        try {
+          await this.metricsService.recordLeadOutcome(lead);
+        } catch (err: any) {
           this.logger.error("Failed to write lead metrics", {
             leadId: lead.id,
             error: err?.message,
-          }),
-        );
+          });
+          await this.metricsDlqClient.enqueue(buildLeadOutcomeEvent(lead), err);
+        }
 
         return criteriaResponse;
       }
@@ -518,6 +528,7 @@ export class LeadsService {
         id: IdGenerator.generateLeadId(),
         campaign_id: campaignId,
         campaign_key: campaignKey,
+        affiliate_id: affiliate.affiliate_id,
         test: isTest,
         ...(originalSource !== undefined
           ? { original_source: originalSource }
@@ -789,12 +800,15 @@ export class LeadsService {
         leadResponse,
       ).catch((err) => this.logger.error("Failed to write intake log", err));
 
-      await this.metricsService.recordLeadOutcome(lead).catch((err: any) =>
+      try {
+        await this.metricsService.recordLeadOutcome(lead);
+      } catch (err: any) {
         this.logger.error("Failed to write lead metrics", {
           leadId: lead.id,
           error: err?.message,
-        }),
-      );
+        });
+        await this.metricsDlqClient.enqueue(buildLeadOutcomeEvent(lead), err);
+      }
 
       return leadResponse;
     } catch (error: any) {
@@ -1433,6 +1447,7 @@ export class LeadsService {
         to_date: query.to_date,
         campaign_id: query.campaign_id,
         campaign_key: query.campaign_key,
+        affiliate_id: query.affiliate_id,
       });
 
       return { result: true, data };
@@ -1461,6 +1476,7 @@ export class LeadsService {
         to_date: query.to_date,
         campaign_id: query.campaign_id,
         campaign_key: query.campaign_key,
+        affiliate_id: query.affiliate_id,
       });
 
       return { result: true, data };
@@ -1489,6 +1505,7 @@ export class LeadsService {
         to_date: query.to_date,
         campaign_id: query.campaign_id,
         campaign_key: query.campaign_key,
+        affiliate_id: query.affiliate_id,
       });
 
       return { result: true, data };
@@ -1516,6 +1533,7 @@ export class LeadsService {
         from_date: query.from_date,
         to_date: query.to_date,
         campaign_id: query.campaign_id,
+        affiliate_id: query.affiliate_id,
       });
 
       return { result: true, data };
@@ -1550,6 +1568,251 @@ export class LeadsService {
       return {
         result: false,
         error: error.message || "Failed to get metrics health",
+      };
+    }
+  }
+
+  // ── CR-001 affiliate-dimensional read endpoints ─────────────────────────────
+  // Thin pass-throughs over MetricsService.  Validation lives in the controller
+  // (filter precedence) and in MetricsService.validateQuery (date shape +
+  // affiliate_id/campaign_key mutual exclusion).
+
+  async getMetricsByAffiliate(
+    affiliateId: string,
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsSummaryData>> {
+    try {
+      if (!affiliateId) {
+        return { result: false, error: "affiliate_id is required" };
+      }
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getByAffiliate({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        affiliate_id: affiliateId,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics by affiliate", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics by affiliate",
+      };
+    }
+  }
+
+  async getMetricsByAffiliateCampaigns(
+    affiliateId: string,
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsBreakdownData>> {
+    try {
+      if (!affiliateId) {
+        return { result: false, error: "affiliate_id is required" };
+      }
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getByAffiliateCampaigns({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        affiliate_id: affiliateId,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics by affiliate campaigns", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics by affiliate campaigns",
+      };
+    }
+  }
+
+  async getMetricsByAffiliateKeys(
+    affiliateId: string,
+    query: Partial<MetricsQuery>,
+  ): Promise<
+    ServiceResult<{
+      range: { from_date: string; to_date: string };
+      filters: { affiliate_id: string };
+      keys: Array<{
+        campaign_key: string;
+        counters: {
+          received: number;
+          accepted: number;
+          sold: number;
+          accepted_not_sold: number;
+          rejected: number;
+        };
+      }>;
+    }>
+  > {
+    try {
+      if (!affiliateId) {
+        return { result: false, error: "affiliate_id is required" };
+      }
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getByAffiliateKeys({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        affiliate_id: affiliateId,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics by affiliate keys", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics by affiliate keys",
+      };
+    }
+  }
+
+  async getMetricsByCampaignAffiliates(
+    campaignId: string,
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsBreakdownData>> {
+    try {
+      if (!campaignId) {
+        return { result: false, error: "campaign_id is required" };
+      }
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getByCampaignAffiliates(
+        campaignId,
+        {
+          from_date: query.from_date,
+          to_date: query.to_date,
+        },
+      );
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics by campaign affiliates", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics by campaign affiliates",
+      };
+    }
+  }
+
+  async getMetricsIpqs(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<Awaited<ReturnType<MetricsService["getIpqs"]>>>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getIpqs({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        campaign_key: query.campaign_key,
+        affiliate_id: query.affiliate_id,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics ipqs", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics ipqs",
+      };
+    }
+  }
+
+  async getMetricsQuality(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<Awaited<ReturnType<MetricsService["getQuality"]>>>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getQuality({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        campaign_key: query.campaign_key,
+        affiliate_id: query.affiliate_id,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics quality", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics quality",
+      };
+    }
+  }
+
+  async getMetricsTimeseriesBySource(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsTimeseriesBySourceData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getTimeseriesBySource({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        affiliate_id: query.affiliate_id,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics timeseries by-source", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics timeseries by-source",
+      };
+    }
+  }
+
+  async getMetricsHourly(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsHourlyData>> {
+    try {
+      if (!query.from_date || !query.to_date) {
+        return {
+          result: false,
+          error: "from_date and to_date are required (YYYY-MM-DD)",
+        };
+      }
+      const data = await this.metricsService.getHourly({
+        from_date: query.from_date,
+        to_date: query.to_date,
+        campaign_id: query.campaign_id,
+        affiliate_id: query.affiliate_id,
+      });
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics hourly", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics hourly",
       };
     }
   }

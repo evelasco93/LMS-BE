@@ -52,6 +52,19 @@ export interface IServicesStackConfig {
   qaLogicRules: IServiceConfig;
   audit: IServiceConfig;
   cherryPick: IServiceConfig;
+  /** CR-001: retry consumer for the metrics emit DLQ. */
+  metricsDlqRetry: {
+    lambda: ILambdaConfig;
+    /** Visibility timeout (seconds) for the main DLQ. */
+    dlqVisibilityTimeoutSeconds: number;
+    /** Retention period (days) for both queues. */
+    retentionDays: number;
+    /** Redrive count from main DLQ to terminal parking queue. */
+    maxReceiveCount: number;
+    /** Event source batching. */
+    batchSize: number;
+    maxBatchingWindowSeconds: number;
+  };
 }
 
 /**

@@ -104,6 +104,16 @@ export class ResourceNameBuilder {
   }
 
   /**
+   * Build SQS queue name
+   * Pattern: {tenant}-{system}-{resource}-{environment}
+   */
+  public queue(resourceName: string): string {
+    return this.tenant
+      ? `${this.tenant}-${this.system}-${resourceName}-${this.environment}`
+      : `${this.system}-${resourceName}-${this.environment}`;
+  }
+
+  /**
    * Build Secrets Manager secret name
    * Pattern: {tenant}-{system}-{resource}-secret-{environment}
    */

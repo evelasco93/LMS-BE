@@ -8479,7 +8479,8 @@
           "accepted",
           "sold",
           "accepted_not_sold",
-          "rejected"
+          "rejected",
+          "cherry_picked"
         ],
         "properties": {
           "received": {
@@ -8496,6 +8497,10 @@
           },
           "rejected": {
             "type": "integer"
+          },
+          "cherry_picked": {
+            "type": "integer",
+            "description": "Number of leads cherry-picked in the window. Orthogonal to received/accepted/sold/rejected: a cherry-picked lead can be in any final status."
           }
         }
       },

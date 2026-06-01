@@ -68,11 +68,24 @@ export function createMockLeadDeliveryService() {
 export function createMockMetricsService() {
   return {
     recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
+    recordLeadOutcomeFromEvent: vi.fn().mockResolvedValue(undefined),
     getSummary: vi.fn(),
     getTimeseries: vi.fn(),
     getBreakdown: vi.fn(),
     getContracts: vi.fn(),
     getHealth: vi.fn(),
+    getByAffiliate: vi.fn(),
+    getByAffiliateCampaigns: vi.fn(),
+    getByAffiliateKeys: vi.fn(),
+    getByCampaignAffiliates: vi.fn(),
+    getIpqs: vi.fn(),
+    getQuality: vi.fn(),
+  };
+}
+
+export function createMockMetricsDlqClient() {
+  return {
+    enqueue: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -88,6 +101,7 @@ beforeEach(() => {
   const mockAuditWriterService = createMockAuditWriterService();
   const mockLeadDeliveryService = createMockLeadDeliveryService();
   const mockMetricsService = createMockMetricsService();
+  const mockMetricsDlqClient = createMockMetricsDlqClient();
 
   testContainer.bind("DynamoDBUtil").toConstantValue(mockDynamoDBUtil);
   testContainer.bind("Logger").toConstantValue(mockLogger);
@@ -100,6 +114,7 @@ beforeEach(() => {
     .bind("LeadDeliveryService")
     .toConstantValue(mockLeadDeliveryService);
   testContainer.bind("MetricsService").toConstantValue(mockMetricsService);
+  testContainer.bind("MetricsDlqClient").toConstantValue(mockMetricsDlqClient);
 });
 
 export function getMockDynamoDBUtil() {
@@ -124,4 +139,8 @@ export function getMockLeadDeliveryService() {
 
 export function getMockMetricsService() {
   return testContainer.get("MetricsService");
+}
+
+export function getMockMetricsDlqClient() {
+  return testContainer.get("MetricsDlqClient");
 }

@@ -1,5 +1,9 @@
 import { IIamStackConfig } from "../types/iam.types";
-import { nameBuilder, arnBuilder, platformNameBuilder } from "../../../config/base.config";
+import {
+  nameBuilder,
+  arnBuilder,
+  platformNameBuilder,
+} from "../../../config/base.config";
 
 // ── DynamoDB table ARNs ───────────────────────────────────────────────────────
 const clientsTableArn = arnBuilder.dynamoTable(nameBuilder.table("clients"));
@@ -20,9 +24,7 @@ const auditLogsTableArn = arnBuilder.dynamoTable(
 const leadIntakeLogsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("lead-intake-logs"),
 );
-const presetsTableArn = arnBuilder.dynamoTable(
-  nameBuilder.table("presets"),
-);
+const presetsTableArn = arnBuilder.dynamoTable(nameBuilder.table("presets"));
 const userTablePreferencesTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("user-table-preferences"),
 );
@@ -50,6 +52,9 @@ const qaLogicRulesArn = arnBuilder.lambda(nameBuilder.lambda("qa-logic-rules"));
 const auditLogsBucketObjectArn = arnBuilder.s3Object(
   nameBuilder.table("audit-logs-bucket"),
 );
+
+// CR-001: SQS queue ARNs for metrics emit DLQ pipeline.
+const metricsDlqArn = arnBuilder.sqsQueue(nameBuilder.queue("metrics-dlq"));
 
 export const iamConfig: IIamStackConfig = {
   lambdaRoles: {
@@ -188,10 +193,7 @@ export const iamConfig: IIamStackConfig = {
             "dynamodb:Query",
             "dynamodb:Scan",
           ],
-          resources: [
-            presetsTableArn,
-            `${presetsTableArn}/index/*`,
-          ],
+          resources: [presetsTableArn, `${presetsTableArn}/index/*`],
         },
         {
           name: "PlatformPresetsRead",
@@ -269,6 +271,12 @@ export const iamConfig: IIamStackConfig = {
           resources: [metricsTableArn, `${metricsTableArn}/index/*`],
         },
         {
+          // CR-001: leads lambda enqueues failed recordLeadOutcome attempts to the metrics DLQ.
+          name: "MetricsDlqSend",
+          actions: ["sqs:SendMessage", "sqs:GetQueueUrl"],
+          resources: [metricsDlqArn],
+        },
+        {
           name: "PlatformPresetsRead",
           actions: ["dynamodb:GetItem", "dynamodb:Query"],
           resources: [
@@ -324,10 +332,7 @@ export const iamConfig: IIamStackConfig = {
             "dynamodb:Query",
             "dynamodb:Scan",
           ],
-          resources: [
-            presetsTableArn,
-            `${presetsTableArn}/index/*`,
-          ],
+          resources: [presetsTableArn, `${presetsTableArn}/index/*`],
         },
         {
           name: "PlatformPresetsCrud",
@@ -516,6 +521,57 @@ export const iamConfig: IIamStackConfig = {
           name: "TrustedFormInvoke",
           actions: ["lambda:InvokeFunction"],
           resources: [qaTrustedFormArn],
+        },
+        {
+          // Cherry-pick fans out the `cherry_picked` counter on the metrics
+          // table via the same transactional write path as `recordLeadOutcome`.
+          name: "MetricsWrite",
+          actions: [
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:GetItem",
+          ],
+          resources: [metricsTableArn, `${metricsTableArn}/index/*`],
+        },
+        {
+          // On metrics emit failure, the cherry-pick lambda forwards the
+          // event to the shared metrics DLQ for retry by the existing
+          // `metrics-dlq-retry` consumer (no new queue).
+          name: "MetricsDlqSend",
+          actions: ["sqs:SendMessage", "sqs:GetQueueUrl"],
+          resources: [metricsDlqArn],
+        },
+      ],
+    },
+    // CR-001: retry consumer reads from main metrics DLQ and replays
+    // recordLeadOutcome via the existing idempotency key. Distinct role from
+    // the leads lambda so consume permissions are not granted to the producer.
+    metricsDlqRetry: {
+      name: nameBuilder.role("metrics-dlq-retry-lambda"),
+      description: "Execution role for Metrics DLQ Retry Consumer Lambda",
+      servicePrincipal: "lambda.amazonaws.com",
+      managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
+      inlinePolicies: [
+        {
+          name: "MetricsDlqConsume",
+          actions: [
+            "sqs:ReceiveMessage",
+            "sqs:DeleteMessage",
+            "sqs:GetQueueAttributes",
+            "sqs:GetQueueUrl",
+          ],
+          resources: [metricsDlqArn],
+        },
+        {
+          name: "MetricsTableWrite",
+          actions: [
+            "dynamodb:DescribeTable",
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:Query",
+          ],
+          resources: [metricsTableArn, `${metricsTableArn}/index/*`],
         },
       ],
     },

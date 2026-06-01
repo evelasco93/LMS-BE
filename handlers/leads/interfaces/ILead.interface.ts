@@ -68,6 +68,14 @@ export interface ILead {
   id: string;
   campaign_id: string;
   campaign_key: string;
+  /**
+   * Denormalized affiliate identifier resolved from
+   * `campaign.affiliates.find(a => a.campaign_key === campaign_key).affiliate_id`
+   * at intake construction time. Populated on every persisted lead (both
+   * accepted and rejected paths) so the metrics writer can pivot on affiliate
+   * without re-reading the campaign record.
+   */
+  affiliate_id?: string;
   test: boolean;
   /** Immutable copy of the raw `source` field from the intake payload, captured at ingestion time. */
   original_source?: string;
