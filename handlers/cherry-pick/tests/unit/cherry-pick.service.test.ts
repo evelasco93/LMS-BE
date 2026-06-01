@@ -39,15 +39,22 @@ describe("CherryPickService cherry-pick metric emission", () => {
 
   const baseCampaign = {
     id: "CM1",
-    clients: [
+    contracts: [
       {
+        contract_id: "CT1",
         client_id: "CLT1",
         status: CampaignParticipantStatus.LIVE,
-        delivery_config: {
-          url: "https://example.test/cherry",
-          method: "POST",
-          claim_trusted_form: false,
-        },
+        destinations: [
+          {
+            id: "DS1",
+            name: "Primary",
+            type: "webhook",
+            url: "https://example.test/cherry",
+            method: "POST",
+            payload_mapping: [],
+            is_primary: true,
+          },
+        ],
       },
     ],
   };
@@ -187,5 +194,513 @@ describe("CherryPickService cherry-pick metric emission", () => {
       rejected: 0,
     });
     expect(errorArg).toBe(emitError);
+  });
+});
+
+/**
+ * Contract-based cherry-pick flow:
+ *   - Eligible-contracts endpoint returns ONLY contracts whose status is LIVE,
+ *     including those whose parent campaign is CLOSED/PAUSED. (Cross-campaign
+ *     delivery is intentional.)
+ *   - executeCherryPick rejects an inactive target contract.
+ *   - executeCherryPick succeeds when the target contract belongs to a
+ *     campaign different from the lead's source campaign.
+ *   - Cross-campaign delivery preserves source dimensions on the cherry-pick
+ *     metric: `recordLeadCherryPick` is called with the SOURCE lead row
+ *     (campaign_id / affiliate_id / campaign_key all from the lead's origin).
+ */
+describe("CherryPickService contract-based delivery (Option A)", () => {
+  let dynamoDBUtil: any;
+  let logger: any;
+  let lambdaInvokeUtil: any;
+  let constants: any;
+  let auditWriterService: any;
+  let metricsService: any;
+  let metricsDlqClient: any;
+  let service: CherryPickService;
+
+  const sourceLead = {
+    id: "LD-XC-1",
+    campaign_id: "CM-SRC",
+    campaign_key: "K-SRC",
+    affiliate_id: "AF-SRC",
+    created_at: "2026-05-01T12:00:00.000Z",
+    cherry_picked: false,
+    cherry_pickable: true,
+    sold: false,
+    rejected: false,
+  };
+
+  const sourceCampaign = {
+    id: "CM-SRC",
+    name: "Source Campaign",
+    status: "live",
+    contracts: [],
+    affiliates: [{ affiliate_id: "AF-SRC", campaign_key: "K-SRC" }],
+  };
+
+  // Target campaign is CLOSED but owns a LIVE contract — the regression we
+  // explicitly enable.
+  const targetCampaignClosed = {
+    id: "CM-TGT-CLOSED",
+    name: "Closed Target Campaign",
+    status: "closed",
+    contracts: [
+      {
+        contract_id: "CT-LIVE",
+        contract_name: "Live Contract on Closed Campaign",
+        client_id: "CLT-A",
+        status: CampaignParticipantStatus.LIVE,
+        destinations: [
+          {
+            id: "DS-LIVE",
+            name: "Primary",
+            type: "webhook",
+            url: "https://example.test/contract-live",
+            method: "POST",
+            payload_mapping: [],
+            is_primary: true,
+          },
+        ],
+      },
+    ],
+  };
+
+  const targetCampaignPaused = {
+    id: "CM-TGT-PAUSED",
+    name: "Paused Target Campaign",
+    status: "paused",
+    contracts: [
+      {
+        contract_id: "CT-PAUSED",
+        contract_name: "Paused Contract",
+        client_id: "CLT-B",
+        status: CampaignParticipantStatus.PAUSED,
+        destinations: [
+          {
+            id: "DS-PAUSED",
+            name: "Primary",
+            type: "webhook",
+            url: "https://example.test/contract-paused",
+            method: "POST",
+            payload_mapping: [],
+            is_primary: true,
+          },
+        ],
+      },
+    ],
+  };
+
+  const acceptedDelivery = {
+    accepted: true,
+    status_code: 200,
+    response_body: "{}",
+    delivered_at: "2026-05-10T09:30:00.000Z",
+  };
+
+  beforeEach(() => {
+    dynamoDBUtil = {
+      get: vi.fn(),
+      update: vi.fn().mockResolvedValue(undefined),
+      scanAll: vi.fn(),
+      batchGet: vi.fn(),
+    };
+    logger = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+    };
+    lambdaInvokeUtil = { invoke: vi.fn() };
+    constants = {
+      LEADS_TABLE_NAME: "leads",
+      CAMPAIGNS_TABLE_NAME: "campaigns",
+      CLIENTS_TABLE_NAME: "clients",
+    };
+    auditWriterService = {
+      writeAuditEvent: vi.fn().mockResolvedValue(undefined),
+    };
+    metricsService = {
+      recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
+    };
+    metricsDlqClient = {
+      enqueue: vi.fn().mockResolvedValue(true),
+    };
+
+    service = new CherryPickService(
+      dynamoDBUtil,
+      logger,
+      lambdaInvokeUtil,
+      constants,
+      auditWriterService,
+      metricsService,
+      metricsDlqClient,
+    );
+
+    vi.spyOn(service as any, "executeWebhook").mockResolvedValue(
+      acceptedDelivery,
+    );
+  });
+
+  it("listEligibleContracts returns only LIVE contracts and includes contracts whose parent campaign is CLOSED/PAUSED", async () => {
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...sourceLead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([
+      sourceCampaign,
+      targetCampaignClosed,
+      targetCampaignPaused,
+    ]);
+    dynamoDBUtil.batchGet.mockResolvedValueOnce({
+      clients: [{ id: "CLT-A", name: "Client A" }],
+    });
+
+    const result = await service.listEligibleContracts("LD-XC-1");
+
+    expect(result.result).toBe(true);
+    const contracts = result.data!.contracts;
+    // Only the LIVE contract on the CLOSED campaign — the PAUSED contract is
+    // filtered out, and the source campaign contributes none.
+    expect(contracts).toHaveLength(1);
+    expect(contracts[0]).toMatchObject({
+      contract_id: "CT-LIVE",
+      client_id: "CLT-A",
+      campaign_id: "CM-TGT-CLOSED",
+      campaign_status: "closed",
+      contract_status: CampaignParticipantStatus.LIVE,
+    });
+  });
+
+  it("executeCherryPick rejects an inactive target_contract_id", async () => {
+    dynamoDBUtil.get
+      .mockResolvedValueOnce({ ...sourceLead }) // lead
+      .mockResolvedValueOnce(null); // preferredCampaign lookup not used
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([
+      sourceCampaign,
+      targetCampaignPaused,
+    ]);
+
+    const result = await service.executeCherryPick("LD-XC-1", {
+      target_contract_id: "CT-PAUSED",
+    } as never);
+
+    expect(result.result).toBe(false);
+    expect(result.error).toMatch(/not active/i);
+    expect(dynamoDBUtil.update).not.toHaveBeenCalled();
+    expect(metricsService.recordLeadCherryPick).not.toHaveBeenCalled();
+  });
+
+  it("executeCherryPick succeeds when the target contract belongs to a different campaign than the lead's source", async () => {
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...sourceLead }); // lead lookup
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([
+      sourceCampaign,
+      targetCampaignClosed, // LIVE contract lives here
+    ]);
+
+    const result = await service.executeCherryPick("LD-XC-1", {
+      target_contract_id: "CT-LIVE",
+    } as never);
+
+    expect(result.result).toBe(true);
+    expect(result.data).toMatchObject({
+      target_contract_id: "CT-LIVE",
+      target_client_id: "CLT-A",
+      target_campaign_id: "CM-TGT-CLOSED",
+      // Source attribution preserved — Option A.
+      source_campaign_id: "CM-SRC",
+    });
+  });
+
+  it("preserves source-side metric dimensions on cross-campaign cherry-pick (no target fanout)", async () => {
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...sourceLead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([
+      sourceCampaign,
+      targetCampaignClosed,
+    ]);
+
+    const result = await service.executeCherryPick("LD-XC-1", {
+      target_contract_id: "CT-LIVE",
+    } as never);
+
+    expect(result.result).toBe(true);
+    expect(metricsService.recordLeadCherryPick).toHaveBeenCalledTimes(1);
+    const [leadArg] = metricsService.recordLeadCherryPick.mock.calls[0];
+    // The lead row passed to the metric has SOURCE dimensions only.
+    expect(leadArg.id).toBe("LD-XC-1");
+    expect(leadArg.campaign_id).toBe("CM-SRC");
+    expect(leadArg.campaign_key).toBe("K-SRC");
+    expect(leadArg.affiliate_id).toBe("AF-SRC");
+  });
+});
+
+/**
+ * Cherry-pick is a manual operator override. Eligibility must NOT exclude:
+ *   - the lead's own source campaign / source contract,
+ *   - a contract that previously rejected the lead,
+ *   - a contract that already received the lead.
+ *
+ * The only filter is contract.status === LIVE AND a primary destination URL.
+ * Tenant data is destinations[]-only — contracts with neither destinations
+ * nor a primary URL are excluded.
+ */
+describe("CherryPickService.listEligibleContracts override semantics", () => {
+  let dynamoDBUtil: any;
+  let logger: any;
+  let lambdaInvokeUtil: any;
+  let constants: any;
+  let auditWriterService: any;
+  let metricsService: any;
+  let metricsDlqClient: any;
+  let service: CherryPickService;
+
+  const lead = {
+    id: "LD-OV-1",
+    campaign_id: "CM-A",
+    campaign_key: "K-A",
+    affiliate_id: "AF-A",
+    rejected: true,
+    rejection_reason: "Previously rejected by CT-A1",
+  };
+
+  const liveDestination = (url: string, id = "DS1") => ({
+    id,
+    name: "Primary",
+    type: "webhook" as const,
+    url,
+    method: "POST" as const,
+    payload_mapping: [],
+    is_primary: true,
+  });
+
+  const campaignA = {
+    id: "CM-A",
+    name: "Source Campaign",
+    status: "live",
+    contracts: [
+      // Same-campaign LIVE contract that previously rejected the lead.
+      {
+        contract_id: "CT-A1",
+        contract_name: "Same-campaign rejected contract",
+        client_id: "CLT-A1",
+        status: CampaignParticipantStatus.LIVE,
+        destinations: [liveDestination("https://example.test/a1", "DS-A1")],
+      },
+      // LIVE contract on the same campaign with no destinations — excluded.
+      {
+        contract_id: "CT-A2-NO-DEST",
+        contract_name: "No destinations",
+        client_id: "CLT-A2",
+        status: CampaignParticipantStatus.LIVE,
+      },
+    ],
+    affiliates: [{ affiliate_id: "AF-A", campaign_key: "K-A" }],
+  };
+
+  const campaignB = {
+    id: "CM-B",
+    name: "Other Campaign",
+    status: "live",
+    contracts: [
+      {
+        contract_id: "CT-B1",
+        contract_name: "Other-campaign LIVE contract",
+        client_id: "CLT-B1",
+        status: CampaignParticipantStatus.LIVE,
+        destinations: [liveDestination("https://example.test/b1", "DS-B1")],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    dynamoDBUtil = {
+      get: vi.fn(),
+      update: vi.fn().mockResolvedValue(undefined),
+      scanAll: vi.fn(),
+      batchGet: vi.fn(),
+    };
+    logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+    lambdaInvokeUtil = { invoke: vi.fn() };
+    constants = {
+      LEADS_TABLE_NAME: "leads",
+      CAMPAIGNS_TABLE_NAME: "campaigns",
+      CLIENTS_TABLE_NAME: "clients",
+    };
+    auditWriterService = {
+      writeAuditEvent: vi.fn().mockResolvedValue(undefined),
+    };
+    metricsService = {
+      recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
+    };
+    metricsDlqClient = { enqueue: vi.fn().mockResolvedValue(true) };
+
+    service = new CherryPickService(
+      dynamoDBUtil,
+      logger,
+      lambdaInvokeUtil,
+      constants,
+      auditWriterService,
+      metricsService,
+      metricsDlqClient,
+    );
+  });
+
+  it("returns same-campaign and previously-rejecting contracts; excludes contracts without a primary destination URL", async () => {
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...lead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([campaignA, campaignB]);
+    dynamoDBUtil.batchGet.mockResolvedValueOnce({
+      clients: [
+        { id: "CLT-A1", name: "Client A1" },
+        { id: "CLT-B1", name: "Client B1" },
+      ],
+    });
+
+    const result = await service.listEligibleContracts("LD-OV-1");
+
+    expect(result.result).toBe(true);
+    const ids = result.data!.contracts.map((c) => c.contract_id);
+    // Same-campaign contract (CT-A1) — included even though it previously
+    // rejected the lead. Cross-campaign contract (CT-B1) — included.
+    // CT-A2-NO-DEST excluded for missing destinations.
+    expect(ids).toEqual(expect.arrayContaining(["CT-A1", "CT-B1"]));
+    expect(ids).not.toContain("CT-A2-NO-DEST");
+    const a1 = result.data!.contracts.find((c) => c.contract_id === "CT-A1");
+    expect(a1?.delivery_url).toBe("https://example.test/a1");
+    expect(a1?.campaign_id).toBe("CM-A");
+  });
+});
+
+/**
+ * executeCherryPick destination-adapter contract:
+ *   - Posts to the primary destination URL on the contract.
+ *   - When `response_validation` has no `passed` rule for the primary
+ *     destination, the override branch accepts on a 2xx response.
+ */
+describe("CherryPickService.executeCherryPick destination adapter", () => {
+  let dynamoDBUtil: any;
+  let logger: any;
+  let lambdaInvokeUtil: any;
+  let constants: any;
+  let auditWriterService: any;
+  let metricsService: any;
+  let metricsDlqClient: any;
+  let service: CherryPickService;
+
+  const lead = {
+    id: "LD-EX-1",
+    campaign_id: "CM-X",
+    campaign_key: "K-X",
+    affiliate_id: "AF-X",
+    cherry_picked: false,
+    cherry_pickable: true,
+    sold: false,
+    rejected: false,
+  };
+
+  const campaign = {
+    id: "CM-X",
+    name: "Exec Campaign",
+    status: "live",
+    contracts: [
+      {
+        contract_id: "CT-X",
+        contract_name: "Target",
+        client_id: "CLT-X",
+        status: CampaignParticipantStatus.LIVE,
+        destinations: [
+          {
+            id: "DS-PRIMARY",
+            name: "Primary",
+            type: "webhook" as const,
+            url: "https://example.test/primary",
+            method: "POST" as const,
+            payload_mapping: [
+              { key: "lead_id", value_source: "lead_id" as const },
+            ],
+            is_primary: true,
+          },
+        ],
+      },
+    ],
+    affiliates: [{ affiliate_id: "AF-X", campaign_key: "K-X" }],
+  };
+
+  beforeEach(() => {
+    dynamoDBUtil = {
+      get: vi.fn(),
+      update: vi.fn().mockResolvedValue(undefined),
+      scanAll: vi.fn(),
+      batchGet: vi.fn(),
+    };
+    logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+    lambdaInvokeUtil = { invoke: vi.fn() };
+    constants = {
+      LEADS_TABLE_NAME: "leads",
+      CAMPAIGNS_TABLE_NAME: "campaigns",
+      CLIENTS_TABLE_NAME: "clients",
+    };
+    auditWriterService = {
+      writeAuditEvent: vi.fn().mockResolvedValue(undefined),
+    };
+    metricsService = {
+      recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
+    };
+    metricsDlqClient = { enqueue: vi.fn().mockResolvedValue(true) };
+
+    service = new CherryPickService(
+      dynamoDBUtil,
+      logger,
+      lambdaInvokeUtil,
+      constants,
+      auditWriterService,
+      metricsService,
+      metricsDlqClient,
+    );
+  });
+
+  it("POSTs to the primary destination URL and accepts on 2xx when response_validation has no passed rule", async () => {
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...lead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([campaign]);
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch" as never)
+      .mockResolvedValue(
+        new Response("ok", { status: 200 }) as never,
+      ) as unknown as ReturnType<typeof vi.fn>;
+
+    try {
+      const result = await service.executeCherryPick("LD-EX-1", {
+        target_contract_id: "CT-X",
+      } as never);
+
+      expect(result.result).toBe(true);
+      expect(result.data?.delivery_result.accepted).toBe(true);
+      expect(result.data?.delivery_result.webhook_url).toBe(
+        "https://example.test/primary",
+      );
+      expect(fetchSpy).toHaveBeenCalled();
+      const calledUrl = (fetchSpy as any).mock.calls[0][0];
+      expect(String(calledUrl)).toContain("https://example.test/primary");
+    } finally {
+      (fetchSpy as any).mockRestore?.();
+    }
+  });
+
+  it("rejects when the contract has no destinations configured", async () => {
+    const noDestCampaign = {
+      ...campaign,
+      contracts: [
+        {
+          ...campaign.contracts[0],
+          destinations: undefined,
+        },
+      ],
+    };
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...lead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([noDestCampaign]);
+
+    const result = await service.executeCherryPick("LD-EX-1", {
+      target_contract_id: "CT-X",
+    } as never);
+
+    expect(result.result).toBe(false);
+    expect(result.error).toMatch(/primary destination/i);
   });
 });

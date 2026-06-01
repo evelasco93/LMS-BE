@@ -3090,6 +3090,88 @@
         }
       }
     },
+    "/cherry-pick/eligible-contracts": {
+      "get": {
+        "summary": "List eligible contracts for cherry-pick",
+        "description": "Returns every contract with status=LIVE and a configured delivery URL, regardless of the parent campaign's status. Cross-campaign delivery is intentional — operators can cherry-pick a lead onto any active contract.",
+        "tags": ["leads"],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lead_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Lead ID being routed (used for source-attribution context)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eligible contracts retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "contracts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "contract_id": { "type": "string" },
+                              "contract_name": { "type": "string" },
+                              "client_id": { "type": "string" },
+                              "client_name": { "type": "string" },
+                              "campaign_id": { "type": "string" },
+                              "campaign_name": { "type": "string" },
+                              "contract_status": { "type": "string" },
+                              "campaign_status": { "type": "string" },
+                              "delivery_url": {
+                                "type": "string",
+                                "format": "uri"
+                              }
+                            },
+                            "required": [
+                              "contract_id",
+                              "contract_name",
+                              "client_id",
+                              "client_name",
+                              "campaign_id",
+                              "campaign_name",
+                              "contract_status",
+                              "campaign_status"
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["contracts"]
+                    }
+                  },
+                  "required": ["success"]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Lead not found"
+          }
+        }
+      }
+    },
     "/cherry-pick/{leadId}/pickability": {
       "patch": {
         "summary": "Set lead cherry-pick eligibility",
@@ -3179,10 +3261,14 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["target_client_id"],
                 "properties": {
+                  "target_contract_id": {
+                    "type": "string",
+                    "description": "Contract to deliver to. Preferred over target_client_id. Must reference a contract whose status is LIVE."
+                  },
                   "target_client_id": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "[DEPRECATED] Buyer client_id. Resolved to a contract on the lead's source campaign. Prefer target_contract_id."
                   },
                   "campaign_id": {
                     "type": "string"
@@ -3202,7 +3288,11 @@
                   "skip_ipqs_ip": {
                     "type": "boolean"
                   }
-                }
+                },
+                "anyOf": [
+                  { "required": ["target_contract_id"] },
+                  { "required": ["target_client_id"] }
+                ]
               }
             }
           }

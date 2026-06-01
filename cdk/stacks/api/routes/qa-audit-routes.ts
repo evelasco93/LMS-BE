@@ -85,7 +85,7 @@ export class QaAuditCherryPickRoutes extends Construct {
     const cherryPickResource = v2Resource.addResource("cherry-pick");
 
     protect(
-      cherryPickResource.addResource("eligible-clients"),
+      cherryPickResource.addResource("eligible-contracts"),
       "GET",
       cherryPickIntegration,
       [readScope],

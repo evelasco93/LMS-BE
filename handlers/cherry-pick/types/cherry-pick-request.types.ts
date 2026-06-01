@@ -1,7 +1,16 @@
 export type ExecuteCherryPickRequest = {
-  /** ID of the client to deliver the lead to */
-  target_client_id: string;
-  /** Campaign to look up delivery config from. Defaults to the lead's source campaign. */
+  /** ID of the contract to deliver the lead to. Preferred over target_client_id. */
+  target_contract_id?: string;
+  /**
+   * @deprecated Prefer target_contract_id. Buyer client_id used to resolve a
+   * contract on the campaign when target_contract_id is not provided.
+   */
+  target_client_id?: string;
+  /**
+   * Campaign to look up the contract from. Defaults to the contract's parent
+   * campaign (when target_contract_id is provided) or the lead's source
+   * campaign (legacy target_client_id flow).
+   */
   campaign_id?: string;
   /** When true, also dispatch source affiliate sold pixel after a sold cherry-pick. Defaults to false. */
   fire_affiliate_pixel?: boolean;
@@ -25,6 +34,21 @@ export type UpdatePickabilityRequest = {
   cherry_pickable: boolean;
 };
 
-export type ListEligibleClientsQuery = {
+export type ListEligibleContractsQuery = {
   lead_id: string;
+};
+
+export type EligibleContractEntry = {
+  contract_id: string;
+  contract_name: string;
+  client_id: string;
+  client_name: string;
+  campaign_id: string;
+  campaign_name: string;
+  /** Raw contract participant status (LIVE, PAUSED, etc.). */
+  contract_status: string;
+  /** Raw parent campaign status so the UI can warn on closed/paused campaigns. */
+  campaign_status: string;
+  /** Display-only delivery URL — never expose secrets/headers. */
+  delivery_url?: string;
 };

@@ -187,9 +187,13 @@ export interface IAffiliatePixelResult {
 }
 
 export interface ICherryPickMeta {
-  /** The client the lead was cherry-picked to */
+  /** The buyer client the lead was cherry-picked to (derived from target contract). */
   target_client_id: string;
-  /** The campaign from which the cherry-pick was executed */
+  /** The contract the lead was cherry-picked to. */
+  target_contract_id?: string;
+  /** The campaign the target contract belongs to. May differ from source_campaign_id. */
+  target_campaign_id?: string;
+  /** The campaign from which the cherry-pick was executed (lead's source campaign). */
   source_campaign_id: string;
   /** Result of the webhook delivery attempt */
   delivery_result: ILeadDeliveryResult;

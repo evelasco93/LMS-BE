@@ -2054,18 +2054,21 @@ export class LeadsService {
       const leadPayload = request.payload ?? {};
       // Extract TrustedForm cert ID and phone from the lead payload.
       // Affiliates submit these as `trusted_form_cert_id` and `phone`.
-      const certId =
-        typeof leadPayload.trusted_form_cert_id === "string"
-          ? leadPayload.trusted_form_cert_id
-          : undefined;
-      const phone =
-        typeof leadPayload.phone === "string" ? leadPayload.phone : undefined;
-      const email =
-        typeof leadPayload.email === "string" ? leadPayload.email : undefined;
-      const ipAddress =
-        typeof leadPayload.ip_address === "string"
-          ? leadPayload.ip_address
-          : undefined;
+      // Some affiliates POST numeric values (e.g. phone as JSON number); coerce safely.
+      const coerceField = (v: unknown): string | undefined => {
+        if (typeof v === "string") {
+          const trimmed = v.trim();
+          return trimmed || undefined;
+        }
+        if (typeof v === "number" && Number.isFinite(v)) {
+          return String(v);
+        }
+        return undefined;
+      };
+      const certId = coerceField(leadPayload.trusted_form_cert_id);
+      const phone = coerceField(leadPayload.phone);
+      const email = coerceField(leadPayload.email);
+      const ipAddress = coerceField(leadPayload.ip_address);
 
       return await this.lambdaInvokeUtil.invokeJson<QaOrchestratorResult>({
         functionName: this.constants.QA_ORCHESTRATOR_LAMBDA_NAME,

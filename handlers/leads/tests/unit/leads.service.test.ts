@@ -494,6 +494,129 @@ describe("LeadsService", () => {
       );
     });
 
+    it("forwards numeric phone to QA orchestrator as a stringified value", async () => {
+      mockConstants.QA_ORCHESTRATOR_LAMBDA_NAME = "qa-orchestrator";
+      const campaign = buildCampaign(
+        CampaignStatus.ACTIVE,
+        CampaignParticipantStatus.LIVE,
+      );
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+        duplicate: false,
+        duplicate_matches: { lead_ids: [] },
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { email: "ok@real.com", phone: 19014222433 },
+      } as any);
+
+      expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            phone: "19014222433",
+          }),
+        }),
+      );
+    });
+
+    it("forwards numeric trusted_form_cert_id to QA orchestrator as a stringified cert_id", async () => {
+      mockConstants.QA_ORCHESTRATOR_LAMBDA_NAME = "qa-orchestrator";
+      const campaign = buildCampaign(
+        CampaignStatus.ACTIVE,
+        CampaignParticipantStatus.LIVE,
+      );
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+        duplicate: false,
+        duplicate_matches: { lead_ids: [] },
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: {
+          email: "ok@real.com",
+          trusted_form_cert_id: 1234567890,
+        },
+      } as any);
+
+      expect(mockLambdaInvokeUtil.invokeJson).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            cert_id: "1234567890",
+          }),
+        }),
+      );
+    });
+
+    it("omits phone from QA orchestrator payload when phone is empty or whitespace", async () => {
+      mockConstants.QA_ORCHESTRATOR_LAMBDA_NAME = "qa-orchestrator";
+
+      const runWithPhone = async (phone: unknown) => {
+        const campaign = buildCampaign(
+          CampaignStatus.ACTIVE,
+          CampaignParticipantStatus.LIVE,
+        );
+        mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+        mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+          duplicate: false,
+          duplicate_matches: { lead_ids: [] },
+        });
+        mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+        await leadsService.createLead({
+          campaign_id: campaign.id,
+          campaign_key: "KEY123",
+          payload: { email: "ok@real.com", phone },
+        } as any);
+      };
+
+      await runWithPhone("");
+      await runWithPhone("   ");
+
+      const calls = mockLambdaInvokeUtil.invokeJson.mock.calls;
+      expect(calls.length).toBe(2);
+      for (const [arg] of calls) {
+        expect(arg.payload).not.toHaveProperty("phone");
+      }
+    });
+
+    it("omits phone from QA orchestrator payload when phone is null or a non-primitive object", async () => {
+      mockConstants.QA_ORCHESTRATOR_LAMBDA_NAME = "qa-orchestrator";
+
+      const runWithPhone = async (phone: unknown) => {
+        const campaign = buildCampaign(
+          CampaignStatus.ACTIVE,
+          CampaignParticipantStatus.LIVE,
+        );
+        mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+        mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+          duplicate: false,
+          duplicate_matches: { lead_ids: [] },
+        });
+        mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+        await leadsService.createLead({
+          campaign_id: campaign.id,
+          campaign_key: "KEY123",
+          payload: { email: "ok@real.com", phone },
+        } as any);
+      };
+
+      await runWithPhone(null);
+      await runWithPhone({ foo: 1 });
+
+      const calls = mockLambdaInvokeUtil.invokeJson.mock.calls;
+      expect(calls.length).toBe(2);
+      for (const [arg] of calls) {
+        expect(arg.payload).not.toHaveProperty("phone");
+      }
+    });
+
     it("rejects live lead when delivery is not accepted", async () => {
       const campaign = buildCampaign(
         CampaignStatus.ACTIVE,

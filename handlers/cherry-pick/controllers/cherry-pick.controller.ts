@@ -60,27 +60,31 @@ export class CherryPickController extends Controller {
   }
 
   /**
-   * GET /cherry-pick/eligible-clients?lead_id=...
-   * List clients available for cherry-picking for the given lead's campaign.
+   * GET /cherry-pick/eligible-contracts?lead_id=...
+   * List ALL active contracts available to receive a cherry-picked lead,
+   * regardless of which campaign each contract belongs to (cross-campaign
+   * delivery is intentional). Eligibility is contract-level — a contract on
+   * a closed/paused campaign is still eligible if the contract itself is
+   * LIVE with a configured delivery URL.
    */
-  @GET("/eligible-clients")
+  @GET("/eligible-contracts")
   @produces("application/json")
-  async listEligibleClients(
+  async listEligibleContracts(
     @queryParam("lead_id") leadId?: string,
   ): Promise<RestApiResponse> {
     if (!leadId) {
       return this.fail("lead_id query parameter is required", undefined, 400);
     }
 
-    const result = await this.cherryPickService.listEligibleClients(leadId);
+    const result = await this.cherryPickService.listEligibleContracts(leadId);
 
     if (!result.result) {
-      return this.fail("Failed to list eligible clients", result.error);
+      return this.fail("Failed to list eligible contracts", result.error);
     }
 
     return this.withCorrelation({
       success: true,
-      message: "Eligible clients retrieved",
+      message: "Eligible contracts retrieved",
       data: result.data,
     });
   }
@@ -126,8 +130,8 @@ export class CherryPickController extends Controller {
     @pathParam("leadId") leadId: string,
     @body payload: ExecuteCherryPickRequest,
   ): Promise<RestApiResponse> {
-    if (!payload?.target_client_id) {
-      return this.fail("target_client_id is required", undefined, 400);
+    if (!payload?.target_contract_id && !payload?.target_client_id) {
+      return this.fail("target_contract_id is required", undefined, 400);
     }
 
     if (

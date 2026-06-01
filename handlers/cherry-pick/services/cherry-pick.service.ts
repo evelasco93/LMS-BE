@@ -8,6 +8,7 @@ import { CherryPickConstants } from "../constants/cherry-pick.constants";
 import {
   ExecuteCherryPickRequest,
   UpdatePickabilityRequest,
+  EligibleContractEntry,
 } from "../types/cherry-pick-request.types";
 import { ServiceResult } from "../types/common.types";
 import {
@@ -26,6 +27,7 @@ import {
 import {
   IAffiliateSoldPixelConfig,
   IClientDeliveryConfig,
+  IDestination,
   ILeadDeliveryResult,
   ILeadDeliveryPayloadSnapshot,
   IResolvedWebhookPayloadEntry,
@@ -37,15 +39,6 @@ const MAX_WEBHOOK_ATTEMPTS = 3;
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const PIXEL_TIMEOUT_MS = 5_000;
 const RETRY_BACKOFF_MS = 500;
-
-export interface IEligibleClientEntry {
-  client_id: string;
-  client_name: string;
-  campaign_id: string;
-  campaign_name: string;
-  status: CampaignParticipantStatus;
-  delivery_url?: string;
-}
 
 export interface ISourceAffiliatePixelInfo {
   affiliate_id: string;
@@ -73,6 +66,59 @@ export class CherryPickService {
     private readonly metricsDlqClient: MetricsDlqClient,
   ) {}
 
+  /**
+   * Resolve the primary destination on a contract. The contract delivery
+   * model is destinations[] with exactly one `is_primary: true`. If no
+   * destination is flagged primary we fall back to the first entry to keep
+   * cherry-pick (a manual override) functional on partially-configured
+   * contracts.
+   */
+  private getPrimaryDestinationForContract(
+    contract: ICampaignClient,
+  ): IDestination | null {
+    const destinations = contract.destinations ?? [];
+    if (destinations.length === 0) return null;
+    return destinations.find((d) => d.is_primary) ?? destinations[0] ?? null;
+  }
+
+  /**
+   * Adapt a destination + the contract-level `response_validation` to the
+   * legacy `IClientDeliveryConfig` shape consumed by `executeWebhook`. Only
+   * `passed` rules scoped to this destination_id are surfaced; cherry-pick
+   * never auto-fails on a `failed` rule because it is an operator-driven
+   * override.
+   *
+   * NOTE (product): When `response_validation` has no `passed` rule for the
+   * primary destination we treat any 2xx response as accepted (override
+   * semantics — see `executeWebhook`'s acceptance_rules-empty branch).
+   */
+  private buildDestinationAdapter(
+    contract: ICampaignClient,
+    destination: IDestination,
+  ): IClientDeliveryConfig {
+    const rules = contract.response_validation?.rules ?? [];
+    const acceptanceRules = rules
+      .filter(
+        (r) => r.destination_id === destination.id && r.action === "passed",
+      )
+      .map((r) => ({
+        match_value: r.match_value,
+        action: "passed" as const,
+      }));
+
+    return {
+      url: destination.url,
+      method: destination.method,
+      ...(destination.headers ? { headers: destination.headers } : {}),
+      payload_mapping: destination.payload_mapping,
+      acceptance_rules: acceptanceRules,
+      claim_trusted_form: true,
+      ...(destination.require_successful_claim !== undefined
+        ? { require_successful_claim: destination.require_successful_claim }
+        : {}),
+    };
+  }
+
   async executeCherryPick(
     leadId: string,
     request: ExecuteCherryPickRequest,
@@ -93,34 +139,65 @@ export class CherryPickService {
         };
       }
 
-      const campaignId = request.campaign_id ?? lead.campaign_id;
-      const campaign = await this.dynamoDBUtil.get<ICampaign>({
-        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
-        Key: { id: campaignId },
-      });
-      if (!campaign) {
-        return { result: false, error: `Campaign ${campaignId} not found` };
+      // Contract-first resolution. When `target_contract_id` is provided we
+      // accept ANY active contract regardless of its parent campaign — this
+      // is the cross-campaign cherry-pick path. The legacy `target_client_id`
+      // path stays scoped to a single campaign for backward compatibility.
+      const useContractFlow = Boolean(request.target_contract_id);
+      if (!useContractFlow && !request.target_client_id) {
+        return {
+          result: false,
+          error: "target_contract_id or target_client_id is required",
+        };
       }
 
-      const campaignClient = (campaign.clients ?? []).find(
-        (c) => c.client_id === request.target_client_id,
+      let campaign: ICampaign | null = null;
+      let campaignClient: ICampaignClient | undefined;
+
+      if (useContractFlow) {
+        const lookup = await this.resolveContractTarget(
+          request.target_contract_id!,
+          request.campaign_id,
+        );
+        if (!lookup.result) {
+          return { result: false, error: lookup.error };
+        }
+        campaign = lookup.data!.campaign;
+        campaignClient = lookup.data!.contract;
+      } else {
+        const campaignId = request.campaign_id ?? lead.campaign_id;
+        campaign = await this.dynamoDBUtil.get<ICampaign>({
+          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+          Key: { id: campaignId },
+        });
+        if (!campaign) {
+          return { result: false, error: `Campaign ${campaignId} not found` };
+        }
+        campaignClient = (campaign.contracts ?? campaign.clients ?? []).find(
+          (c) => c.client_id === request.target_client_id,
+        );
+        if (!campaignClient) {
+          return {
+            result: false,
+            error: `Client ${request.target_client_id} is not linked to campaign ${campaignId}`,
+          };
+        }
+      }
+
+      const primaryDestination =
+        this.getPrimaryDestinationForContract(campaignClient);
+      if (!primaryDestination?.url) {
+        return {
+          result: false,
+          error: useContractFlow
+            ? `Contract ${request.target_contract_id} does not have a primary destination configured`
+            : `Client ${request.target_client_id} does not have a primary destination configured`,
+        };
+      }
+      const deliveryConfig = this.buildDestinationAdapter(
+        campaignClient,
+        primaryDestination,
       );
-      if (!campaignClient) {
-        return {
-          result: false,
-          error: `Client ${request.target_client_id} is not linked to campaign ${campaignId}`,
-        };
-      }
-
-      const deliveryConfig = campaignClient.delivery_config as
-        | IClientDeliveryConfig
-        | undefined;
-      if (!deliveryConfig?.url) {
-        return {
-          result: false,
-          error: `Client ${request.target_client_id} does not have a delivery config set up`,
-        };
-      }
 
       const leadForDelivery = this.applyCherryPickPayloadMutations(
         lead,
@@ -152,9 +229,21 @@ export class CherryPickService {
         deliveryConfig,
       );
 
+      const resolvedTargetClientId = campaignClient.client_id;
+      const resolvedTargetContractId = campaignClient.contract_id;
+      const resolvedTargetCampaignId = campaign!.id;
+
       const cherryPickMeta: ICherryPickMeta = {
-        target_client_id: request.target_client_id,
-        source_campaign_id: campaignId,
+        target_client_id: resolvedTargetClientId,
+        ...(resolvedTargetContractId
+          ? { target_contract_id: resolvedTargetContractId }
+          : {}),
+        target_campaign_id: resolvedTargetCampaignId,
+        // Source campaign (Option A): the lead stays on its origin campaign;
+        // we record the lead's source here so reporting attribution is
+        // unchanged even when the target contract belongs to a different
+        // campaign.
+        source_campaign_id: lead.campaign_id,
         delivery_result: deliveryResult,
         executed_at: executedAt,
         executed_by: actor,
@@ -183,7 +272,7 @@ export class CherryPickService {
           ":rejected": !accepted,
           ":rejectionReason": rejectionReason,
           ":rejectionErrors": rejectionReason ? [rejectionReason] : [],
-          ...(accepted ? { ":clientId": request.target_client_id } : {}),
+          ...(accepted ? { ":clientId": resolvedTargetClientId } : {}),
           ":now": executedAt,
         },
       });
@@ -204,7 +293,7 @@ export class CherryPickService {
           {
             field: "sold_to_client_id",
             from: lead.sold_to_client_id,
-            to: accepted ? request.target_client_id : null,
+            to: accepted ? resolvedTargetClientId : null,
           },
           { field: "rejected", from: lead.rejected, to: !accepted },
           {
@@ -281,7 +370,10 @@ export class CherryPickService {
 
       this.logger.info("Cherry-pick executed", {
         leadId,
-        targetClientId: request.target_client_id,
+        targetContractId: resolvedTargetContractId,
+        targetClientId: resolvedTargetClientId,
+        targetCampaignId: resolvedTargetCampaignId,
+        crossCampaign: resolvedTargetCampaignId !== lead.campaign_id,
         accepted: deliveryResult.accepted,
       });
 
@@ -354,9 +446,16 @@ export class CherryPickService {
     }
   }
 
-  async listEligibleClients(leadId: string): Promise<
+  /**
+   * List ALL contracts eligible to receive a cherry-picked lead. Eligibility
+   * is contract-level (`status === LIVE` + a configured delivery URL); the
+   * parent campaign's status is intentionally NOT a filter — closed/paused
+   * campaigns can still own active contracts that accept cherry-picks. The
+   * lead's source attribution stays unchanged when delivered cross-campaign.
+   */
+  async listEligibleContracts(leadId: string): Promise<
     ServiceResult<{
-      clients: IEligibleClientEntry[];
+      contracts: EligibleContractEntry[];
       source_affiliate_pixel?: ISourceAffiliatePixelInfo;
     }>
   > {
@@ -369,7 +468,6 @@ export class CherryPickService {
         return { result: false, error: `Lead ${leadId} not found` };
       }
 
-      // Scan all non-deleted campaigns to find eligible clients across campaigns
       const allCampaigns = await this.dynamoDBUtil.scanAll<ICampaign>({
         TableName: this.constants.CAMPAIGNS_TABLE_NAME,
         FilterExpression: "is_deleted <> :t",
@@ -387,17 +485,24 @@ export class CherryPickService {
         lead,
       );
 
-      // Collect all client entries that are LIVE with a delivery URL
-      const liveEntries: { campaign: ICampaign; client: ICampaignClient }[] =
-        [];
+      // Collect every LIVE contract that has a usable primary destination,
+      // regardless of the parent campaign's status. Cherry-pick is an
+      // operator override: it does NOT exclude the lead's source
+      // campaign / source contract, nor contracts that previously rejected
+      // the lead. The only filter is contract.status === LIVE plus a
+      // configured primary destination URL.
+      const liveEntries: {
+        campaign: ICampaign;
+        contract: ICampaignClient;
+        primaryUrl: string;
+      }[] = [];
       for (const campaign of allCampaigns) {
-        for (const client of campaign.clients ?? []) {
-          if (
-            client.status === CampaignParticipantStatus.LIVE &&
-            client.delivery_config?.url
-          ) {
-            liveEntries.push({ campaign, client });
-          }
+        const contracts = campaign.contracts ?? campaign.clients ?? [];
+        for (const contract of contracts) {
+          if (contract.status !== CampaignParticipantStatus.LIVE) continue;
+          const primary = this.getPrimaryDestinationForContract(contract);
+          if (!primary?.url) continue;
+          liveEntries.push({ campaign, contract, primaryUrl: primary.url });
         }
       }
 
@@ -405,7 +510,7 @@ export class CherryPickService {
         return {
           result: true,
           data: {
-            clients: [],
+            contracts: [],
             ...(sourceAffiliatePixel
               ? { source_affiliate_pixel: sourceAffiliatePixel }
               : {}),
@@ -413,9 +518,8 @@ export class CherryPickService {
         };
       }
 
-      // Batch-fetch client names (deduplicated)
       const uniqueClientIds = [
-        ...new Set(liveEntries.map((e) => e.client.client_id)),
+        ...new Set(liveEntries.map((e) => e.contract.client_id)),
       ];
       const batchKeys = uniqueClientIds.map((id) => ({ id }));
       const batchResult = await this.dynamoDBUtil.batchGet({
@@ -434,40 +538,107 @@ export class CherryPickService {
         clientRecords[record.id] = record.name;
       }
 
-      // Deduplicate by (client_id, campaign_id) pair
+      // Deduplicate by contract_id. A contract is unique to one campaign;
+      // legacy rows without contract_id fall back to client_id::campaign_id.
       const seen = new Set<string>();
-      const clients: IEligibleClientEntry[] = [];
-      for (const { campaign, client } of liveEntries) {
-        const key = `${client.client_id}::${campaign.id}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          clients.push({
-            client_id: client.client_id,
-            client_name: clientRecords[client.client_id] ?? client.client_id,
-            campaign_id: campaign.id,
-            campaign_name: campaign.name,
-            status: client.status!,
-            delivery_url: (client.delivery_config as any)?.url ?? "",
-          });
-        }
+      const contracts: EligibleContractEntry[] = [];
+      for (const { campaign, contract, primaryUrl } of liveEntries) {
+        const key = contract.contract_id
+          ? `contract::${contract.contract_id}`
+          : `legacy::${contract.client_id}::${campaign.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        contracts.push({
+          contract_id: contract.contract_id ?? contract.client_id,
+          contract_name:
+            contract.contract_name ??
+            clientRecords[contract.client_id] ??
+            contract.client_id,
+          client_id: contract.client_id,
+          client_name: clientRecords[contract.client_id] ?? contract.client_id,
+          campaign_id: campaign.id,
+          campaign_name: campaign.name,
+          contract_status: String(contract.status ?? ""),
+          campaign_status: String(campaign.status ?? ""),
+          delivery_url: primaryUrl,
+        });
       }
 
       return {
         result: true,
         data: {
-          clients,
+          contracts,
           ...(sourceAffiliatePixel
             ? { source_affiliate_pixel: sourceAffiliatePixel }
             : {}),
         },
       };
     } catch (error: any) {
-      this.logger.error("Failed to list eligible clients", error);
+      this.logger.error("Failed to list eligible contracts", error);
       return {
         result: false,
-        error: error.message || "Failed to list eligible clients",
+        error: error.message || "Failed to list eligible contracts",
       };
     }
+  }
+
+  /**
+   * Resolve a cherry-pick contract target. Scans campaigns to locate the
+   * contract by `contract_id`. Validates the contract is LIVE — closed/paused
+   * parent campaigns are intentionally permitted as long as the contract
+   * itself is active.
+   */
+  private async resolveContractTarget(
+    contractId: string,
+    preferredCampaignId?: string,
+  ): Promise<
+    ServiceResult<{ campaign: ICampaign; contract: ICampaignClient }>
+  > {
+    if (preferredCampaignId) {
+      const campaign = await this.dynamoDBUtil.get<ICampaign>({
+        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+        Key: { id: preferredCampaignId },
+      });
+      if (campaign) {
+        const contract = (campaign.contracts ?? campaign.clients ?? []).find(
+          (c) => c.contract_id === contractId,
+        );
+        if (contract) {
+          return this.assertContractActive(campaign, contract, contractId);
+        }
+      }
+    }
+
+    const campaigns = await this.dynamoDBUtil.scanAll<ICampaign>({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+      FilterExpression: "is_deleted <> :t",
+      ExpressionAttributeValues: { ":t": true },
+    });
+
+    for (const campaign of campaigns) {
+      const contract = (campaign.contracts ?? campaign.clients ?? []).find(
+        (c) => c.contract_id === contractId,
+      );
+      if (contract) {
+        return this.assertContractActive(campaign, contract, contractId);
+      }
+    }
+
+    return { result: false, error: `Contract ${contractId} not found` };
+  }
+
+  private assertContractActive(
+    campaign: ICampaign,
+    contract: ICampaignClient,
+    contractId: string,
+  ): ServiceResult<{ campaign: ICampaign; contract: ICampaignClient }> {
+    if (contract.status !== CampaignParticipantStatus.LIVE) {
+      return {
+        result: false,
+        error: `Contract ${contractId} is not active (status=${contract.status ?? "unknown"})`,
+      };
+    }
+    return { result: true, data: { campaign, contract } };
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
@@ -902,6 +1073,7 @@ export class CherryPickService {
         const matchResult = this.evaluateAcceptanceRules(
           responseBody,
           config.acceptance_rules,
+          responseStatus,
         );
         accepted = matchResult.accepted;
         acceptanceMatch = matchResult.matchedValue;
@@ -1033,7 +1205,17 @@ export class CherryPickService {
   private evaluateAcceptanceRules(
     body: string,
     rules: IClientDeliveryConfig["acceptance_rules"],
+    status?: number,
   ): { accepted: boolean; matchedValue?: string } {
+    // Cherry-pick override: when no acceptance rules are defined for the
+    // primary destination (i.e. no `passed` rule in `response_validation`),
+    // accept on any 2xx response. This matches the operator-driven nature of
+    // cherry-pick — automated delivery's strict rule-driven gating does not
+    // apply here.
+    if (!rules || rules.length === 0) {
+      const ok = typeof status === "number" && status >= 200 && status < 300;
+      return { accepted: ok };
+    }
     const lowerBody = body.toLowerCase();
     for (const rule of rules) {
       if (lowerBody.includes(rule.match_value.toLowerCase())) {
