@@ -22,7 +22,7 @@ import { MetricsDlqClient } from "../../leads/services/metrics-dlq.client";
 import { buildCherryPickEvent } from "../../leads/services/lead-outcome-event.builder";
 import {
   ICampaign,
-  ICampaignClient,
+  ICampaignContract,
 } from "../../campaigns/interfaces/ICampaign.interface";
 import {
   IAffiliateSoldPixelConfig,
@@ -74,11 +74,15 @@ export class CherryPickService {
    * contracts.
    */
   private getPrimaryDestinationForContract(
-    contract: ICampaignClient,
+    contract: ICampaignContract,
   ): IDestination | null {
     const destinations = contract.destinations ?? [];
     if (destinations.length === 0) return null;
-    return destinations.find((d) => d.is_primary) ?? destinations[0] ?? null;
+    return (
+      destinations.find((d: IDestination) => d.is_primary) ??
+      destinations[0] ??
+      null
+    );
   }
 
   /**
@@ -93,15 +97,16 @@ export class CherryPickService {
    * semantics — see `executeWebhook`'s acceptance_rules-empty branch).
    */
   private buildDestinationAdapter(
-    contract: ICampaignClient,
+    contract: ICampaignContract,
     destination: IDestination,
   ): IClientDeliveryConfig {
     const rules = contract.response_validation?.rules ?? [];
     const acceptanceRules = rules
       .filter(
-        (r) => r.destination_id === destination.id && r.action === "passed",
+        (r: { destination_id: string; action: string }) =>
+          r.destination_id === destination.id && r.action === "passed",
       )
-      .map((r) => ({
+      .map((r: { match_value: string }) => ({
         match_value: r.match_value,
         action: "passed" as const,
       }));
@@ -139,59 +144,29 @@ export class CherryPickService {
         };
       }
 
-      // Contract-first resolution. When `target_contract_id` is provided we
-      // accept ANY active contract regardless of its parent campaign — this
-      // is the cross-campaign cherry-pick path. The legacy `target_client_id`
-      // path stays scoped to a single campaign for backward compatibility.
-      const useContractFlow = Boolean(request.target_contract_id);
-      if (!useContractFlow && !request.target_client_id) {
+      if (!request.target_contract_id) {
         return {
           result: false,
-          error: "target_contract_id or target_client_id is required",
+          error: "target_contract_id is required",
         };
       }
 
-      let campaign: ICampaign | null = null;
-      let campaignClient: ICampaignClient | undefined;
-
-      if (useContractFlow) {
-        const lookup = await this.resolveContractTarget(
-          request.target_contract_id!,
-          request.campaign_id,
-        );
-        if (!lookup.result) {
-          return { result: false, error: lookup.error };
-        }
-        campaign = lookup.data!.campaign;
-        campaignClient = lookup.data!.contract;
-      } else {
-        const campaignId = request.campaign_id ?? lead.campaign_id;
-        campaign = await this.dynamoDBUtil.get<ICampaign>({
-          TableName: this.constants.CAMPAIGNS_TABLE_NAME,
-          Key: { id: campaignId },
-        });
-        if (!campaign) {
-          return { result: false, error: `Campaign ${campaignId} not found` };
-        }
-        campaignClient = (campaign.contracts ?? campaign.clients ?? []).find(
-          (c) => c.client_id === request.target_client_id,
-        );
-        if (!campaignClient) {
-          return {
-            result: false,
-            error: `Client ${request.target_client_id} is not linked to campaign ${campaignId}`,
-          };
-        }
+      const lookup = await this.resolveContractTarget(
+        request.target_contract_id,
+        request.campaign_id,
+      );
+      if (!lookup.result) {
+        return { result: false, error: lookup.error };
       }
+      const campaign = lookup.data!.campaign;
+      const campaignClient = lookup.data!.contract;
 
       const primaryDestination =
         this.getPrimaryDestinationForContract(campaignClient);
       if (!primaryDestination?.url) {
         return {
           result: false,
-          error: useContractFlow
-            ? `Contract ${request.target_contract_id} does not have a primary destination configured`
-            : `Client ${request.target_client_id} does not have a primary destination configured`,
+          error: `Contract ${request.target_contract_id} does not have a primary destination configured`,
         };
       }
       const deliveryConfig = this.buildDestinationAdapter(
@@ -234,10 +209,7 @@ export class CherryPickService {
       const resolvedTargetCampaignId = campaign!.id;
 
       const cherryPickMeta: ICherryPickMeta = {
-        target_client_id: resolvedTargetClientId,
-        ...(resolvedTargetContractId
-          ? { target_contract_id: resolvedTargetContractId }
-          : {}),
+        target_contract_id: resolvedTargetContractId,
         target_campaign_id: resolvedTargetCampaignId,
         // Source campaign (Option A): the lead stays on its origin campaign;
         // we record the lead's source here so reporting attribution is
@@ -493,11 +465,11 @@ export class CherryPickService {
       // configured primary destination URL.
       const liveEntries: {
         campaign: ICampaign;
-        contract: ICampaignClient;
+        contract: ICampaignContract;
         primaryUrl: string;
       }[] = [];
       for (const campaign of allCampaigns) {
-        const contracts = campaign.contracts ?? campaign.clients ?? [];
+        const contracts = campaign.contracts ?? [];
         for (const contract of contracts) {
           if (contract.status !== CampaignParticipantStatus.LIVE) continue;
           const primary = this.getPrimaryDestinationForContract(contract);
@@ -538,18 +510,15 @@ export class CherryPickService {
         clientRecords[record.id] = record.name;
       }
 
-      // Deduplicate by contract_id. A contract is unique to one campaign;
-      // legacy rows without contract_id fall back to client_id::campaign_id.
+      // Deduplicate by contract_id. A contract is unique to one campaign.
       const seen = new Set<string>();
       const contracts: EligibleContractEntry[] = [];
       for (const { campaign, contract, primaryUrl } of liveEntries) {
-        const key = contract.contract_id
-          ? `contract::${contract.contract_id}`
-          : `legacy::${contract.client_id}::${campaign.id}`;
+        const key = `contract::${contract.contract_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
         contracts.push({
-          contract_id: contract.contract_id ?? contract.client_id,
+          contract_id: contract.contract_id,
           contract_name:
             contract.contract_name ??
             clientRecords[contract.client_id] ??
@@ -592,7 +561,7 @@ export class CherryPickService {
     contractId: string,
     preferredCampaignId?: string,
   ): Promise<
-    ServiceResult<{ campaign: ICampaign; contract: ICampaignClient }>
+    ServiceResult<{ campaign: ICampaign; contract: ICampaignContract }>
   > {
     if (preferredCampaignId) {
       const campaign = await this.dynamoDBUtil.get<ICampaign>({
@@ -600,7 +569,7 @@ export class CherryPickService {
         Key: { id: preferredCampaignId },
       });
       if (campaign) {
-        const contract = (campaign.contracts ?? campaign.clients ?? []).find(
+        const contract = (campaign.contracts ?? []).find(
           (c) => c.contract_id === contractId,
         );
         if (contract) {
@@ -616,7 +585,7 @@ export class CherryPickService {
     });
 
     for (const campaign of campaigns) {
-      const contract = (campaign.contracts ?? campaign.clients ?? []).find(
+      const contract = (campaign.contracts ?? []).find(
         (c) => c.contract_id === contractId,
       );
       if (contract) {
@@ -629,9 +598,9 @@ export class CherryPickService {
 
   private assertContractActive(
     campaign: ICampaign,
-    contract: ICampaignClient,
+    contract: ICampaignContract,
     contractId: string,
-  ): ServiceResult<{ campaign: ICampaign; contract: ICampaignClient }> {
+  ): ServiceResult<{ campaign: ICampaign; contract: ICampaignContract }> {
     if (contract.status !== CampaignParticipantStatus.LIVE) {
       return {
         result: false,
@@ -985,7 +954,7 @@ export class CherryPickService {
 
   private async executeWebhook(
     lead: ILead,
-    campaignClient: ICampaignClient,
+    campaignClient: ICampaignContract,
     config: IClientDeliveryConfig,
   ): Promise<ILeadDeliveryResult> {
     const deliveredAt = new Date().toISOString();
@@ -1095,6 +1064,7 @@ export class CherryPickService {
     }
 
     return {
+      contract_id: campaignClient.contract_id,
       client_id: campaignClient.client_id,
       delivered_at: deliveredAt,
       attempts,
@@ -1120,6 +1090,7 @@ export class CherryPickService {
         : {}),
       ...(error !== undefined ? { error } : {}),
       distribution_mode: "round_robin",
+      contract_weight_at_delivery: campaignClient.weight ?? 1,
       client_weight_at_delivery: campaignClient.weight ?? 1,
     };
   }
@@ -1152,7 +1123,8 @@ export class CherryPickService {
       effectiveMappedPayload.push({
         key: mapping.key,
         parameter_target: resolvedTarget,
-        value_source: mapping.value_source,
+        value_source:
+          mapping.value_source === "lead_id" ? "field" : mapping.value_source,
         ...(mapping.field_name !== undefined
           ? { field_name: mapping.field_name }
           : {}),

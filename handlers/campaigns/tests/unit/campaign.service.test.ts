@@ -5,7 +5,7 @@ import { CampaignParticipantStatus } from "../../enums/campaign-participant-stat
 import {
   CreateCampaignRequest,
   LinkAffiliateRequest,
-  LinkClientRequest,
+  LinkContractRequest,
   UpdateCampaignStatusRequest,
   UpdateParticipantStatusRequest,
 } from "../../types/campaign-request.types";
@@ -61,18 +61,18 @@ describe("CampaignService", () => {
     });
   });
 
-  describe("linkClient", () => {
+  describe("linkContract", () => {
     it("adds a client when not already linked and defaults status to TEST", async () => {
-      const campaign = { ...emptyCampaign, clients: [], affiliates: [] };
+      const campaign = { ...emptyCampaign, contracts: [], affiliates: [] };
 
       mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-      const payload: LinkClientRequest = { client_id: "CL999" };
-      const result = await campaignService.linkClient(campaign.id, payload);
+      const payload: LinkContractRequest = { client_id: "CL999" };
+      const result = await campaignService.linkContract(campaign.id, payload);
 
       expect(result.result).toBe(true);
-      expect(result.data?.clients).toContainEqual(
+      expect(result.data?.contracts).toContainEqual(
         expect.objectContaining({
           client_id: "CL999",
           status: CampaignParticipantStatus.TEST,
@@ -85,7 +85,7 @@ describe("CampaignService", () => {
     it("updates status when client already linked", async () => {
       const campaign = {
         ...mockCampaign,
-        clients: [
+        contracts: [
           { client_id: "CL123", status: CampaignParticipantStatus.TEST },
         ],
       };
@@ -93,13 +93,13 @@ describe("CampaignService", () => {
       mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-      const payload: LinkClientRequest = {
+      const payload: LinkContractRequest = {
         client_id: "CL123",
       };
-      const result = await campaignService.linkClient(campaign.id, payload);
+      const result = await campaignService.linkContract(campaign.id, payload);
 
       expect(result.result).toBe(true);
-      expect(result.data?.clients).toContainEqual(
+      expect(result.data?.contracts).toContainEqual(
         expect.objectContaining({
           client_id: "CL123",
           contract_id: expect.any(String),
@@ -113,7 +113,7 @@ describe("CampaignService", () => {
 
   describe("linkAffiliate", () => {
     it("generates a campaign key and defaults status to TEST", async () => {
-      const campaign = { ...emptyCampaign, affiliates: [], clients: [] };
+      const campaign = { ...emptyCampaign, affiliates: [], contracts: [] };
 
       mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
@@ -202,21 +202,33 @@ describe("CampaignService", () => {
       expect(result.data?.campaign.affiliates[0].added_at).toBe("t0");
     });
 
-    it("deletes client from campaign", async () => {
+    it("deletes contract from campaign", async () => {
       mockDynamoDBUtil.get.mockResolvedValueOnce({
         ...mockCampaign,
-        clients: [
-          { client_id: "CL1", status: CampaignParticipantStatus.LIVE },
-          { client_id: "CL2", status: CampaignParticipantStatus.LIVE },
+        contracts: [
+          {
+            contract_id: "CT1",
+            client_id: "CL1",
+            status: CampaignParticipantStatus.LIVE,
+          },
+          {
+            contract_id: "CT2",
+            client_id: "CL2",
+            status: CampaignParticipantStatus.LIVE,
+          },
         ],
       });
       mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
 
-      const result = await campaignService.deleteClient(mockCampaign.id, "CL1");
+      const result = await campaignService.deleteContract(
+        mockCampaign.id,
+        "CT1",
+      );
 
       expect(result.result).toBe(true);
-      expect(result.data?.clients).toEqual([
+      expect(result.data?.contracts).toEqual([
         expect.objectContaining({
+          contract_id: "CT2",
           client_id: "CL2",
           status: CampaignParticipantStatus.LIVE,
           added_at: expect.any(String),
@@ -357,7 +369,7 @@ describe("CampaignService", () => {
 
   describe("updateStatus", () => {
     it("requires both a client and affiliate before moving to TEST", async () => {
-      const campaign = { ...emptyCampaign, clients: [], affiliates: [] };
+      const campaign = { ...emptyCampaign, contracts: [], affiliates: [] };
       mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
 
       const payload: UpdateCampaignStatusRequest = {
@@ -377,8 +389,12 @@ describe("CampaignService", () => {
       const campaign = {
         ...mockCampaign,
         status: CampaignStatus.TEST,
-        clients: [
-          { client_id: "CL123", status: CampaignParticipantStatus.TEST },
+        contracts: [
+          {
+            contract_id: "CT123",
+            client_id: "CL123",
+            status: CampaignParticipantStatus.TEST,
+          },
         ],
         affiliates: [
           {
@@ -405,8 +421,9 @@ describe("CampaignService", () => {
       const campaign = {
         ...mockCampaign,
         status: CampaignStatus.TEST,
-        clients: [
+        contracts: [
           {
+            contract_id: "CT123",
             client_id: "CL123",
             status: CampaignParticipantStatus.DISABLED,
           },
@@ -438,8 +455,12 @@ describe("CampaignService", () => {
       const campaign = {
         ...mockCampaign,
         status: CampaignStatus.TEST,
-        clients: [
-          { client_id: "CL123", status: CampaignParticipantStatus.LIVE },
+        contracts: [
+          {
+            contract_id: "CT123",
+            client_id: "CL123",
+            status: CampaignParticipantStatus.LIVE,
+          },
         ],
         affiliates: [
           {

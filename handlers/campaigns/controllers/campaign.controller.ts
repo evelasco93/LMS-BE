@@ -30,7 +30,6 @@ import {
   CreateLogicRuleRequest,
   UpdateLogicRuleRequest,
   GeneratePostingInstructionsRequest,
-  SetContractDeliveryRequest,
   CreateDestinationRequest,
   UpdateDestinationRequest,
   SetResponseValidationRequest,
@@ -207,31 +206,6 @@ export class CampaignController extends Controller {
     return this.withCorrelation({
       success: true,
       message: "Contract status updated",
-      data: result.data,
-    });
-  }
-
-  @PUT("/:id/contracts/:contractId/delivery")
-  @produces("application/json")
-  async setContractDelivery(
-    @pathParam("id") id: string,
-    @pathParam("contractId") contractId: string,
-    @body payload: SetContractDeliveryRequest,
-  ): Promise<RestApiResponse> {
-    const result = await this.campaignService.setContractDelivery(
-      id,
-      contractId,
-      payload,
-      this.getActor(),
-    );
-
-    if (!result.result) {
-      return this.fail("Failed to set contract delivery config", result.error);
-    }
-
-    return this.withCorrelation({
-      success: true,
-      message: "Contract delivery config updated",
       data: result.data,
     });
   }

@@ -378,7 +378,7 @@ All responses share one shape: `result` is always present.
 
 Cherry-pick routes are internal-only and require Bearer auth:
 
-- `GET /cherry-pick/eligible-clients?lead_id={leadId}` — list LIVE client destinations eligible for that lead
+- `GET /cherry-pick/eligible-contracts?lead_id={leadId}` — list LIVE contract destinations eligible for that lead
 - `PATCH /cherry-pick/{leadId}/pickability` — set `{ "cherry_pickable": true|false }`
 - `POST /cherry-pick/{leadId}/execute` — deliver lead to a selected client with optional skip flags:
   - `skip_trusted_form_claim`
@@ -391,7 +391,7 @@ When cherry-pick executes, the lead is explicitly updated with:
 
 - `cherry_picked=true`
 - `cherry_pickable=false`
-- `cherry_pick_meta` (target client, executed by/at, delivery_result)
+- `cherry_pick_meta` (target contract, executed by/at, delivery_result)
 - `sold`, `sold_to_client_id`, `rejected`, `rejection_reason`, `rejection_errors`, `delivery_result`
 
 ### Intake logs (`GET /leads/intake-logs`)
@@ -1728,7 +1728,6 @@ interface AuditLogItem {
     | "password_reset"
     | "posting_instructions_generated"
     // Delivery & routing
-    | "delivery_config_updated"
     | "distribution_updated"
     | "lead_cap_updated"
     | "cert_claimed"
@@ -2079,30 +2078,29 @@ Complete reference of all audit events written by the system. Every event is sto
 
 #### Campaign events
 
-| `action`                         | When                                                                         | `changes[]` fields tracked                                          |
-| -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `created`                        | New campaign created                                                         | _(empty — no prior state)_                                          |
-| `updated`                        | Campaign name changed                                                        | `name`                                                              |
-| `plugins_updated`                | QA plugin settings changed                                                   | Every mutated plugin field (e.g. `duplicate_check.enabled`)         |
-| `distribution_updated`           | Distribution mode/enabled changed via `PUT …/distribution`                   | `distribution` (full object from → to)                              |
-| `delivery_config_updated`        | Delivery config saved via `PUT …/delivery`                                   | `clients.{id}.delivery_config`, `clients.{id}.weight` (if provided) |
-| `lead_cap_updated`               | Affiliate cap set or removed via `PUT …/cap`                                 | `affiliates.{id}.lead_cap`                                          |
-| `criteria_field_added`           | Criteria field(s) created                                                    | `field_name`, `field_label`, `data_type` from null                  |
-| `criteria_field_updated`         | Criteria field property changed                                              | Changed properties only (e.g. `required`, `options`)                |
-| `criteria_field_deleted`         | Criteria field removed                                                       | `field_name` to null                                                |
-| `criteria_fields_reordered`      | Criteria field order changed                                                 | `order` for each moved field                                        |
-| `logic_rule_added`               | Logic rule created                                                           | `name`, `enabled`, `conditions`                                     |
-| `logic_rule_updated`             | Logic rule mutated                                                           | Changed scalar fields + condition diffs                             |
-| `logic_rule_deleted`             | Logic rule removed                                                           | `rule_id` to null                                                   |
-| `posting_instructions_generated` | Posting instructions document generated                                      | _(empty)_                                                           |
-| `client_linked`                  | Client added to campaign                                                     | `clients.{id}.client_id`, `clients.{id}.status` from null           |
-| `client_status_updated`          | Client status changed (e.g. TEST → LIVE)                                     | `clients.{id}.status` from → to                                     |
-| `client_deleted`                 | Client removed from campaign                                                 | `clients.{id}.client_id`, `clients.{id}.status` to null             |
-| `affiliate_linked`               | Affiliate added to campaign                                                  | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` from null  |
-| `affiliate_status_updated`       | Affiliate status changed (e.g. TEST → LIVE)                                  | `affiliates.{id}.status` from → to                                  |
-| `affiliate_pixel_updated`        | Affiliate sold pixel config saved via `PUT …/affiliates/{affiliateId}/pixel` | `affiliates.{id}.sold_pixel_config` from → to                       |
-| `affiliate_deleted`              | Affiliate removed from campaign                                              | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` to null    |
-| `affiliate_key_rotated`          | Affiliate campaign_key rotated                                               | `affiliates.{id}.campaign_key` old → new value                      |
+| `action`                         | When                                                                         | `changes[]` fields tracked                                         |
+| -------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `created`                        | New campaign created                                                         | _(empty — no prior state)_                                         |
+| `updated`                        | Campaign name changed                                                        | `name`                                                             |
+| `plugins_updated`                | QA plugin settings changed                                                   | Every mutated plugin field (e.g. `duplicate_check.enabled`)        |
+| `distribution_updated`           | Distribution mode/enabled changed via `PUT …/distribution`                   | `distribution` (full object from → to)                             |
+| `lead_cap_updated`               | Affiliate cap set or removed via `PUT …/cap`                                 | `affiliates.{id}.lead_cap`                                         |
+| `criteria_field_added`           | Criteria field(s) created                                                    | `field_name`, `field_label`, `data_type` from null                 |
+| `criteria_field_updated`         | Criteria field property changed                                              | Changed properties only (e.g. `required`, `options`)               |
+| `criteria_field_deleted`         | Criteria field removed                                                       | `field_name` to null                                               |
+| `criteria_fields_reordered`      | Criteria field order changed                                                 | `order` for each moved field                                       |
+| `logic_rule_added`               | Logic rule created                                                           | `name`, `enabled`, `conditions`                                    |
+| `logic_rule_updated`             | Logic rule mutated                                                           | Changed scalar fields + condition diffs                            |
+| `logic_rule_deleted`             | Logic rule removed                                                           | `rule_id` to null                                                  |
+| `posting_instructions_generated` | Posting instructions document generated                                      | _(empty)_                                                          |
+| `client_linked`                  | Client added to campaign                                                     | `clients.{id}.client_id`, `clients.{id}.status` from null          |
+| `client_status_updated`          | Client status changed (e.g. TEST → LIVE)                                     | `clients.{id}.status` from → to                                    |
+| `client_deleted`                 | Client removed from campaign                                                 | `clients.{id}.client_id`, `clients.{id}.status` to null            |
+| `affiliate_linked`               | Affiliate added to campaign                                                  | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` from null |
+| `affiliate_status_updated`       | Affiliate status changed (e.g. TEST → LIVE)                                  | `affiliates.{id}.status` from → to                                 |
+| `affiliate_pixel_updated`        | Affiliate sold pixel config saved via `PUT …/affiliates/{affiliateId}/pixel` | `affiliates.{id}.sold_pixel_config` from → to                      |
+| `affiliate_deleted`              | Affiliate removed from campaign                                              | `affiliates.{id}.affiliate_id`, `affiliates.{id}.status` to null   |
+| `affiliate_key_rotated`          | Affiliate campaign_key rotated                                               | `affiliates.{id}.campaign_key` old → new value                     |
 
 #### Lead events
 

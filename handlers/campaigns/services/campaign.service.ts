@@ -16,7 +16,7 @@ import {
   ICampaign,
   ICampaignAffiliate,
   ICampaignAffiliateOverride,
-  ICampaignClient,
+  ICampaignContract,
   ICampaignPlugins,
   IEditHistoryEntry,
   IFieldOption,
@@ -35,7 +35,6 @@ import {
   IValueMapping,
 } from "../interfaces/ICampaign.interface";
 import {
-  IClientDeliveryConfig,
   IClientResponseValidation,
   ILeadDistributionConfig,
   IDestination,
@@ -49,7 +48,7 @@ import {
   CreateLogicRuleRequest,
   GeneratePostingInstructionsRequest,
   LinkAffiliateRequest,
-  LinkClientRequest,
+  LinkContractRequest,
   ListCampaignsQuery,
   PostingInstructionsResult,
   ReorderCriteriaRequest,
@@ -57,7 +56,6 @@ import {
   SetAffiliateValidationBypassRequest,
   SetAffiliateSoldPixelRequest,
   SetCampaignTagsRequest,
-  SetClientDeliveryRequest,
   UpdateContractRequest,
   SetDistributionRequest,
   SetValueMappingsRequest,
@@ -130,7 +128,6 @@ export class CampaignService {
         name: (sanitized.name as string) || request.name,
         status: CampaignStatus.DRAFT,
         contracts: [],
-        clients: [],
         affiliates: [],
         plugins: this.getDefaultPlugins(),
         created_at: now,
@@ -323,171 +320,7 @@ export class CampaignService {
 
   async linkContract(
     campaignId: string,
-    request: LinkClientRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ICampaign>> {
-    return this.linkClient(campaignId, request, actor);
-  }
-
-  async updateContractStatus(
-    campaignId: string,
-    contractId: string,
-    request: UpdateContractRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ICampaign>> {
-    return this.updateClientStatus(campaignId, contractId, request, actor);
-  }
-
-  async setContractDelivery(
-    campaignId: string,
-    contractId: string,
-    request: SetClientDeliveryRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ICampaign>> {
-    return this.setClientDelivery(campaignId, contractId, request, actor);
-  }
-
-  async listContractDestinations(
-    campaignId: string,
-    contractId: string,
-  ): Promise<ServiceResult<IDestination[]>> {
-    return this.listDestinations(campaignId, contractId);
-  }
-
-  async getContractDestination(
-    campaignId: string,
-    contractId: string,
-    destId: string,
-  ): Promise<ServiceResult<IDestination>> {
-    return this.getDestination(campaignId, contractId, destId);
-  }
-
-  async addContractDestination(
-    campaignId: string,
-    contractId: string,
-    request: CreateDestinationRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<IDestination>> {
-    return this.addDestination(campaignId, contractId, request, actor);
-  }
-
-  async updateContractDestination(
-    campaignId: string,
-    contractId: string,
-    destId: string,
-    request: UpdateDestinationRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<IDestination>> {
-    return this.updateDestination(
-      campaignId,
-      contractId,
-      destId,
-      request,
-      actor,
-    );
-  }
-
-  async deleteContractDestination(
-    campaignId: string,
-    contractId: string,
-    destId: string,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<void>> {
-    return this.deleteDestination(campaignId, contractId, destId, actor);
-  }
-
-  async setContractResponseValidation(
-    campaignId: string,
-    contractId: string,
-    request: SetResponseValidationRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<IClientResponseValidation>> {
-    return this.setResponseValidation(campaignId, contractId, request, actor);
-  }
-
-  async getContractResponseValidation(
-    campaignId: string,
-    contractId: string,
-  ): Promise<ServiceResult<IClientResponseValidation | null>> {
-    return this.getResponseValidation(campaignId, contractId);
-  }
-
-  async deleteContract(
-    campaignId: string,
-    contractId: string,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ICampaign>> {
-    return this.deleteClient(campaignId, contractId, actor);
-  }
-
-  async listContractLogicRules(
-    campaignId: string,
-    contractId: string,
-  ): Promise<ServiceResult<ILogicRule[]>> {
-    return this.listClientLogicRules(campaignId, contractId);
-  }
-
-  async createContractLogicRule(
-    campaignId: string,
-    contractId: string,
-    request: CreateLogicRuleRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ILogicRule>> {
-    return this.createClientLogicRule(campaignId, contractId, request, actor);
-  }
-
-  async updateContractLogicRule(
-    campaignId: string,
-    contractId: string,
-    ruleId: string,
-    request: UpdateLogicRuleRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ILogicRule>> {
-    return this.updateClientLogicRule(
-      campaignId,
-      contractId,
-      ruleId,
-      request,
-      actor,
-    );
-  }
-
-  async deleteContractLogicRule(
-    campaignId: string,
-    contractId: string,
-    ruleId: string,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<{ id: string }>> {
-    return this.deleteClientLogicRule(campaignId, contractId, ruleId, actor);
-  }
-
-  async applyLogicCatalogToContract(
-    campaignId: string,
-    contractId: string,
-    request: ApplyLogicCatalogRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ILogicRule[]>> {
-    return this.applyLogicCatalogToClient(
-      campaignId,
-      contractId,
-      request,
-      actor,
-    );
-  }
-
-  async syncContractLogicToCampaign(
-    campaignId: string,
-    contractId: string,
-    actor?: RequestActor,
-  ): Promise<
-    ServiceResult<{ kept_rules: ILogicRule[]; removed_count: number }>
-  > {
-    return this.syncClientLogicToCampaign(campaignId, contractId, actor);
-  }
-
-  async linkClient(
-    campaignId: string,
-    request: LinkClientRequest,
+    request: LinkContractRequest,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
     try {
@@ -539,7 +372,7 @@ export class CampaignService {
         };
       }
 
-      const contracts = [...(campaign.contracts ?? campaign.clients ?? [])];
+      const contracts = [...(campaign.contracts ?? [])];
 
       if (
         requestedContractId &&
@@ -573,7 +406,7 @@ export class CampaignService {
         };
       }
 
-      const newContract: ICampaignClient = {
+      const newContract: ICampaignContract = {
         contract_id: contractId,
         ...(contractName ? { contract_name: contractName } : {}),
         client_id: clientId,
@@ -582,14 +415,12 @@ export class CampaignService {
       };
       contracts.push(newContract);
       campaign.contracts = contracts;
-      campaign.clients = contracts;
 
       const contractOverrides = { ...(campaign.contract_overrides ?? {}) };
       if (!contractOverrides[contractId]) {
         contractOverrides[contractId] = { logic_mode: "inherit_campaign" };
       }
       campaign.contract_overrides = contractOverrides;
-      campaign.client_overrides = contractOverrides;
 
       campaign.ever_linked_participants = true;
 
@@ -1559,7 +1390,7 @@ export class CampaignService {
     );
   }
 
-  async updateClientStatus(
+  async updateContractStatus(
     campaignId: string,
     clientId: string,
     request: UpdateContractRequest,
@@ -1650,27 +1481,16 @@ export class CampaignService {
           };
         }
       } else {
-        const dc = contract.delivery_config;
-        if (
-          !dc ||
-          !dc.url?.trim() ||
-          !dc.method ||
-          !dc.payload_mapping?.length ||
-          !dc.acceptance_rules?.length
-        ) {
-          return {
-            result: false,
-            error:
-              "Contract cannot be set to LIVE without a complete delivery configuration. " +
-              "Configure a webhook URL, HTTP method, at least one payload mapping, " +
-              "and at least one acceptance rule " +
-              "via PUT /campaigns/{id}/contracts/{contractId}/delivery first.",
-          };
-        }
+        return {
+          result: false,
+          error:
+            "Contract cannot be set to LIVE without at least one destination. " +
+            "Configure a destination in Destination Config first.",
+        };
       }
     }
 
-    return this.mutateClient(
+    return this.mutateContract(
       campaignId,
       clientId,
       (c) => {
@@ -1712,210 +1532,9 @@ export class CampaignService {
     );
   }
 
-  async setClientDelivery(
-    campaignId: string,
-    clientId: string,
-    request: SetClientDeliveryRequest,
-    actor?: RequestActor,
-  ): Promise<ServiceResult<ICampaign>> {
-    // Validate
-    if (!request.url?.trim()) {
-      return { result: false, error: "delivery_config.url is required" };
-    }
-    try {
-      new URL(request.url);
-    } catch {
-      return {
-        result: false,
-        error: "delivery_config.url must be a valid URL",
-      };
-    }
-    const allowedMethods = ["POST", "GET", "PUT", "PATCH"] as const;
-    if (!allowedMethods.includes(request.method as any)) {
-      return {
-        result: false,
-        error: `delivery_config.method must be one of: ${allowedMethods.join(", ")}`,
-      };
-    }
-    if (
-      !Array.isArray(request.payload_mapping) ||
-      request.payload_mapping.length === 0
-    ) {
-      return {
-        result: false,
-        error: "delivery_config.payload_mapping must have at least one entry",
-      };
-    }
-    for (const mapping of request.payload_mapping) {
-      if (!mapping.key?.trim()) {
-        return {
-          result: false,
-          error: "Each payload_mapping entry must have a non-empty key",
-        };
-      }
-      if (
-        mapping.value_source !== "field" &&
-        mapping.value_source !== "static" &&
-        mapping.value_source !== "lead_id"
-      ) {
-        return {
-          result: false,
-          error: `payload_mapping key "${mapping.key}": value_source must be one of "field", "static", "lead_id"`,
-        };
-      }
-      if (
-        mapping.parameter_target !== undefined &&
-        mapping.parameter_target !== "query" &&
-        mapping.parameter_target !== "body"
-      ) {
-        return {
-          result: false,
-          error: `payload_mapping key "${mapping.key}": parameter_target must be "query" or "body"`,
-        };
-      }
-      if (mapping.value_source === "field" && !mapping.field_name?.trim()) {
-        return {
-          result: false,
-          error: `payload_mapping key "${mapping.key}": field_name is required when value_source is "field"`,
-        };
-      }
-      if (
-        mapping.value_source === "static" &&
-        mapping.static_value === undefined
-      ) {
-        return {
-          result: false,
-          error: `payload_mapping key "${mapping.key}": static_value is required when value_source is "static"`,
-        };
-      }
-    }
-    if (
-      !Array.isArray(request.acceptance_rules) ||
-      request.acceptance_rules.length === 0
-    ) {
-      return {
-        result: false,
-        error: "delivery_config.acceptance_rules must have at least one entry",
-      };
-    }
-    for (const rule of request.acceptance_rules) {
-      if (!rule.match_value?.trim()) {
-        return {
-          result: false,
-          error: "Each acceptance_rule must have a non-empty match_value",
-        };
-      }
-      if (rule.action !== "passed" && rule.action !== "failed") {
-        return {
-          result: false,
-          error: `acceptance_rule match_value "${rule.match_value}": action must be "passed" or "failed"`,
-        };
-      }
-    }
-
-    if (
-      request.require_successful_claim !== undefined &&
-      typeof request.require_successful_claim !== "boolean"
-    ) {
-      return {
-        result: false,
-        error: "delivery_config.require_successful_claim must be a boolean",
-      };
-    }
-
-    if (
-      request.weight !== undefined &&
-      (typeof request.weight !== "number" ||
-        !Number.isInteger(request.weight) ||
-        request.weight < 1)
-    ) {
-      return {
-        result: false,
-        error: "weight must be a positive integer",
-      };
-    }
-
-    const deliveryConfig: IClientDeliveryConfig = {
-      url: request.url.trim(),
-      method: request.method,
-      ...(request.headers && Object.keys(request.headers).length > 0
-        ? { headers: request.headers }
-        : {}),
-      payload_mapping: request.payload_mapping,
-      acceptance_rules: request.acceptance_rules,
-      claim_trusted_form: true,
-      ...(request.require_successful_claim !== undefined
-        ? { require_successful_claim: request.require_successful_claim }
-        : {}),
-    };
-
-    try {
-      const campaign = await this.getCampaignById(campaignId);
-      if (!campaign || campaign.is_deleted) {
-        return { result: false, error: `Campaign ${campaignId} not found` };
-      }
-
-      const contract = this.findContract(campaign, clientId);
-      if (!contract) {
-        return {
-          result: false,
-          error: `Contract ${clientId} not linked to campaign`,
-        };
-      }
-
-      const prev = contract.delivery_config ?? null;
-      const prevWeight = contract.weight;
-      contract.delivery_config = deliveryConfig;
-      if (request.weight !== undefined) {
-        contract.weight = request.weight;
-      }
-
-      const now = new Date().toISOString();
-      campaign.updated_at = now;
-      campaign.updated_by = actor;
-
-      await this.dynamoDBUtil.put({
-        TableName: this.constants.CAMPAIGNS_TABLE_NAME,
-        Item: campaign,
-      });
-
-      await this.auditWriterService.writeAuditEvent({
-        entity_id: campaignId,
-        entity_type: "campaign",
-        action: "delivery_config_updated",
-        changes: [
-          {
-            field: `contracts.${contract.contract_id}.delivery_config`,
-            from: prev,
-            to: deliveryConfig,
-          },
-          ...(request.weight !== undefined
-            ? [
-                {
-                  field: `contracts.${contract.contract_id}.weight`,
-                  from: prevWeight ?? null,
-                  to: request.weight,
-                },
-              ]
-            : []),
-        ],
-        actor,
-        changed_at: now,
-      });
-
-      return { result: true, data: this.enrichCampaignForResponse(campaign) };
-    } catch (error: any) {
-      this.logger.error("Failed to set contract delivery config", error);
-      return {
-        result: false,
-        error: error.message || "Failed to set contract delivery config",
-      };
-    }
-  }
-
   // ── Destination CRUD ────────────────────────────────────────────────────────
 
-  async listDestinations(
+  async listContractDestinations(
     campaignId: string,
     clientId: string,
   ): Promise<ServiceResult<IDestination[]>> {
@@ -1941,7 +1560,7 @@ export class CampaignService {
     }
   }
 
-  async getDestination(
+  async getContractDestination(
     campaignId: string,
     clientId: string,
     destId: string,
@@ -1972,7 +1591,7 @@ export class CampaignService {
     }
   }
 
-  async addDestination(
+  async addContractDestination(
     campaignId: string,
     clientId: string,
     request: CreateDestinationRequest,
@@ -2107,7 +1726,7 @@ export class CampaignService {
     }
   }
 
-  async updateDestination(
+  async updateContractDestination(
     campaignId: string,
     clientId: string,
     destId: string,
@@ -2279,7 +1898,7 @@ export class CampaignService {
     }
   }
 
-  async deleteDestination(
+  async deleteContractDestination(
     campaignId: string,
     clientId: string,
     destId: string,
@@ -2346,7 +1965,7 @@ export class CampaignService {
     }
   }
 
-  async setResponseValidation(
+  async setContractResponseValidation(
     campaignId: string,
     clientId: string,
     request: SetResponseValidationRequest,
@@ -2483,7 +2102,7 @@ export class CampaignService {
     }
   }
 
-  async getResponseValidation(
+  async getContractResponseValidation(
     campaignId: string,
     clientId: string,
   ): Promise<ServiceResult<IClientResponseValidation | null>> {
@@ -3217,12 +2836,12 @@ export class CampaignService {
     }
   }
 
-  async deleteClient(
+  async deleteContract(
     campaignId: string,
     clientId: string,
     actor?: RequestActor,
   ): Promise<ServiceResult<ICampaign>> {
-    return this.mutateClient(
+    return this.mutateContract(
       campaignId,
       clientId,
       (c, campaign) => {
@@ -3230,7 +2849,6 @@ export class CampaignService {
           (x) => this.getContractIdentity(x) !== this.getContractIdentity(c),
         );
         campaign.contracts = contracts;
-        campaign.clients = contracts;
       },
       actor,
       { recordRemoval: true },
@@ -3362,40 +2980,31 @@ export class CampaignService {
     }
   }
 
-  private getCampaignContracts(campaign: ICampaign): ICampaignClient[] {
-    return campaign.contracts ?? campaign.clients ?? [];
+  private getCampaignContracts(campaign: ICampaign): ICampaignContract[] {
+    return campaign.contracts ?? [];
   }
 
-  private getContractIdentity(contract: ICampaignClient): string {
+  private getContractIdentity(contract: ICampaignContract): string {
     return contract.contract_id;
   }
 
   private findContract(
     campaign: ICampaign,
-    contractIdOrClientId: string,
-  ): ICampaignClient | undefined {
+    contractId: string,
+  ): ICampaignContract | undefined {
     const contracts = this.getCampaignContracts(campaign);
-    const byContractId = contracts.find(
-      (contract) => contract.contract_id === contractIdOrClientId,
-    );
-    if (byContractId) return byContractId;
-
-    // Legacy fallback for older client-id based callers.
-    const byClientId = contracts.filter(
-      (contract) => contract.client_id === contractIdOrClientId,
-    );
-    return byClientId[0];
+    return contracts.find((contract) => contract.contract_id === contractId);
   }
 
-  private async mutateClient(
+  private async mutateContract(
     campaignId: string,
     clientId: string,
-    mutate: (c: ICampaignClient, campaign: ICampaign) => void,
+    mutate: (c: ICampaignContract, campaign: ICampaign) => void,
     actor?: RequestActor,
     options: { recordRemoval?: boolean } = {},
     audit?: {
       action: AuditAction;
-      changes: (before: ICampaignClient) => AuditChange[];
+      changes: (before: ICampaignContract) => AuditChange[];
     },
   ): Promise<ServiceResult<ICampaign>> {
     try {
@@ -3427,8 +3036,7 @@ export class CampaignService {
       const auditChanges = audit ? audit.changes({ ...contract }) : [];
 
       if (options.recordRemoval) {
-        const removedContracts =
-          campaign.removed_contracts ?? campaign.removed_clients ?? [];
+        const removedContracts = campaign.removed_contracts ?? [];
         campaign.removed_contracts = [
           ...removedContracts,
           {
@@ -3440,12 +3048,10 @@ export class CampaignService {
             removed_by: actor,
           },
         ];
-        campaign.removed_clients = campaign.removed_contracts;
       }
 
       mutate(contract, campaign);
 
-      campaign.clients = this.getCampaignContracts(campaign);
       campaign.contracts = this.getCampaignContracts(campaign);
 
       campaign.updated_at = now;
@@ -3568,8 +3174,7 @@ export class CampaignService {
       const hasParticipantHistory =
         existing.ever_linked_participants === true ||
         (existing.removed_affiliates?.length ?? 0) > 0 ||
-        ((existing.removed_contracts ?? existing.removed_clients)?.length ??
-          0) > 0;
+        (existing.removed_contracts?.length ?? 0) > 0;
       const hasLeadHistory = existing.has_received_leads === true;
 
       if (options.permanent) {
@@ -5515,7 +5120,7 @@ export class CampaignService {
 
   // ── Per-Client Logic Rule Overrides ────────────────────────────────────────
 
-  async listClientLogicRules(
+  async listContractLogicRules(
     campaignId: string,
     clientId: string,
   ): Promise<ServiceResult<ILogicRule[]>> {
@@ -5530,10 +5135,7 @@ export class CampaignService {
           error: `Contract ${clientId} not found on this campaign`,
         };
       const contractId = this.getContractIdentity(contract);
-      const overrides =
-        (campaign.contract_overrides ?? campaign.client_overrides ?? {})[
-          contractId
-        ] ?? {};
+      const overrides = (campaign.contract_overrides ?? {})[contractId] ?? {};
       return { result: true, data: overrides.logic_rules ?? [] };
     } catch (error: any) {
       this.logger.error("Failed to list contract logic rules", error);
@@ -5544,7 +5146,7 @@ export class CampaignService {
     }
   }
 
-  async createClientLogicRule(
+  async createContractLogicRule(
     campaignId: string,
     clientId: string,
     request: CreateLogicRuleRequest,
@@ -5583,7 +5185,7 @@ export class CampaignService {
       };
 
       const overrides = {
-        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+        ...(campaign.contract_overrides ?? {}),
       };
       const existing = overrides[contractId] ?? {};
       overrides[contractId] = {
@@ -5591,7 +5193,6 @@ export class CampaignService {
         logic_rules: [...(existing.logic_rules ?? []), rule],
       };
       campaign.contract_overrides = overrides;
-      campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -5623,7 +5224,7 @@ export class CampaignService {
     }
   }
 
-  async updateClientLogicRule(
+  async updateContractLogicRule(
     campaignId: string,
     clientId: string,
     ruleId: string,
@@ -5643,7 +5244,7 @@ export class CampaignService {
       const contractId = this.getContractIdentity(contract);
 
       const overrides = {
-        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+        ...(campaign.contract_overrides ?? {}),
       };
       const existing = overrides[contractId] ?? {};
       const rules = existing.logic_rules ?? [];
@@ -5689,7 +5290,6 @@ export class CampaignService {
       updatedRules[ruleIndex] = updated;
       overrides[contractId] = { ...existing, logic_rules: updatedRules };
       campaign.contract_overrides = overrides;
-      campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -5720,7 +5320,7 @@ export class CampaignService {
     }
   }
 
-  async deleteClientLogicRule(
+  async deleteContractLogicRule(
     campaignId: string,
     clientId: string,
     ruleId: string,
@@ -5739,7 +5339,7 @@ export class CampaignService {
       const contractId = this.getContractIdentity(contract);
 
       const overrides = {
-        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+        ...(campaign.contract_overrides ?? {}),
       };
       const existing = overrides[contractId] ?? {};
       const rules = existing.logic_rules ?? [];
@@ -5756,7 +5356,6 @@ export class CampaignService {
         logic_rules: rules.filter((r) => r.id !== ruleId),
       };
       campaign.contract_overrides = overrides;
-      campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -5788,7 +5387,7 @@ export class CampaignService {
     }
   }
 
-  async applyLogicCatalogToClient(
+  async applyLogicCatalogToContract(
     campaignId: string,
     clientId: string,
     request: ApplyLogicCatalogRequest,
@@ -5825,7 +5424,7 @@ export class CampaignService {
         JSON.stringify(catalogVersion.rules),
       );
       const overrides = {
-        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+        ...(campaign.contract_overrides ?? {}),
       };
       const existing = overrides[contractId] ?? {};
       overrides[contractId] = {
@@ -5835,7 +5434,6 @@ export class CampaignService {
         logic_rules: rules,
       };
       campaign.contract_overrides = overrides;
-      campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -5882,7 +5480,7 @@ export class CampaignService {
    *   (same field_names AND same action).
    * - Keeps true overrides (same fields, different action) and unique rules.
    */
-  async syncClientLogicToCampaign(
+  async syncContractLogicToCampaign(
     campaignId: string,
     clientId: string,
     actor?: RequestActor,
@@ -5903,7 +5501,7 @@ export class CampaignService {
 
       const campaignRules = campaign.logic_rules ?? [];
       const overrides = {
-        ...(campaign.contract_overrides ?? campaign.client_overrides ?? {}),
+        ...(campaign.contract_overrides ?? {}),
       };
       const existing = overrides[contractId] ?? {};
       const clientRules = existing.logic_rules ?? [];
@@ -5945,7 +5543,6 @@ export class CampaignService {
         logic_rules: keptRules,
       };
       campaign.contract_overrides = overrides;
-      campaign.client_overrides = overrides;
       campaign.updated_at = now;
       campaign.updated_by = actor;
 
@@ -6119,8 +5716,8 @@ export class CampaignService {
   }
 
   private normalizeParticipants(campaign: ICampaign): ICampaign {
-    const sourceContracts = campaign.contracts ?? campaign.clients ?? [];
-    const normalizeContracts: ICampaignClient[] = sourceContracts.map(
+    const sourceContracts = campaign.contracts ?? [];
+    const normalizeContracts: ICampaignContract[] = sourceContracts.map(
       (c: any) => {
         if (typeof c === "string") {
           return {
@@ -6155,30 +5752,17 @@ export class CampaignService {
       },
     );
 
-    const normalizeRemovedContracts = (
-      campaign.removed_contracts ??
-      campaign.removed_clients ??
-      []
-    ).map((removed: any) => ({
-      ...removed,
-      contract_id: removed.contract_id ?? removed.client_id,
-      client_id: removed.client_id,
-    }));
+    const normalizeRemovedContracts = (campaign.removed_contracts ?? []).map(
+      (removed: any) => ({
+        ...removed,
+        contract_id: removed.contract_id ?? removed.client_id,
+        client_id: removed.client_id,
+      }),
+    );
 
     const normalizedContractOverrides: Record<string, any> = {
       ...(campaign.contract_overrides ?? {}),
     };
-    const legacyClientOverrides = campaign.client_overrides ?? {};
-    for (const contract of normalizeContracts) {
-      if (!normalizedContractOverrides[contract.contract_id]) {
-        const legacyOverride =
-          legacyClientOverrides[contract.contract_id] ??
-          legacyClientOverrides[contract.client_id];
-        if (legacyOverride) {
-          normalizedContractOverrides[contract.contract_id] = legacyOverride;
-        }
-      }
-    }
 
     const normalizeAffiliates: ICampaignAffiliate[] = (
       campaign.affiliates ?? []
@@ -6205,15 +5789,11 @@ export class CampaignService {
     return {
       ...campaignWithoutStatusHistory,
       contracts: normalizeContracts,
-      clients: normalizeContracts,
       affiliates: normalizeAffiliates,
       plugins: this.normalizePlugins(campaign.plugins),
       removed_contracts: normalizeRemovedContracts,
-      removed_clients: normalizeRemovedContracts,
       contract_overrides: normalizedContractOverrides,
-      client_overrides: normalizedContractOverrides,
-      rr_last_contract_id:
-        campaign.rr_last_contract_id ?? campaign.rr_last_client_id,
+      rr_last_contract_id: campaign.rr_last_contract_id,
       removed_affiliates: campaign.removed_affiliates ?? [],
       ever_linked_participants:
         campaign.ever_linked_participants === true ||

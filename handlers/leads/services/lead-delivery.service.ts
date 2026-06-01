@@ -15,15 +15,23 @@ import {
   ILogicRule,
 } from "../../campaigns/interfaces/ICampaign.interface";
 import {
-  IClientDeliveryConfig,
   ILeadDeliveryResult,
   IAffiliateSoldPixelConfig,
   IWebhookFieldMapping,
+  IWebhookAcceptanceRule,
   IDestination,
   IClientResponseValidation,
   IValidationRule,
 } from "../../campaigns/interfaces/IClientDelivery.interface";
 import { CampaignParticipantStatus } from "../../campaigns/enums/campaign-participant-status.enum";
+
+type DeliveryWebhookConfig = {
+  url: string;
+  method: "POST" | "GET" | "PUT" | "PATCH";
+  headers?: Record<string, string>;
+  payload_mapping: IWebhookFieldMapping[];
+  acceptance_rules: IWebhookAcceptanceRule[];
+};
 
 /**
  * Handles synchronous webhook delivery of accepted leads to buyer clients.
@@ -88,14 +96,17 @@ export class LeadDeliveryService {
       return;
     }
 
+    const primaryDestination = this.getPrimaryDestination(contract);
+    const shouldClaimTrustedForm = primaryDestination?.claim_trusted_form;
+
     // Claim the TrustedForm certificate before delivery if required.
-    if (contract.delivery_config?.claim_trusted_form) {
+    if (shouldClaimTrustedForm) {
       const { claimed, error: claimError } =
         await this.claimCertBeforeDelivery(lead);
       // Gate on claim failure if either: per-contract require_successful_claim is set,
       // OR the campaign-level TrustedForm plugin has gate=true ("Reject on failure").
       const claimGate =
-        contract.delivery_config.require_successful_claim === true ||
+        primaryDestination?.require_successful_claim === true ||
         campaign.plugins?.trusted_form?.gate === true;
       if (!claimed && claimGate) {
         this.logger.warn(
@@ -435,7 +446,7 @@ export class LeadDeliveryService {
     campaign: ICampaign,
     leadPayload: Record<string, unknown>,
   ): ICampaignContract | null {
-    const contracts = campaign.contracts ?? campaign.clients ?? [];
+    const contracts = campaign.contracts ?? [];
     const eligible = contracts.filter((c) => {
       if (
         c.status !== CampaignParticipantStatus.LIVE ||
@@ -447,10 +458,7 @@ export class LeadDeliveryService {
       // Resolve the effective logic rules for this contract based on logic_mode:
       // - "inherit_campaign" (default) → always use current campaign rules
       // - "pinned" (legacy) → use the contract's own override rules; fall back to campaign rules
-      const override =
-        campaign.contract_overrides?.[c.contract_id] ??
-        campaign.client_overrides?.[c.contract_id] ??
-        campaign.client_overrides?.[c.client_id];
+      const override = campaign.contract_overrides?.[c.contract_id];
       const mode = override?.logic_mode ?? "inherit_campaign";
       const overrideRules = override?.logic_rules ?? [];
       const effectiveRules =
@@ -473,10 +481,7 @@ export class LeadDeliveryService {
     }
 
     // round_robin (default)
-    return this.pickRoundRobin(
-      eligible,
-      campaign.rr_last_contract_id ?? campaign.rr_last_client_id,
-    );
+    return this.pickRoundRobin(eligible, campaign.rr_last_contract_id);
   }
 
   private pickRoundRobin(
@@ -583,39 +588,30 @@ export class LeadDeliveryService {
 
   private hasDeliverableContractConfig(contract: ICampaignContract): boolean {
     const primary = this.getPrimaryDestination(contract);
-    if (primary) {
-      if (
-        !primary.url?.trim() ||
-        !primary.method ||
-        !primary.payload_mapping?.length
-      ) {
-        return false;
-      }
+    if (!primary) return false;
+    if (
+      !primary.url?.trim() ||
+      !primary.method ||
+      !primary.payload_mapping?.length
+    ) {
+      return false;
+    }
 
-      if (primary.type === "webhook") {
-        const rules = this.normalizeResponseValidationRules(
-          contract.response_validation,
-        );
-        return rules.some(
-          (rule) =>
-            rule.destination_id === primary.id &&
-            rule.action === "passed" &&
-            rule.match_value?.trim().length > 0,
-        );
-      }
-
-      return (
-        primary.non_webhook_delivery_action === "passed" ||
-        primary.non_webhook_delivery_action === "failed"
+    if (primary.type === "webhook") {
+      const rules = this.normalizeResponseValidationRules(
+        contract.response_validation,
+      );
+      return rules.some(
+        (rule) =>
+          rule.destination_id === primary.id &&
+          rule.action === "passed" &&
+          rule.match_value?.trim().length > 0,
       );
     }
 
-    const dc = contract.delivery_config;
-    return !!(
-      dc?.url?.trim() &&
-      dc.method &&
-      dc.payload_mapping?.length &&
-      dc.acceptance_rules?.length
+    return (
+      primary.non_webhook_delivery_action === "passed" ||
+      primary.non_webhook_delivery_action === "failed"
     );
   }
 
@@ -636,27 +632,7 @@ export class LeadDeliveryService {
     distributionMode: "round_robin" | "weighted",
   ): Promise<ILeadDeliveryResult> {
     const primaryDestination = this.getPrimaryDestination(contract);
-    const config: IClientDeliveryConfig | null = primaryDestination
-      ? {
-          url: primaryDestination.url,
-          method: primaryDestination.method,
-          ...(primaryDestination.headers
-            ? { headers: primaryDestination.headers }
-            : {}),
-          payload_mapping: primaryDestination.payload_mapping,
-          acceptance_rules: primaryDestination.acceptance_rules ?? [],
-          claim_trusted_form: true,
-          ...(primaryDestination.require_successful_claim !== undefined
-            ? {
-                require_successful_claim:
-                  primaryDestination.require_successful_claim,
-              }
-            : {}),
-        }
-      : ((contract.delivery_config as IClientDeliveryConfig | undefined) ??
-        null);
-
-    if (!config) {
+    if (!primaryDestination) {
       return {
         contract_id: contract.contract_id,
         client_id: contract.client_id,
@@ -671,6 +647,23 @@ export class LeadDeliveryService {
         client_weight_at_delivery: contract.weight ?? 1,
       };
     }
+
+    const config = {
+      url: primaryDestination.url,
+      method: primaryDestination.method,
+      ...(primaryDestination.headers
+        ? { headers: primaryDestination.headers }
+        : {}),
+      payload_mapping: primaryDestination.payload_mapping,
+      acceptance_rules: primaryDestination.acceptance_rules ?? [],
+      claim_trusted_form: true,
+      ...(primaryDestination.require_successful_claim !== undefined
+        ? {
+            require_successful_claim:
+              primaryDestination.require_successful_claim,
+          }
+        : {}),
+    };
 
     const destinationType = primaryDestination?.type ?? "webhook";
     const nonWebhookDeliveryAction =
@@ -757,15 +750,6 @@ export class LeadDeliveryService {
           acceptanceMatch = successfulSend
             ? `status:${responseStatus}|${nonWebhookDeliveryAction ?? "failed"}`
             : undefined;
-        } else {
-          // Legacy delivery_config mode.
-          const matchResult = this.evaluateAcceptanceRules(
-            responseBody,
-            responseStatus,
-            config.acceptance_rules,
-          );
-          accepted = matchResult.accepted;
-          acceptanceMatch = matchResult.matchedValue;
         }
         error = undefined;
         break;
@@ -1146,7 +1130,7 @@ export class LeadDeliveryService {
    */
   private buildPayload(
     lead: ILead,
-    config: IClientDeliveryConfig,
+    config: DeliveryWebhookConfig,
   ): {
     queryParams: Record<string, unknown>;
     bodyPayload: Record<string, unknown>;
@@ -1249,34 +1233,6 @@ export class LeadDeliveryService {
     }
 
     return flattened;
-  }
-
-  /**
-   * Walk acceptance rules in order and return the first match.
-   * If no rule matches the response body, default to failed (no match = no sale).
-   */
-  private evaluateAcceptanceRules(
-    body: string,
-    status: number | undefined,
-    rules: IClientDeliveryConfig["acceptance_rules"] | undefined,
-  ): { accepted: boolean; matchedValue?: string } {
-    if (!Array.isArray(rules) || rules.length === 0) {
-      return { accepted: false };
-    }
-
-    const responseIndex = this.buildResponseIndex(body);
-
-    for (const rule of rules) {
-      if (this.matchesRuleExpression(rule.match_value, status, responseIndex)) {
-        return {
-          accepted: rule.action === "passed",
-          matchedValue: rule.match_value,
-        };
-      }
-    }
-
-    // No rule matched — treat as failed (no sale).
-    return { accepted: false };
   }
 
   private buildResponseIndex(body: string): {
@@ -1442,13 +1398,12 @@ export class LeadDeliveryService {
     try {
       // We already have the campaign in memory (passed by reference from
       // deliverLead). Mutate it so the in-memory copy stays consistent.
-      const contracts = campaign.contracts ?? campaign.clients ?? [];
+      const contracts = campaign.contracts ?? [];
       const contract = contracts.find((c) => c.contract_id === contractId);
       if (contract) {
         contract.leads_delivered_count =
           (contract.leads_delivered_count ?? 0) + 1;
         campaign.contracts = contracts;
-        campaign.clients = contracts;
       }
       campaign.updated_at = now;
 

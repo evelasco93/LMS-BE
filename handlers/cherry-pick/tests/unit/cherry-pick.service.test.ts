@@ -70,6 +70,7 @@ describe("CherryPickService cherry-pick metric emission", () => {
     dynamoDBUtil = {
       get: vi.fn(),
       update: vi.fn().mockResolvedValue(undefined),
+      scanAll: vi.fn(),
     };
     logger = {
       error: vi.fn(),
@@ -111,12 +112,11 @@ describe("CherryPickService cherry-pick metric emission", () => {
   });
 
   it("invokes recordLeadCherryPick once on the success path with the cherry-pick executed_at", async () => {
-    dynamoDBUtil.get
-      .mockResolvedValueOnce({ ...baseLead })
-      .mockResolvedValueOnce({ ...baseCampaign });
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...baseLead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([{ ...baseCampaign }]);
 
     const result = await service.executeCherryPick("LD-CP-1", {
-      target_client_id: "CLT1",
+      target_contract_id: "CT1",
     } as never);
 
     expect(result.result).toBe(true);
@@ -137,11 +137,10 @@ describe("CherryPickService cherry-pick metric emission", () => {
 
   it("does not emit a second metric when the same lead is cherry-picked twice (early-return idempotency)", async () => {
     // First call: lead is pickable, succeeds, emits one metric.
-    dynamoDBUtil.get
-      .mockResolvedValueOnce({ ...baseLead })
-      .mockResolvedValueOnce({ ...baseCampaign });
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...baseLead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([{ ...baseCampaign }]);
     await service.executeCherryPick("LD-CP-1", {
-      target_client_id: "CLT1",
+      target_contract_id: "CT1",
     } as never);
     expect(metricsService.recordLeadCherryPick).toHaveBeenCalledTimes(1);
 
@@ -153,7 +152,7 @@ describe("CherryPickService cherry-pick metric emission", () => {
     });
 
     const second = await service.executeCherryPick("LD-CP-1", {
-      target_client_id: "CLT1",
+      target_contract_id: "CT1",
     } as never);
 
     expect(second.result).toBe(false);
@@ -164,14 +163,13 @@ describe("CherryPickService cherry-pick metric emission", () => {
   });
 
   it("forwards a metrics emit failure to the shared metrics DLQ without rolling back the cherry-pick", async () => {
-    dynamoDBUtil.get
-      .mockResolvedValueOnce({ ...baseLead })
-      .mockResolvedValueOnce({ ...baseCampaign });
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...baseLead });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([{ ...baseCampaign }]);
     const emitError = new Error("dynamodb transact failed");
     metricsService.recordLeadCherryPick.mockRejectedValueOnce(emitError);
 
     const result = await service.executeCherryPick("LD-CP-1", {
-      target_client_id: "CLT1",
+      target_contract_id: "CT1",
     } as never);
 
     // Cherry-pick itself still succeeds — the lead row was already persisted
@@ -402,7 +400,6 @@ describe("CherryPickService contract-based delivery (Option A)", () => {
     expect(result.result).toBe(true);
     expect(result.data).toMatchObject({
       target_contract_id: "CT-LIVE",
-      target_client_id: "CLT-A",
       target_campaign_id: "CM-TGT-CLOSED",
       // Source attribution preserved — Option A.
       source_campaign_id: "CM-SRC",

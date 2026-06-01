@@ -81,14 +81,6 @@ export class CampaignsRoutes extends Construct {
     protect(campaignContractResource, "PUT", integration, [writeScope]);
     protect(campaignContractResource, "DELETE", integration, [writeScope]);
 
-    // PUT /v2/campaigns/{id}/contracts/{contractId}/delivery
-    protect(
-      campaignContractResource.addResource("delivery"),
-      "PUT",
-      integration,
-      [writeScope],
-    );
-
     // ── Contract destinations ────────────────────────────────────────────────
     const campaignContractDestinationsResource =
       campaignContractResource.addResource("destinations");

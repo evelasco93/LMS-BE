@@ -122,7 +122,7 @@ export class CherryPickController extends Controller {
 
   /**
    * POST /cherry-pick/:leadId/execute
-   * Execute a cherry-pick delivery of a lead to a specific client.
+   * Execute a cherry-pick delivery of a lead to a specific contract.
    */
   @POST("/:leadId/execute")
   @produces("application/json")
@@ -130,7 +130,7 @@ export class CherryPickController extends Controller {
     @pathParam("leadId") leadId: string,
     @body payload: ExecuteCherryPickRequest,
   ): Promise<RestApiResponse> {
-    if (!payload?.target_contract_id && !payload?.target_client_id) {
+    if (!payload?.target_contract_id) {
       return this.fail("target_contract_id is required", undefined, 400);
     }
 

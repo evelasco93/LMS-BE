@@ -1,90 +1,4 @@
 {
-  "openapi": "3.0.3",
-  "info": {
-    "title": "LMS API",
-    "version": "2.0.0",
-    "description": "Lead Management System API. Internal management routes require a Bearer token obtained from POST /v2/auth/login (Cognito-backed). External lead intake routes are open and authenticate via campaign_id + campaign_key in the request body."
-  },
-  "servers": [
-    {
-      "url": "https://3ifu8b0q2h.execute-api.us-east-1.amazonaws.com/dev/v2",
-      "description": "Development - Internal API (Bearer token)"
-    },
-    {
-      "url": "https://uj580pu31h.execute-api.us-east-1.amazonaws.com/dev/v2",
-      "description": "Development - External Leads API (open \u2014 campaign_id + campaign_key auth)"
-    }
-  ],
-  "tags": [
-    {
-      "name": "auth",
-      "description": "Obtain and refresh Bearer tokens for internal API access"
-    },
-    {
-      "name": "clients",
-      "description": "Manage clients lifecycle"
-    },
-    {
-      "name": "affiliates",
-      "description": "Manage affiliates and their status"
-    },
-    {
-      "name": "campaigns",
-      "description": "Configure campaigns, participants, and status transitions"
-    },
-    {
-      "name": "leads",
-      "description": "Submit test and live leads"
-    },
-    {
-      "name": "metrics",
-      "description": "Query lead outcome counters and health over time windows"
-    },
-    {
-      "name": "tenant-config",
-      "description": "Manage provider credentials for tenant integrations"
-    },
-    {
-      "name": "users",
-      "description": "Manage Cognito-backed user accounts and roles (admin only)"
-    },
-    {
-      "name": "audit",
-      "description": "Query audit logs and trigger S3 exports (admin only)"
-    }
-  ],
-  "paths": {
-    "/auth/login": {
-      "post": {
-        "summary": "Login \u2014 exchange email + password for tokens",
-        "description": "Wraps Cognito USER_PASSWORD_AUTH. Returns id_token, access_token, and refresh_token. Use the id_token as the Bearer token on all internal API calls \u2014 the API Gateway Cognito authorizer validates ID tokens.",
-        "tags": ["auth"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LoginRequest"
-              },
-              "examples": {
-                "default": {
-                  "value": {
-                    "email": "admin@example.com",
-                    "password": "YourPassword1!"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Tokens issued",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthTokenResponse"
-                }
               }
             }
           },
@@ -3004,92 +2918,6 @@
         }
       }
     },
-    "/cherry-pick/eligible-clients": {
-      "get": {
-        "summary": "List eligible clients for cherry-pick",
-        "tags": ["leads"],
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "lead_id",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Lead ID to evaluate against LIVE client delivery configs"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Eligible clients retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "clients": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "client_id": {
-                                "type": "string"
-                              },
-                              "client_name": {
-                                "type": "string"
-                              },
-                              "campaign_id": {
-                                "type": "string"
-                              },
-                              "campaign_name": {
-                                "type": "string"
-                              },
-                              "status": {
-                                "$ref": "#/components/schemas/CampaignParticipantStatus"
-                              },
-                              "delivery_url": {
-                                "type": "string",
-                                "format": "uri"
-                              }
-                            },
-                            "required": [
-                              "client_id",
-                              "client_name",
-                              "campaign_id",
-                              "campaign_name",
-                              "status"
-                            ]
-                          }
-                        }
-                      },
-                      "required": ["clients"]
-                    }
-                  },
-                  "required": ["success"]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        }
-      }
-    },
     "/cherry-pick/eligible-contracts": {
       "get": {
         "summary": "List eligible contracts for cherry-pick",
@@ -3261,14 +3089,11 @@
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["target_contract_id"],
                 "properties": {
                   "target_contract_id": {
                     "type": "string",
-                    "description": "Contract to deliver to. Preferred over target_client_id. Must reference a contract whose status is LIVE."
-                  },
-                  "target_client_id": {
-                    "type": "string",
-                    "description": "[DEPRECATED] Buyer client_id. Resolved to a contract on the lead's source campaign. Prefer target_contract_id."
+                    "description": "Contract to deliver to. Must reference a contract whose status is LIVE."
                   },
                   "campaign_id": {
                     "type": "string"
@@ -3288,11 +3113,7 @@
                   "skip_ipqs_ip": {
                     "type": "boolean"
                   }
-                },
-                "anyOf": [
-                  { "required": ["target_contract_id"] },
-                  { "required": ["target_client_id"] }
-                ]
+                }
               }
             }
           }
@@ -6143,13 +5964,16 @@
       "CherryPickMeta": {
         "type": "object",
         "required": [
-          "target_client_id",
+          "target_contract_id",
           "source_campaign_id",
           "delivery_result",
           "executed_at"
         ],
         "properties": {
-          "target_client_id": {
+          "target_contract_id": {
+            "type": "string"
+          },
+          "target_campaign_id": {
             "type": "string"
           },
           "source_campaign_id": {
@@ -8166,7 +7990,6 @@
               "password_reset",
               "posting_instructions_generated",
               "lead_delivered",
-              "delivery_config_updated",
               "lead_cap_updated",
               "delivery_skipped",
               "cert_claimed",

@@ -350,7 +350,7 @@ export class ClientService {
 
       const linkedCampaigns = await this.findCampaignsWithClient(id);
       const activeCampaignLinks = linkedCampaigns.filter((campaign) =>
-        (campaign.clients ?? []).some(
+        (campaign.contracts ?? []).some(
           (c) =>
             c.client_id === id &&
             c.status !== CampaignParticipantStatus.DISABLED,
@@ -450,19 +450,19 @@ export class ClientService {
     {
       id: string;
       name: string;
-      clients?: { client_id: string; status?: CampaignParticipantStatus }[];
+      contracts?: { client_id: string; status?: CampaignParticipantStatus }[];
     }[]
   > {
     const scanResult = await this.dynamoDBUtil.scan<{
       id: string;
       name: string;
-      clients?: { client_id: string; status?: CampaignParticipantStatus }[];
+      contracts?: { client_id: string; status?: CampaignParticipantStatus }[];
     }>({
       TableName: this.constants.CAMPAIGNS_TABLE_NAME,
     });
 
     return (scanResult.items ?? []).filter((campaign) =>
-      (campaign.clients ?? []).some((c) => c.client_id === clientId),
+      (campaign.contracts ?? []).some((c) => c.client_id === clientId),
     );
   }
 
@@ -473,7 +473,7 @@ export class ClientService {
   > {
     const campaigns = await this.findCampaignsWithClient(clientId);
     return campaigns.map((campaign) => {
-      const link = (campaign.clients ?? []).find(
+      const link = (campaign.contracts ?? []).find(
         (c) => c.client_id === clientId,
       );
       return {

@@ -22,9 +22,6 @@ export type LinkContractRequest = {
   contract_name?: string;
 };
 
-/** @deprecated Prefer LinkContractRequest. */
-export type LinkClientRequest = LinkContractRequest;
-
 export type LinkAffiliateRequest = {
   affiliate_id: string;
 };
@@ -173,22 +170,6 @@ export {
   ILeadDistributionConfig,
   IDestination,
 } from "../interfaces/IClientDelivery.interface";
-
-/** Body for PUT /campaigns/{id}/contracts/{contractId}/delivery */
-export type SetContractDeliveryRequest = Omit<
-  import("../interfaces/IClientDelivery.interface").IClientDeliveryConfig,
-  "claim_trusted_form"
-> & {
-  /**
-   * Relative weight for weighted distribution mode (positive integer, default 1).
-   * Higher values = proportionally more leads routed to this client.
-   * Only meaningful when the campaign distribution mode is "weighted".
-   */
-  weight?: number;
-};
-
-/** @deprecated Prefer SetContractDeliveryRequest. */
-export type SetClientDeliveryRequest = SetContractDeliveryRequest;
 
 /** Body for PUT /campaigns/{id}/distribution */
 export type SetDistributionRequest = {

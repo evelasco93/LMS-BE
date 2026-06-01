@@ -43,7 +43,7 @@ describe("CherryPickController status mapping", () => {
     });
 
     const result = await controller.executeCherryPick("LD1", {
-      target_client_id: "CLT1",
+      target_contract_id: "CT1",
     });
 
     expect(statusSpy).toHaveBeenCalledWith(409);
@@ -71,7 +71,7 @@ describe("CherryPickController status mapping", () => {
     expect(result.data).toEqual({ contracts: [] });
   });
 
-  it("executeCherryPick accepts target_contract_id and returns 400 when neither id is provided", async () => {
+  it("executeCherryPick accepts target_contract_id and returns 400 when it is missing", async () => {
     const result = await controller.executeCherryPick("LD1", {} as never);
     expect(statusSpy).toHaveBeenCalledWith(400);
     expect(result.success).toBe(false);

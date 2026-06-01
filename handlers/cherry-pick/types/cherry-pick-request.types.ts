@@ -1,15 +1,8 @@
 export type ExecuteCherryPickRequest = {
-  /** ID of the contract to deliver the lead to. Preferred over target_client_id. */
+  /** ID of the contract to deliver the lead to. */
   target_contract_id?: string;
   /**
-   * @deprecated Prefer target_contract_id. Buyer client_id used to resolve a
-   * contract on the campaign when target_contract_id is not provided.
-   */
-  target_client_id?: string;
-  /**
-   * Campaign to look up the contract from. Defaults to the contract's parent
-   * campaign (when target_contract_id is provided) or the lead's source
-   * campaign (legacy target_client_id flow).
+   * Optional campaign hint used when resolving the contract.
    */
   campaign_id?: string;
   /** When true, also dispatch source affiliate sold pixel after a sold cherry-pick. Defaults to false. */

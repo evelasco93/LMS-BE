@@ -8,7 +8,7 @@ export const mockCampaign: ICampaign = {
   id: "CMABCDEFGH",
   name: "Summer Promo",
   status: CampaignStatus.ACTIVE,
-  clients: [{ client_id: "CL123", status: CampaignParticipantStatus.LIVE }],
+  contracts: [{ contract_id: "CT123", client_id: "CL123", status: CampaignParticipantStatus.LIVE }],
   affiliates: [
     {
       affiliate_id: "AF123",
@@ -78,7 +78,7 @@ export const emptyCampaign: ICampaign = {
   id: "CMEMPTY01",
   name: "Empty Campaign",
   status: CampaignStatus.DRAFT,
-  clients: [],
+  contracts: [],
   affiliates: [],
   base_criteria: [{ field_name: "email", operator: "is_not_empty", value: "" }],
   logic_rules: [
@@ -142,7 +142,7 @@ export const campaignWithAffiliate: ICampaign = {
   id: "CMAFFIL01",
   name: "Affiliate Campaign",
   status: CampaignStatus.ACTIVE,
-  clients: [],
+  contracts: [],
   affiliates: [
     {
       affiliate_id: "AF777",
