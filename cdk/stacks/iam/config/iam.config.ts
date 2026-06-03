@@ -291,6 +291,28 @@ export const iamConfig: IIamStackConfig = {
         },
       ],
     },
+    metrics: {
+      name: nameBuilder.role("metrics-lambda"),
+      description: "Execution role for Metrics Lambda",
+      servicePrincipal: "lambda.amazonaws.com",
+      managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
+      inlinePolicies: [
+        {
+          name: "MetricsRead",
+          actions: [
+            "dynamodb:DescribeTable",
+            "dynamodb:GetItem",
+            "dynamodb:Query",
+          ],
+          resources: [metricsTableArn, `${metricsTableArn}/index/*`],
+        },
+        {
+          name: "CampaignsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"],
+          resources: [campaignsTableArn, `${campaignsTableArn}/index/*`],
+        },
+      ],
+    },
     tenantConfig: {
       name: nameBuilder.role("tenant-config-lambda"),
       description: "Execution role for Tenant Config Lambda",

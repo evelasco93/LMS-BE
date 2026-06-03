@@ -899,3 +899,67 @@ describe("MetricsService counter aggregation for cherry_picked", () => {
     expect(result.campaign_summary.counters.cherry_picked).toBe(4);
   });
 });
+
+describe("MetricsService query validation bounds", () => {
+  let dynamoDBUtil: any;
+  let logger: any;
+  let constants: any;
+  let service: MetricsService;
+
+  beforeEach(() => {
+    dynamoDBUtil = {
+      get: vi.fn(),
+      queryAll: vi.fn(),
+      scanAll: vi.fn(),
+    };
+    logger = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+    };
+    constants = {
+      METRICS_TABLE_NAME: "metrics-table",
+      METRICS_TABLE_PARTITION_KEY: "pk",
+      METRICS_TABLE_SORT_KEY: "sk",
+      METRICS_TABLE_ITEM_TYPE_ATTRIBUTE: "item_type",
+      METRICS_TABLE_BUCKET_START_ATTRIBUTE: "bucket_start",
+      METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME: "metrics-item-type-index",
+      METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY: "item_type",
+      METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY: "bucket_start",
+      CAMPAIGNS_TABLE_NAME: "campaigns-table",
+    };
+    service = new MetricsService(dynamoDBUtil, logger, constants);
+  });
+
+  it("rejects future to_date", async () => {
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowIso = tomorrow.toISOString().slice(0, 10);
+
+    await expect(
+      service.getSummary({
+        from_date: "2026-01-01",
+        to_date: tomorrowIso,
+      }),
+    ).rejects.toThrow("to_date cannot be in the future");
+  });
+
+  it("rejects invalid calendar dates", async () => {
+    await expect(
+      service.getSummary({
+        from_date: "2026-02-30",
+        to_date: "2026-03-01",
+      }),
+    ).rejects.toThrow("from_date and to_date must be YYYY-MM-DD");
+  });
+
+  it("rejects range larger than configured max window", async () => {
+    await expect(
+      service.getSummary({
+        from_date: "2024-01-01",
+        to_date: "2026-01-01",
+      }),
+    ).rejects.toThrow("date range exceeds maximum window");
+  });
+});

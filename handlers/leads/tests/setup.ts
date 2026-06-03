@@ -70,6 +70,7 @@ export function createMockMetricsService() {
     recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
     recordLeadOutcomeFromEvent: vi.fn().mockResolvedValue(undefined),
     getSummary: vi.fn(),
+    getDashboard: vi.fn(),
     getTimeseries: vi.fn(),
     getBreakdown: vi.fn(),
     getContracts: vi.fn(),

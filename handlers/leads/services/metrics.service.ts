@@ -18,6 +18,7 @@ import {
 import type { LeadOutcomeEvent } from "../types/lead-outcome-event.types";
 import {
   DayNightBucket,
+  MetricsDashboardData,
   IpqsCheckRollup,
   IpqsRollup,
   MetricsBreakdownData,
@@ -39,6 +40,8 @@ import {
 
 @injectable()
 export class MetricsService {
+  private static readonly MAX_QUERY_RANGE_DAYS = 366;
+
   private readonly docClient: DynamoDBDocumentClient;
 
   constructor(
@@ -1005,6 +1008,50 @@ export class MetricsService {
     };
   }
 
+  async getDashboard(query: MetricsQuery): Promise<MetricsDashboardData> {
+    this.validateQuery(query);
+
+    const [
+      summary,
+      timeseries,
+      campaignBySource,
+      contracts,
+      timeseriesBySource,
+      hourly,
+      ipqs,
+      quality,
+    ] = await Promise.all([
+      this.getSummary(query),
+      this.getTimeseries(query),
+      this.getBreakdown(query),
+      this.getContracts(query),
+      this.getTimeseriesBySource(query),
+      this.getHourly(query),
+      this.getIpqs(query),
+      this.getQuality(query),
+    ]);
+
+    return {
+      range: {
+        from_date: query.from_date,
+        to_date: query.to_date,
+      },
+      filters: {
+        ...(query.campaign_id ? { campaign_id: query.campaign_id } : {}),
+        ...(query.campaign_key ? { campaign_key: query.campaign_key } : {}),
+        ...(query.affiliate_id ? { affiliate_id: query.affiliate_id } : {}),
+      },
+      summary,
+      timeseries,
+      campaign_by_source: campaignBySource,
+      contracts,
+      timeseries_by_source: timeseriesBySource,
+      hourly,
+      ipqs,
+      quality,
+    };
+  }
+
   /**
    * Multi-line per-affiliate timeseries (item 3). Two modes:
    *   - `campaign_id` provided: one series per LIVE `(affiliate_id,
@@ -1279,7 +1326,12 @@ export class MetricsService {
   }
 
   private validateQuery(query: MetricsQuery): void {
-    const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const isDate = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      if (Number.isNaN(parsed.getTime())) return false;
+      return parsed.toISOString().slice(0, 10) === value;
+    };
 
     if (!query.from_date || !query.to_date) {
       throw new Error("from_date and to_date are required (YYYY-MM-DD)");
@@ -1290,6 +1342,22 @@ export class MetricsService {
     if (query.from_date > query.to_date) {
       throw new Error("from_date must be less than or equal to to_date");
     }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (query.to_date > today) {
+      throw new Error("to_date cannot be in the future");
+    }
+
+    const fromDate = new Date(`${query.from_date}T00:00:00.000Z`);
+    const toDate = new Date(`${query.to_date}T00:00:00.000Z`);
+    const diffDays =
+      Math.floor((toDate.getTime() - fromDate.getTime()) / 86_400_000) + 1;
+    if (diffDays > MetricsService.MAX_QUERY_RANGE_DAYS) {
+      throw new Error(
+        `date range exceeds maximum window of ${MetricsService.MAX_QUERY_RANGE_DAYS} days`,
+      );
+    }
+
     if (query.affiliate_id && query.campaign_key) {
       // Mutual exclusion: affiliate_id is the per-affiliate pivot, campaign_key
       // is the per-link pivot; combining them is ambiguous (per CR-001 §20).

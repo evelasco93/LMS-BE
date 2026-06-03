@@ -18,6 +18,7 @@ export class IamStack extends Stack {
   public readonly affiliatesLambdaRole: Role;
   public readonly campaignsLambdaRole: Role;
   public readonly leadsLambdaRole: Role;
+  public readonly metricsLambdaRole: Role;
   public readonly tenantConfigLambdaRole: Role;
   public readonly qaOrchestratorLambdaRole: Role;
   public readonly qaDuplicateCheckLambdaRole: Role;
@@ -58,6 +59,11 @@ export class IamStack extends Stack {
     this.leadsLambdaRole = this.createRole(
       `${config.appPrefix}-LeadsLambdaRole`,
       iamConfig.lambdaRoles.leads,
+    );
+
+    this.metricsLambdaRole = this.createRole(
+      `${config.appPrefix}-MetricsLambdaRole`,
+      iamConfig.lambdaRoles.metrics,
     );
 
     this.tenantConfigLambdaRole = this.createRole(

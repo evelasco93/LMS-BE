@@ -5,6 +5,7 @@ import { ClientsServiceStack } from "./clients-service.stack";
 import { AffiliatesServiceStack } from "./affiliates-service.stack";
 import { CampaignsServiceStack } from "./campaigns-service.stack";
 import { LeadsServiceStack } from "./leads-service.stack";
+import { MetricsServiceStack } from "./metrics-service.stack";
 import { TenantConfigServiceStack } from "./tenant-config-service.stack";
 import { QaOrchestratorServiceStack } from "./qa-orchestrator-service.stack";
 import { QaDuplicateCheckServiceStack } from "./qa-duplicate-check-service.stack";
@@ -22,6 +23,7 @@ export class ServicesStack extends Stack {
   public readonly affiliatesLambda: IFunction;
   public readonly campaignsLambda: IFunction;
   public readonly leadsLambda: IFunction;
+  public readonly metricsLambda: IFunction;
   public readonly tenantConfigLambda: IFunction;
   public readonly qaOrchestratorLambda: IFunction;
   public readonly qaDuplicateCheckLambda: IFunction;
@@ -59,6 +61,17 @@ export class ServicesStack extends Stack {
       },
     );
     this.leadsLambda = leadsServiceStack.lambda;
+
+    const metricsServiceStack = new MetricsServiceStack(
+      this,
+      `${config.appPrefix}-MetricsService`,
+      {
+        lambdaConfig: servicesConfig.metrics.lambda,
+        roleName: servicesConfig.metrics.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.metricsLambda = metricsServiceStack.lambda;
 
     const tenantConfigServiceStack = new TenantConfigServiceStack(
       this,
@@ -238,6 +251,12 @@ export class ServicesStack extends Stack {
       value: this.leadsLambda.functionArn,
       description: "Leads Lambda Function ARN",
       exportName: `${config.appPrefix}-leads-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-MetricsLambdaArn`, {
+      value: this.metricsLambda.functionArn,
+      description: "Metrics Lambda Function ARN",
+      exportName: `${config.appPrefix}-metrics-lambda-arn`,
     });
 
     new CfnOutput(this, `${config.appPrefix}-TenantConfigLambdaArn`, {

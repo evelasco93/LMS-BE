@@ -85,6 +85,14 @@ export type QualityRollup = {
 export type MetricsQuery = {
   from_date: string;
   to_date: string;
+  time_preset?:
+    | "year_to_date"
+    | "this_month"
+    | "last_30_days"
+    | "last_7_days"
+    | "yesterday"
+    | "today"
+    | "all_time";
   campaign_id?: string;
   campaign_key?: string;
   affiliate_id?: string;
@@ -118,6 +126,40 @@ export type MetricsSummaryData = {
     total_received: number;
     share_percent: number;
   } | null;
+};
+
+export type MetricsDashboardData = {
+  range: {
+    from_date: string;
+    to_date: string;
+  };
+  filters: {
+    campaign_id?: string;
+    campaign_key?: string;
+    affiliate_id?: string;
+  };
+  summary: MetricsSummaryData;
+  timeseries: MetricsTimeseriesData;
+  campaign_by_source: MetricsBreakdownData;
+  contracts: MetricsContractsData;
+  timeseries_by_source: MetricsTimeseriesBySourceData;
+  hourly: MetricsHourlyData;
+  ipqs: {
+    range: {
+      from_date: string;
+      to_date: string;
+    };
+    filters: MetricsSummaryData["filters"];
+    ipqs: IpqsRollup;
+  };
+  quality: {
+    range: {
+      from_date: string;
+      to_date: string;
+    };
+    filters: MetricsSummaryData["filters"];
+    quality: QualityRollup;
+  };
 };
 
 export type MetricsTimeseriesData = {

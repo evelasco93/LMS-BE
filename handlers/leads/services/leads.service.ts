@@ -19,6 +19,7 @@ import {
 } from "../types/lead-request.types";
 import { LeadIntakeResponse, ServiceResult } from "../types/common.types";
 import {
+  MetricsDashboardData,
   MetricsBreakdownData,
   MetricsContractsData,
   MetricsHealthData,
@@ -62,6 +63,8 @@ import {
 import { resolveStateMappings } from "@shared/constants";
 import { applyCasing } from "@shared/utils/casing.util";
 
+type MetricsTimePreset = NonNullable<MetricsQuery["time_preset"]>;
+
 @injectable()
 export class LeadsService {
   constructor(
@@ -79,6 +82,119 @@ export class LeadsService {
     @inject("MetricsDlqClient")
     private readonly metricsDlqClient: MetricsDlqClient,
   ) {}
+
+  private static readonly METRICS_TIME_PRESETS: MetricsTimePreset[] = [
+    "year_to_date",
+    "this_month",
+    "last_30_days",
+    "last_7_days",
+    "yesterday",
+    "today",
+    "all_time",
+  ];
+
+  private isSupportedMetricsTimePreset(
+    value: string,
+  ): value is MetricsTimePreset {
+    return LeadsService.METRICS_TIME_PRESETS.includes(
+      value as MetricsTimePreset,
+    );
+  }
+
+  private toIsoDateUtc(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private resolveMetricsDateRangeFromPreset(
+    preset: MetricsTimePreset,
+  ): Pick<MetricsQuery, "from_date" | "to_date"> {
+    const now = new Date();
+    const to = this.toIsoDateUtc(now);
+
+    if (preset === "today") {
+      return { from_date: to, to_date: to };
+    }
+
+    if (preset === "yesterday") {
+      const yesterday = new Date(now);
+      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+      const day = this.toIsoDateUtc(yesterday);
+      return { from_date: day, to_date: day };
+    }
+
+    if (preset === "last_7_days") {
+      const from = new Date(now);
+      from.setUTCDate(from.getUTCDate() - 6);
+      return { from_date: this.toIsoDateUtc(from), to_date: to };
+    }
+
+    if (preset === "last_30_days") {
+      const from = new Date(now);
+      from.setUTCDate(from.getUTCDate() - 29);
+      return { from_date: this.toIsoDateUtc(from), to_date: to };
+    }
+
+    if (preset === "this_month") {
+      const from = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+      );
+      return { from_date: this.toIsoDateUtc(from), to_date: to };
+    }
+
+    if (preset === "year_to_date") {
+      const from = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+      return { from_date: this.toIsoDateUtc(from), to_date: to };
+    }
+
+    return { from_date: "1970-01-01", to_date: to };
+  }
+
+  private resolveDashboardMetricsQuery(
+    query: Partial<MetricsQuery>,
+  ): MetricsQuery {
+    const hasFrom =
+      typeof query.from_date === "string" && query.from_date.length > 0;
+    const hasTo = typeof query.to_date === "string" && query.to_date.length > 0;
+
+    if (hasFrom !== hasTo) {
+      throw new Error(
+        "from_date and to_date must be provided together, or send time_preset",
+      );
+    }
+
+    // Precedence rule: explicit dates win when both explicit and preset are provided.
+    if (hasFrom && hasTo) {
+      return {
+        from_date: query.from_date!,
+        to_date: query.to_date!,
+        campaign_id: query.campaign_id,
+        campaign_key: query.campaign_key,
+        affiliate_id: query.affiliate_id,
+      };
+    }
+
+    const preset = query.time_preset;
+    if (!preset) {
+      throw new Error(
+        "from_date and to_date are required (YYYY-MM-DD), or send time_preset",
+      );
+    }
+
+    if (!this.isSupportedMetricsTimePreset(preset)) {
+      throw new Error(
+        "time_preset must be one of: year_to_date, this_month, last_30_days, last_7_days, yesterday, today, all_time",
+      );
+    }
+
+    const range = this.resolveMetricsDateRangeFromPreset(preset);
+    return {
+      ...range,
+      time_preset: preset,
+      campaign_id: query.campaign_id,
+      campaign_key: query.campaign_key,
+      affiliate_id: query.affiliate_id,
+    };
+  }
 
   async createLead(
     request: CreateLeadRequest,
@@ -1456,6 +1572,30 @@ export class LeadsService {
       return {
         result: false,
         error: error.message || "Failed to get metrics summary",
+      };
+    }
+  }
+
+  async getMetricsDashboard(
+    query: Partial<MetricsQuery>,
+  ): Promise<ServiceResult<MetricsDashboardData>> {
+    try {
+      const resolvedQuery = this.resolveDashboardMetricsQuery(query);
+
+      const data = await this.metricsService.getDashboard({
+        from_date: resolvedQuery.from_date,
+        to_date: resolvedQuery.to_date,
+        campaign_id: resolvedQuery.campaign_id,
+        campaign_key: resolvedQuery.campaign_key,
+        affiliate_id: resolvedQuery.affiliate_id,
+      });
+
+      return { result: true, data };
+    } catch (error: any) {
+      this.logger.error("Failed to get metrics dashboard", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get metrics dashboard",
       };
     }
   }

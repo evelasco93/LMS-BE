@@ -42,6 +42,7 @@ export interface IInternalApiStackProps extends NestedStackProps {
   affiliatesLambda: IFunction;
   campaignsLambda: IFunction;
   leadsLambda: IFunction;
+  metricsLambda: IFunction;
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;
   auditLambda: IFunction;
@@ -79,6 +80,7 @@ export class InternalApiStack extends NestedStack {
       affiliatesLambda,
       campaignsLambda,
       leadsLambda,
+      metricsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
       auditLambda,
@@ -322,17 +324,21 @@ export class InternalApiStack extends NestedStack {
     // Collapse all per-route Lambda::Permission resources into a single wildcard
     // permission per Lambda. Must be called BEFORE any addMethod() calls.
     // ============================================================================
-    const allServiceLambdas: IFunction[] = [
-      this.authLambda,
-      this.usersLambda,
+    const internalApiLambdas: IFunction[] = [this.authLambda, this.usersLambda];
+    const domainServiceLambdas: IFunction[] = [
       clientsLambda,
       affiliatesLambda,
       campaignsLambda,
       leadsLambda,
+      metricsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
       auditLambda,
       cherryPickLambda,
+    ];
+    const allServiceLambdas: IFunction[] = [
+      ...internalApiLambdas,
+      ...domainServiceLambdas,
     ];
     for (const fn of allServiceLambdas) {
       consolidateLambdaApiPermissions(fn);
@@ -460,7 +466,7 @@ export class InternalApiStack extends NestedStack {
 
     new MetricsRoutes(this, `${logicalIdPrefix}-Metrics`, {
       ...sharedProps,
-      metricsLambda: leadsLambda,
+      metricsLambda,
     });
 
     new TenantConfigRoutes(this, `${logicalIdPrefix}-TenantConfig`, {

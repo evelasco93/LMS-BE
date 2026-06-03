@@ -34,6 +34,7 @@ export interface IIamStackConfig {
     affiliates: IRoleConfig;
     campaigns: IRoleConfig;
     leads: IRoleConfig;
+    metrics: IRoleConfig;
     tenantConfig: IRoleConfig;
     qaOrchestrator: IRoleConfig;
     qaDuplicateCheck: IRoleConfig;

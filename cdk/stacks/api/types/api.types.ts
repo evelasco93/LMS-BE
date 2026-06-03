@@ -61,6 +61,7 @@ export interface IApiStackProps extends IBaseStackProps {
   affiliatesLambda: IFunction;
   campaignsLambda: IFunction;
   leadsLambda: IFunction;
+  metricsLambda: IFunction;
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;
   auditLambda: IFunction;

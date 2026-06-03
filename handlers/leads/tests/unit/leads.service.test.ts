@@ -756,5 +756,54 @@ describe("LeadsService", () => {
       expect(result.result).toBe(true);
       expect(result.data?.totals.received).toBe(3);
     });
+
+    it("resolves dashboard preset-only query server-side", async () => {
+      mockMetricsService.getDashboard.mockResolvedValueOnce({
+        range: { from_date: "2026-01-01", to_date: "2026-06-01" },
+        filters: {},
+      });
+
+      const result = await leadsService.getMetricsDashboard({
+        time_preset: "year_to_date",
+      });
+
+      expect(result.result).toBe(true);
+      expect(mockMetricsService.getDashboard).toHaveBeenCalledTimes(1);
+      expect(mockMetricsService.getDashboard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          to_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      );
+    });
+
+    it("uses explicit from/to over preset when both are provided", async () => {
+      mockMetricsService.getDashboard.mockResolvedValueOnce({
+        range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+        filters: {},
+      });
+
+      const result = await leadsService.getMetricsDashboard({
+        from_date: "2026-05-01",
+        to_date: "2026-05-02",
+        time_preset: "last_30_days",
+      });
+
+      expect(result.result).toBe(true);
+      expect(mockMetricsService.getDashboard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from_date: "2026-05-01",
+          to_date: "2026-05-02",
+        }),
+      );
+    });
+
+    it("returns clear validation error when dashboard omits both date range and preset", async () => {
+      const result = await leadsService.getMetricsDashboard({});
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("from_date and to_date are required");
+      expect(mockMetricsService.getDashboard).not.toHaveBeenCalled();
+    });
   });
 });

@@ -43,6 +43,7 @@ export interface IServicesStackConfig {
   affiliates: IServiceConfig;
   campaigns: IServiceConfig;
   leads: IServiceConfig;
+  metrics: IServiceConfig;
   tenantConfig: IServiceConfig;
   qaOrchestrator: IServiceConfig;
   qaDuplicateCheck: IServiceConfig;

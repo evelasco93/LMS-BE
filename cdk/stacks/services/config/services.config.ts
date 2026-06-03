@@ -129,6 +129,40 @@ export const servicesConfig: IServicesStackConfig = {
     tableName: nameBuilder.table("leads"),
     tableArn: arnBuilder.dynamoTable(nameBuilder.table("leads")),
   },
+  metrics: {
+    lambda: {
+      functionName: nameBuilder.lambda("metrics"),
+      entry: path.join(__dirname, "../../../../handlers/leads/main.ts"),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        LEADS_TABLE_NAME: nameBuilder.table("leads"),
+        LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: `${nameBuilder.table("leads")}-campaign-created-at-index`,
+        METRICS_TABLE_NAME: nameBuilder.table("metrics"),
+        METRICS_TABLE_PARTITION_KEY: "pk",
+        METRICS_TABLE_SORT_KEY: "sk",
+        METRICS_TABLE_ITEM_TYPE_ATTRIBUTE: "item_type",
+        METRICS_TABLE_BUCKET_START_ATTRIBUTE: "bucket_start",
+        METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME: `${nameBuilder.table("metrics")}-item-type-bucket-start-index`,
+        METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY: "item_type",
+        METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY: "bucket_start",
+        METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_NAME: `${nameBuilder.table("metrics")}-affiliate-id-bucket-start-composite-index`,
+        METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_PARTITION_KEY:
+          "affiliate_id",
+        METRICS_AFFILIATE_ID_BUCKET_START_COMPOSITE_INDEX_SORT_KEY:
+          "bucket_start_composite",
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        AUDIT_LOGS_TABLE_NAME: nameBuilder.table("audit-logs"),
+        LEAD_INTAKE_LOGS_TABLE_NAME: nameBuilder.table("lead-intake-logs"),
+        TENANT_SETTINGS_TABLE_NAME: nameBuilder.table("tenant-settings"),
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("metrics-lambda"),
+    },
+    tableName: nameBuilder.table("metrics"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("metrics")),
+  },
   tenantConfig: {
     lambda: {
       functionName: nameBuilder.lambda("tenant-config"),

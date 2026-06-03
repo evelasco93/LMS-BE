@@ -5,7 +5,6 @@ import {
   GET,
   produces,
   Controller,
-  pathParam,
   queryParam,
 } from "ts-lambda-api";
 import { LeadsService } from "../services/leads.service";
@@ -39,46 +38,20 @@ export class MetricsController extends Controller {
     });
   }
 
-  @GET("/summary")
+  @GET("/dashboard")
   @produces("application/json")
-  async summary(
+  async dashboard(
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
+    @queryParam("time_preset") time_preset?: string,
     @queryParam("campaign_id") campaign_id?: string,
     @queryParam("campaign_key") campaign_key?: string,
     @queryParam("affiliate_id") affiliate_id?: string,
   ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsSummary({
+    const result = await this.service.getMetricsDashboard({
       from_date,
       to_date,
-      campaign_id,
-      campaign_key,
-      affiliate_id,
-    });
-
-    if (!result.result) {
-      return this.fail("Failed to retrieve metrics summary", result.error, 400);
-    }
-
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics summary retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/timeseries")
-  @produces("application/json")
-  async timeseries(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("campaign_key") campaign_key?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsTimeseries({
-      from_date,
-      to_date,
+      time_preset,
       campaign_id,
       campaign_key,
       affiliate_id,
@@ -86,7 +59,7 @@ export class MetricsController extends Controller {
 
     if (!result.result) {
       return this.fail(
-        "Failed to retrieve metrics timeseries",
+        "Failed to retrieve metrics dashboard",
         result.error,
         400,
       );
@@ -94,301 +67,7 @@ export class MetricsController extends Controller {
 
     return this.withCorrelation({
       success: true,
-      message: "Metrics timeseries retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/timeseries/by-source")
-  @produces("application/json")
-  async timeseriesBySource(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsTimeseriesBySource({
-      from_date,
-      to_date,
-      campaign_id,
-      affiliate_id,
-    });
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics timeseries by source",
-        result.error,
-        400,
-      );
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics timeseries by source retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/timeseries/hourly")
-  @produces("application/json")
-  async timeseriesHourly(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsHourly({
-      from_date,
-      to_date,
-      campaign_id,
-      affiliate_id,
-    });
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics hourly rollup",
-        result.error,
-        400,
-      );
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics hourly rollup retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/campaign-by-source")
-  @produces("application/json")
-  async breakdown(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("campaign_key") campaign_key?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsBreakdown({
-      from_date,
-      to_date,
-      campaign_id,
-      campaign_key,
-      affiliate_id,
-    });
-
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics breakdown",
-        result.error,
-        400,
-      );
-    }
-
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics breakdown retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/contracts")
-  @produces("application/json")
-  async contracts(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsContracts({
-      from_date,
-      to_date,
-      campaign_id,
-      affiliate_id,
-    });
-
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve contract metrics",
-        result.error,
-        400,
-      );
-    }
-
-    return this.withCorrelation({
-      success: true,
-      message: "Contract metrics retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/health")
-  @produces("application/json")
-  async health(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsHealth({
-      from_date,
-      to_date,
-    });
-
-    if (!result.result) {
-      return this.fail("Failed to retrieve metrics health", result.error, 400);
-    }
-
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics health retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/by-affiliate/:affiliate_id")
-  @produces("application/json")
-  async byAffiliate(
-    @pathParam("affiliate_id") affiliate_id: string,
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsByAffiliate(affiliate_id, {
-      from_date,
-      to_date,
-      campaign_id,
-    });
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics by affiliate",
-        result.error,
-        400,
-      );
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics by affiliate retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/by-affiliate/:affiliate_id/campaigns")
-  @produces("application/json")
-  async byAffiliateCampaigns(
-    @pathParam("affiliate_id") affiliate_id: string,
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsByAffiliateCampaigns(
-      affiliate_id,
-      { from_date, to_date },
-    );
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics by affiliate campaigns",
-        result.error,
-        400,
-      );
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics by affiliate campaigns retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/by-affiliate/:affiliate_id/keys")
-  @produces("application/json")
-  async byAffiliateKeys(
-    @pathParam("affiliate_id") affiliate_id: string,
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsByAffiliateKeys(affiliate_id, {
-      from_date,
-      to_date,
-    });
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics by affiliate keys",
-        result.error,
-        400,
-      );
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics by affiliate keys retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/by-campaign/:campaign_id/affiliates")
-  @produces("application/json")
-  async byCampaignAffiliates(
-    @pathParam("campaign_id") campaign_id: string,
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsByCampaignAffiliates(
-      campaign_id,
-      { from_date, to_date },
-    );
-    if (!result.result) {
-      return this.fail(
-        "Failed to retrieve metrics by campaign affiliates",
-        result.error,
-        400,
-      );
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics by campaign affiliates retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/ipqs")
-  @produces("application/json")
-  async ipqs(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("campaign_key") campaign_key?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsIpqs({
-      from_date,
-      to_date,
-      campaign_id,
-      campaign_key,
-      affiliate_id,
-    });
-    if (!result.result) {
-      return this.fail("Failed to retrieve metrics ipqs", result.error, 400);
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics ipqs retrieved successfully",
-      data: result.data,
-    });
-  }
-
-  @GET("/quality")
-  @produces("application/json")
-  async quality(
-    @queryParam("from_date") from_date?: string,
-    @queryParam("to_date") to_date?: string,
-    @queryParam("campaign_id") campaign_id?: string,
-    @queryParam("campaign_key") campaign_key?: string,
-    @queryParam("affiliate_id") affiliate_id?: string,
-  ): Promise<RestApiResponse> {
-    const result = await this.service.getMetricsQuality({
-      from_date,
-      to_date,
-      campaign_id,
-      campaign_key,
-      affiliate_id,
-    });
-    if (!result.result) {
-      return this.fail("Failed to retrieve metrics quality", result.error, 400);
-    }
-    return this.withCorrelation({
-      success: true,
-      message: "Metrics quality retrieved successfully",
+      message: "Metrics dashboard retrieved successfully",
       data: result.data,
     });
   }
