@@ -66,6 +66,7 @@ export const servicesConfig: IServicesStackConfig = {
         CAMPAIGN_DASHBOARD_WIDGETS_TABLE_NAME: nameBuilder.table(
           "campaign-dashboard-widgets",
         ),
+        METRICS_TABLE_NAME: nameBuilder.table("metrics"),
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
         LEADS_TABLE_NAME: nameBuilder.table("leads"),

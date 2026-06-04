@@ -163,6 +163,18 @@ describe("CDK infrastructure guardrails", () => {
     );
   });
 
+  it("campaigns lambda env includes metrics table name for dashboard widgets", async () => {
+    process.env.ENVIRONMENT = "staging";
+    process.env.TENANT = "acme";
+    process.env.CREDENTIALS_ENCRYPTION_KEY = "test-key";
+
+    const { servicesConfig } =
+      await import("../stacks/services/config/services.config");
+    const env = servicesConfig.campaigns.lambda.environment ?? {};
+
+    expect(env.METRICS_TABLE_NAME).toMatch(/-metrics-staging$/);
+  });
+
   it("leads lambda env exposes global created_at index metadata", async () => {
     process.env.ENVIRONMENT = "staging";
     process.env.TENANT = "acme";

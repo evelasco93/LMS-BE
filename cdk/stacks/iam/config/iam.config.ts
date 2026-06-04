@@ -179,6 +179,11 @@ export const iamConfig: IIamStackConfig = {
           ],
         },
         {
+          name: "MetricsRead",
+          actions: ["dynamodb:Query"],
+          resources: [metricsTableArn, `${metricsTableArn}/index/*`],
+        },
+        {
           name: "AuditLogsWrite",
           actions: ["dynamodb:PutItem"],
           resources: [auditLogsTableArn],
