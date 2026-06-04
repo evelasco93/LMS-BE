@@ -58,6 +58,20 @@ export class LeadsDataStack extends NestedStack {
       },
       projectionType: ProjectionType.ALL,
     });
+
+    // Global newest-first list path for unscoped all-leads queries.
+    this.table.addGlobalSecondaryIndex({
+      indexName: `${tableConfig.tableName}-entity-type-created-at-index`,
+      partitionKey: {
+        name: "entity_type",
+        type: AttributeType.STRING,
+      },
+      sortKey: {
+        name: "created_at",
+        type: AttributeType.STRING,
+      },
+      projectionType: ProjectionType.ALL,
+    });
   }
 
   private getAttributeType(type: "S" | "N" | "B") {

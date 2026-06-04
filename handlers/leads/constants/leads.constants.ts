@@ -4,6 +4,8 @@ import { injectable } from "inversify";
 export class LeadsConstants {
   public readonly LEADS_TABLE_NAME: string;
   public readonly LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: string;
+  public readonly LEADS_GLOBAL_CREATED_AT_INDEX_NAME: string;
+  public readonly LEADS_ENTITY_TYPE: string;
   public readonly METRICS_TABLE_NAME: string;
   public readonly METRICS_TABLE_PARTITION_KEY: string;
   public readonly METRICS_TABLE_SORT_KEY: string;
@@ -36,6 +38,10 @@ export class LeadsConstants {
     this.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME =
       process.env.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME ??
       `${this.LEADS_TABLE_NAME}-campaign-created-at-index`;
+    this.LEADS_GLOBAL_CREATED_AT_INDEX_NAME =
+      process.env.LEADS_GLOBAL_CREATED_AT_INDEX_NAME ??
+      `${this.LEADS_TABLE_NAME}-entity-type-created-at-index`;
+    this.LEADS_ENTITY_TYPE = process.env.LEADS_ENTITY_TYPE ?? "lead";
     this.METRICS_TABLE_NAME = process.env.METRICS_TABLE_NAME ?? "";
     this.METRICS_TABLE_PARTITION_KEY =
       process.env.METRICS_TABLE_PARTITION_KEY ?? "pk";

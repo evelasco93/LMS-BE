@@ -63,6 +63,9 @@ export const servicesConfig: IServicesStackConfig = {
       timeout: 30,
       environment: {
         CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        CAMPAIGN_DASHBOARD_WIDGETS_TABLE_NAME: nameBuilder.table(
+          "campaign-dashboard-widgets",
+        ),
         CLIENTS_TABLE_NAME: nameBuilder.table("clients"),
         AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
@@ -91,6 +94,8 @@ export const servicesConfig: IServicesStackConfig = {
       environment: {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: `${nameBuilder.table("leads")}-campaign-created-at-index`,
+        LEADS_GLOBAL_CREATED_AT_INDEX_NAME: `${nameBuilder.table("leads")}-entity-type-created-at-index`,
+        LEADS_ENTITY_TYPE: "lead",
         METRICS_TABLE_NAME: nameBuilder.table("metrics"),
         METRICS_TABLE_PARTITION_KEY: "pk",
         METRICS_TABLE_SORT_KEY: "sk",
@@ -139,6 +144,7 @@ export const servicesConfig: IServicesStackConfig = {
       environment: {
         LEADS_TABLE_NAME: nameBuilder.table("leads"),
         LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME: `${nameBuilder.table("leads")}-campaign-created-at-index`,
+        LEADS_GLOBAL_CREATED_AT_INDEX_NAME: `${nameBuilder.table("leads")}-entity-type-created-at-index`,
         METRICS_TABLE_NAME: nameBuilder.table("metrics"),
         METRICS_TABLE_PARTITION_KEY: "pk",
         METRICS_TABLE_SORT_KEY: "sk",

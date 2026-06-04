@@ -1,4 +1,5 @@
 import { injectable, inject } from "inversify";
+import { createHash } from "crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
@@ -41,6 +42,7 @@ import {
 @injectable()
 export class MetricsService {
   private static readonly MAX_QUERY_RANGE_DAYS = 366;
+  private static readonly MAX_DDB_SORT_KEY_BYTES = 1024;
 
   private readonly docClient: DynamoDBDocumentClient;
 
@@ -433,15 +435,18 @@ export class MetricsService {
       event.affiliate_id && source
         ? this.buildAffiliateRegistryUpdate(event.affiliate_id, source, now)
         : null;
+    const criteriaUpdates = this.buildCriteriaCounterUpdates({
+      event,
+      dayBucketStart,
+      source,
+      counters,
+      now,
+      maxItems: 89 - updates.length - (registryUpdate ? 1 : 0),
+    });
 
     // ── TransactWrite item-count audit ──────────────────────────────────────
-    // Worst case = 1 idempotency
-    //            + 4 base (global+campaign × day+hour)
-    //            + 4 source (source+campaign_source × day+hour)
-    //            + 4 contract (contract+contract_campaign × day+hour)
-    //            + 4 affiliate (affiliate+campaign_affiliate × day+hour)
-    //            + 1 affiliate registry
-    //            = 18 items. Cap = 90 (project), 100 (DDB hard).
+    // Base fanout remains capped under the project limit, and criteria widgets
+    // consume the remaining transaction slots on a deploy-forward basis.
     const transactItems = [
       {
         Put: {
@@ -452,6 +457,7 @@ export class MetricsService {
         },
       },
       ...updates,
+      ...criteriaUpdates,
       ...(registryUpdate ? [registryUpdate] : []),
     ];
 
@@ -1459,8 +1465,112 @@ export class MetricsService {
     return `counter#${granularity}#campaign_affiliate#${campaignId}#${affiliateId}`;
   }
 
+  private pkCriteriaCampaign(campaignId: string, fieldName: string): string {
+    return `criteria#campaign#${campaignId}#field#${fieldName}`;
+  }
+
+  private pkCriteriaCampaignAffiliate(
+    campaignId: string,
+    affiliateId: string,
+    fieldName: string,
+  ): string {
+    return `criteria#campaign_affiliate#${campaignId}#affiliate#${affiliateId}#field#${fieldName}`;
+  }
+
   private skBucket(bucketStart: string): string {
     return `bucket#${bucketStart}`;
+  }
+
+  private buildCriteriaCounterUpdates(args: {
+    event: LeadOutcomeEvent;
+    dayBucketStart: string;
+    source?: string;
+    counters: MetricsCounters;
+    now: string;
+    maxItems: number;
+  }): ReturnType<MetricsService["buildCounterUpdate"]>[] {
+    const answers = Object.entries(args.event.criteria_answers ?? {}).filter(
+      ([fieldName]) => fieldName.trim().length > 0,
+    );
+    const updates: ReturnType<MetricsService["buildCounterUpdate"]>[] = [];
+
+    for (const [fieldName, rawValue] of answers) {
+      const value = rawValue.trim();
+      if (!value) {
+        continue;
+      }
+
+      if (updates.length >= args.maxItems) {
+        this.logger.warn("Metrics criteria fanout truncated", {
+          leadId: args.event.lead_id,
+          campaignId: args.event.campaign_id,
+          criteriaAnswerCount: answers.length,
+          emittedCriteriaUpdateCount: updates.length,
+        });
+        break;
+      }
+
+      updates.push(
+        this.buildCounterUpdate({
+          pk: this.pkCriteriaCampaign(args.event.campaign_id, fieldName),
+          sk: this.skCriteriaBucket(args.dayBucketStart, value),
+          itemType: "counter#day#criteria_campaign",
+          bucketStart: args.dayBucketStart,
+          campaignId: args.event.campaign_id,
+          source: args.source,
+          criteriaFieldName: fieldName,
+          criteriaValue: value,
+          counters: args.counters,
+          event: args.event,
+          extended: false,
+          now: args.now,
+        }),
+      );
+
+      if (!args.event.affiliate_id || updates.length >= args.maxItems) {
+        continue;
+      }
+
+      updates.push(
+        this.buildCounterUpdate({
+          pk: this.pkCriteriaCampaignAffiliate(
+            args.event.campaign_id,
+            args.event.affiliate_id,
+            fieldName,
+          ),
+          sk: this.skCriteriaBucket(args.dayBucketStart, value),
+          itemType: "counter#day#criteria_campaign_affiliate",
+          bucketStart: args.dayBucketStart,
+          campaignId: args.event.campaign_id,
+          affiliateId: args.event.affiliate_id,
+          source: args.source,
+          criteriaFieldName: fieldName,
+          criteriaValue: value,
+          counters: args.counters,
+          event: args.event,
+          extended: false,
+          now: args.now,
+        }),
+      );
+    }
+
+    return updates;
+  }
+
+  private skCriteriaBucket(bucketStart: string, value: string): string {
+    const prefix = `${this.skBucket(bucketStart)}#value#`;
+    const encodedValue = encodeURIComponent(value);
+    const fullKey = `${prefix}${encodedValue}`;
+
+    if (
+      Buffer.byteLength(fullKey, "utf8") <=
+      MetricsService.MAX_DDB_SORT_KEY_BYTES
+    ) {
+      return fullKey;
+    }
+
+    const valueHash = createHash("sha256").update(encodedValue).digest("hex");
+    return `${prefix}hash#${valueHash}`;
   }
 
   private buildCounterUpdate(args: {
@@ -1472,6 +1582,8 @@ export class MetricsService {
     source?: string;
     contractId?: string;
     affiliateId?: string;
+    criteriaFieldName?: string;
+    criteriaValue?: string;
     counters: MetricsCounters;
     event: LeadOutcomeEvent;
     /** When true, ADD the IPQS / duplicate / rejection-bucket counters. Day items only. */
@@ -1547,6 +1659,27 @@ export class MetricsService {
       values[":contract_id"] = args.contractId;
       setSegments.push(
         "#contract_id = if_not_exists(#contract_id, :contract_id)",
+      );
+    }
+    if (args.criteriaFieldName) {
+      names["#criteria_field_name"] = "criteria_field_name";
+      values[":criteria_field_name"] = args.criteriaFieldName;
+      setSegments.push(
+        "#criteria_field_name = if_not_exists(#criteria_field_name, :criteria_field_name)",
+      );
+    }
+    if (args.criteriaValue) {
+      names["#criteria_value"] = "criteria_value";
+      values[":criteria_value"] = args.criteriaValue;
+      setSegments.push(
+        "#criteria_value = if_not_exists(#criteria_value, :criteria_value)",
+      );
+    }
+    if (args.criteriaFieldName && args.source) {
+      names["#campaign_key"] = "campaign_key";
+      values[":campaign_key"] = args.source;
+      setSegments.push(
+        "#campaign_key = if_not_exists(#campaign_key, :campaign_key)",
       );
     }
 

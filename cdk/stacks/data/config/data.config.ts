@@ -53,6 +53,17 @@ export const dataConfig: IDataStackConfig = {
       pointInTimeRecovery: true,
       deletionProtection: isProductionLike,
     },
+    /**
+     * Campaign dashboard widget definitions.
+     * PK: campaign_id, SK: widget_id
+     */
+    campaignDashboardWidgets: {
+      tableName: nameBuilder.table("campaign-dashboard-widgets"),
+      partitionKey: { name: "campaign_id", type: "S" },
+      sortKey: { name: "widget_id", type: "S" },
+      pointInTimeRecovery: true,
+      deletionProtection: isProductionLike,
+    },
     leads: {
       tableName: nameBuilder.table("leads"),
       partitionKey: { name: "id", type: "S" },

@@ -71,15 +71,24 @@ export class LeadsController extends Controller {
   async listLeads(
     @queryParam("campaign_id") campaign_id?: string,
     @queryParam("test") test?: string,
+    @queryParam("include_test") include_test?: string,
     @queryParam("limit") limit?: string,
+    @queryParam("nextToken") nextToken?: string,
     @queryParam("lastEvaluatedKey") lastEvaluatedKey?: string,
     @queryParam("includeDeleted") includeDeleted?: string,
     @queryParam("include_trace") include_trace?: string,
   ): Promise<PaginatedRestApiResponse<ILead>> {
+    const parsedIncludeTest =
+      typeof include_test === "string"
+        ? include_test === "true" || include_test === "1"
+        : undefined;
+
     const result = await this.service.listLeads({
       campaign_id,
       test: typeof test === "string" ? test === "true" : undefined,
+      include_test: parsedIncludeTest,
       limit: limit ? parseInt(limit, 10) : undefined,
+      nextToken,
       lastEvaluatedKey,
       includeDeleted:
         includeDeleted === "true" || includeDeleted === "1" || false,
@@ -96,6 +105,14 @@ export class LeadsController extends Controller {
       data: {
         items: result.data?.items ?? [],
         count: result.data?.count ?? 0,
+        page_count:
+          result.data?.pagination?.returnedCount ?? result.data?.count ?? 0,
+        total_count:
+          result.data?.pagination?.totalCount ?? result.data?.pagination?.total,
+        ...(result.data?.nextToken ? { nextToken: result.data.nextToken } : {}),
+        ...(result.data?.pagination
+          ? { pagination: result.data.pagination }
+          : {}),
         ...(result.data?.lastEvaluatedKey
           ? { lastEvaluatedKey: result.data.lastEvaluatedKey }
           : {}),
@@ -130,6 +147,7 @@ export class LeadsController extends Controller {
   async listIntakeLogs(
     @queryParam("campaign_id") campaign_id?: string,
     @queryParam("status") status?: string,
+    @queryParam("include_test") include_test?: string,
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
     @queryParam("limit") limit?: string,
@@ -138,6 +156,7 @@ export class LeadsController extends Controller {
     const result = await this.service.listIntakeLogs({
       campaign_id,
       status: status as ListIntakeLogsQuery["status"],
+      include_test: include_test === "true" || include_test === "1" || false,
       from_date,
       to_date,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -152,8 +171,10 @@ export class LeadsController extends Controller {
       success: true,
       message: "Intake logs retrieved successfully",
       count: result.data?.count,
+      total: result.data?.total,
       data: result.data?.items,
       lastEvaluatedKey: result.data?.lastEvaluatedKey,
+      pagination: result.data?.pagination,
     });
   }
 

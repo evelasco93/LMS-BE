@@ -54,6 +54,106 @@ describe("LeadsController status and correlation", () => {
     expect(result.correlation_id).toBe("corr-leads-1");
   });
 
+  it("returns pagination metadata when listLeads succeeds", async () => {
+    service.listLeads.mockResolvedValue({
+      result: true,
+      data: {
+        items: [{ id: "LD-1" }],
+        count: 1,
+        nextToken: "token-1",
+        lastEvaluatedKey: "token-1",
+        pagination: {
+          total: 1,
+          totalKnown: true,
+          sortField: "created_at",
+          sortDirection: "desc",
+          orderScope: "global",
+          note: "Ordered newest-first globally with exact total.",
+        },
+      },
+    });
+
+    const result = await controller.listLeads();
+
+    expect(result.success).toBe(true);
+    expect(result.data?.nextToken).toBe("token-1");
+    expect(result.data?.lastEvaluatedKey).toBe("token-1");
+    expect(result.data?.pagination).toEqual(
+      expect.objectContaining({
+        totalKnown: true,
+        orderScope: "global",
+      }),
+    );
+  });
+
+  it("forwards nextToken query flag to listLeads service", async () => {
+    service.listLeads.mockResolvedValue({
+      result: true,
+      data: {
+        items: [],
+        count: 0,
+      },
+    });
+
+    await controller.listLeads(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "tok",
+    );
+
+    expect(service.listLeads).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextToken: "tok",
+      }),
+    );
+  });
+
+  it("forwards include_test query flag to listLeads service", async () => {
+    service.listLeads.mockResolvedValue({
+      result: true,
+      data: {
+        items: [],
+        count: 0,
+      },
+    });
+
+    await controller.listLeads(undefined, undefined, "true");
+
+    expect(service.listLeads).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include_test: true,
+      }),
+    );
+  });
+
+  it("forwards include_test query flag to intake logs service", async () => {
+    service.listIntakeLogs.mockResolvedValue({
+      result: true,
+      data: {
+        items: [],
+        count: 0,
+        total: 0,
+        pagination: {
+          total: 0,
+          totalKnown: true,
+          sortField: "received_at",
+          sortDirection: "desc",
+          orderScope: "global",
+        },
+      },
+    });
+
+    await controller.listIntakeLogs(undefined, undefined, "1");
+
+    expect(service.listIntakeLogs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include_test: true,
+      }),
+    );
+  });
+
   it("attaches correlation_id to createLead service envelope", async () => {
     service.createLead.mockResolvedValue({
       result: "passed",

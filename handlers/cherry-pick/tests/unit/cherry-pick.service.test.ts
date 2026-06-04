@@ -4,8 +4,9 @@ import { CampaignParticipantStatus } from "../../../campaigns/enums/campaign-par
 
 /**
  * Cherry-pick metrics fanout contract:
- *   - On success, `MetricsService.recordLeadCherryPick` is invoked exactly once
- *     with the persisted lead and the same `executed_at` timestamp written to
+ *   - On success, `MetricsService.recordLeadOutcome` and
+ *     `MetricsService.recordLeadCherryPick` are each invoked exactly once.
+ *     `recordLeadCherryPick` uses the same `executed_at` timestamp written to
  *     `cherry_pick_meta` (so day/hour buckets line up with the audit record).
  *   - A second `executeCherryPick` for the same lead is a no-op (the early
  *     `lead.cherry_picked` guard returns before any metrics emission), which
@@ -88,6 +89,7 @@ describe("CherryPickService cherry-pick metric emission", () => {
       writeAuditEvent: vi.fn().mockResolvedValue(undefined),
     };
     metricsService = {
+      recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
       recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
     };
     metricsDlqClient = {
@@ -111,7 +113,7 @@ describe("CherryPickService cherry-pick metric emission", () => {
     );
   });
 
-  it("invokes recordLeadCherryPick once on the success path with the cherry-pick executed_at", async () => {
+  it("invokes outcome and cherry-pick metrics once on the success path", async () => {
     dynamoDBUtil.get.mockResolvedValueOnce({ ...baseLead });
     dynamoDBUtil.scanAll.mockResolvedValueOnce([{ ...baseCampaign }]);
 
@@ -120,7 +122,13 @@ describe("CherryPickService cherry-pick metric emission", () => {
     } as never);
 
     expect(result.result).toBe(true);
+    expect(metricsService.recordLeadOutcome).toHaveBeenCalledTimes(1);
     expect(metricsService.recordLeadCherryPick).toHaveBeenCalledTimes(1);
+
+    const [outcomeLeadArg] = metricsService.recordLeadOutcome.mock.calls[0];
+    expect(outcomeLeadArg.id).toBe("LD-CP-1");
+    expect(outcomeLeadArg.sold).toBe(true);
+    expect(outcomeLeadArg.rejected).toBe(false);
 
     const [leadArg, executedAtArg] =
       metricsService.recordLeadCherryPick.mock.calls[0];
@@ -142,6 +150,7 @@ describe("CherryPickService cherry-pick metric emission", () => {
     await service.executeCherryPick("LD-CP-1", {
       target_contract_id: "CT1",
     } as never);
+    expect(metricsService.recordLeadOutcome).toHaveBeenCalledTimes(1);
     expect(metricsService.recordLeadCherryPick).toHaveBeenCalledTimes(1);
 
     // Second call: lead row now has cherry_picked = true; the service must
@@ -158,6 +167,7 @@ describe("CherryPickService cherry-pick metric emission", () => {
     expect(second.result).toBe(false);
     expect(second.error).toMatch(/already been cherry-picked/);
     // No additional metric emission on the duplicate attempt.
+    expect(metricsService.recordLeadOutcome).toHaveBeenCalledTimes(1);
     expect(metricsService.recordLeadCherryPick).toHaveBeenCalledTimes(1);
     expect(metricsDlqClient.enqueue).not.toHaveBeenCalled();
   });
@@ -192,6 +202,20 @@ describe("CherryPickService cherry-pick metric emission", () => {
       rejected: 0,
     });
     expect(errorArg).toBe(emitError);
+  });
+
+  it("does not emit metrics when the lead is test traffic", async () => {
+    dynamoDBUtil.get.mockResolvedValueOnce({ ...baseLead, test: true });
+    dynamoDBUtil.scanAll.mockResolvedValueOnce([{ ...baseCampaign }]);
+
+    const result = await service.executeCherryPick("LD-CP-1", {
+      target_contract_id: "CT1",
+    } as never);
+
+    expect(result.result).toBe(true);
+    expect(metricsService.recordLeadOutcome).not.toHaveBeenCalled();
+    expect(metricsService.recordLeadCherryPick).not.toHaveBeenCalled();
+    expect(metricsDlqClient.enqueue).not.toHaveBeenCalled();
   });
 });
 
@@ -319,6 +343,7 @@ describe("CherryPickService contract-based delivery (Option A)", () => {
       writeAuditEvent: vi.fn().mockResolvedValue(undefined),
     };
     metricsService = {
+      recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
       recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
     };
     metricsDlqClient = {
@@ -524,6 +549,7 @@ describe("CherryPickService.listEligibleContracts override semantics", () => {
       writeAuditEvent: vi.fn().mockResolvedValue(undefined),
     };
     metricsService = {
+      recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
       recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
     };
     metricsDlqClient = { enqueue: vi.fn().mockResolvedValue(true) };
@@ -637,6 +663,7 @@ describe("CherryPickService.executeCherryPick destination adapter", () => {
       writeAuditEvent: vi.fn().mockResolvedValue(undefined),
     };
     metricsService = {
+      recordLeadOutcome: vi.fn().mockResolvedValue(undefined),
       recordLeadCherryPick: vi.fn().mockResolvedValue(undefined),
     };
     metricsDlqClient = { enqueue: vi.fn().mockResolvedValue(true) };

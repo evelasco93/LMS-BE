@@ -66,6 +66,7 @@ export interface ILogicRulesResult {
 
 export interface ILead {
   id: string;
+  entity_type?: string;
   campaign_id: string;
   campaign_key: string;
   /**

@@ -12,7 +12,9 @@ export type UpdateLeadRequest = {
 export type ListLeadsQuery = {
   campaign_id?: string;
   test?: boolean;
+  include_test?: boolean;
   limit?: number;
+  nextToken?: string;
   lastEvaluatedKey?: string;
   includeDeleted?: boolean;
   include_trace?: boolean;
@@ -20,7 +22,8 @@ export type ListLeadsQuery = {
 
 export type ListIntakeLogsQuery = {
   campaign_id?: string;
-  status?: "accepted" | "rejected" | "test";
+  status?: "accepted" | "rejected" | "test" | "all";
+  include_test?: boolean;
   from_date?: string;
   to_date?: string;
   limit?: number;

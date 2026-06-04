@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "crypto";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { MetricsService } from "../../services/metrics.service";
 import { CampaignStatus } from "../../../campaigns/enums/campaign-status.enum";
@@ -897,6 +898,158 @@ describe("MetricsService counter aggregation for cherry_picked", () => {
     });
     expect(result.campaigns[0].counters.cherry_picked).toBe(4);
     expect(result.campaign_summary.counters.cherry_picked).toBe(4);
+  });
+});
+
+describe("MetricsService criteria metrics fanout", () => {
+  let dynamoDBUtil: any;
+  let logger: any;
+  let constants: any;
+  let sendMock: ReturnType<typeof vi.fn>;
+  let service: MetricsService;
+
+  beforeEach(() => {
+    dynamoDBUtil = {
+      get: vi.fn(),
+      queryAll: vi.fn(),
+      scanAll: vi.fn(),
+    };
+    logger = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+    };
+    constants = {
+      METRICS_TABLE_NAME: "metrics-table",
+      METRICS_TABLE_PARTITION_KEY: "pk",
+      METRICS_TABLE_SORT_KEY: "sk",
+      METRICS_TABLE_ITEM_TYPE_ATTRIBUTE: "item_type",
+      METRICS_TABLE_BUCKET_START_ATTRIBUTE: "bucket_start",
+      METRICS_ITEM_TYPE_BUCKET_START_INDEX_NAME: "metrics-item-type-index",
+      METRICS_ITEM_TYPE_BUCKET_START_INDEX_PARTITION_KEY: "item_type",
+      METRICS_ITEM_TYPE_BUCKET_START_INDEX_SORT_KEY: "bucket_start",
+      CAMPAIGNS_TABLE_NAME: "campaigns-table",
+    };
+
+    sendMock = vi.fn().mockResolvedValue({});
+    vi.spyOn(DynamoDBDocumentClient, "from").mockReturnValue({
+      send: sendMock,
+    } as any);
+
+    service = new MetricsService(dynamoDBUtil, logger, constants);
+  });
+
+  it("pre-aggregates primitive lead payload answers by campaign criteria field and affiliate", async () => {
+    const lead = {
+      id: "LD1",
+      campaign_id: "CM1",
+      campaign_key: "KEY1",
+      affiliate_id: "AF1",
+      created_at: "2026-05-10T09:30:00.000Z",
+      rejected: false,
+      sold: true,
+      payload: {
+        state: "CA",
+        injury_type: "Burn",
+        nested: { ignored: true },
+      },
+    } as ILead;
+
+    await service.recordLeadOutcome(lead);
+
+    const command = sendMock.mock.calls[0][0];
+    const items: any[] = command.input.TransactItems;
+    const criteriaUpdates = items.filter((item) =>
+      item.Update?.ExpressionAttributeValues?.[":item_type"]?.startsWith(
+        "counter#day#criteria_",
+      ),
+    );
+
+    expect(criteriaUpdates).toHaveLength(4);
+    expect(criteriaUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          Update: expect.objectContaining({
+            Key: {
+              pk: "criteria#campaign#CM1#field#state",
+              sk: "bucket#2026-05-10#value#CA",
+            },
+            ExpressionAttributeValues: expect.objectContaining({
+              ":criteria_field_name": "state",
+              ":criteria_value": "CA",
+              ":campaign_key": "KEY1",
+              ":received": 1,
+              ":accepted": 1,
+              ":sold": 1,
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          Update: expect.objectContaining({
+            Key: {
+              pk: "criteria#campaign_affiliate#CM1#affiliate#AF1#field#state",
+              sk: "bucket#2026-05-10#value#CA",
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("hashes oversized criteria SK values and keeps criteria plus base counter fanout", async () => {
+    const longValue = "a".repeat(1400);
+    const lead = {
+      id: "LD2",
+      campaign_id: "CM1",
+      campaign_key: "KEY1",
+      affiliate_id: "AF1",
+      created_at: "2026-05-10T09:30:00.000Z",
+      rejected: false,
+      sold: false,
+      payload: {
+        consent: longValue,
+      },
+    } as ILead;
+
+    await service.recordLeadOutcome(lead);
+
+    const command = sendMock.mock.calls[0][0];
+    const items: any[] = command.input.TransactItems;
+    const updates = items.filter((item) => item.Update);
+    const criteriaUpdates = updates.filter((item) =>
+      item.Update?.ExpressionAttributeValues?.[":item_type"]?.startsWith(
+        "counter#day#criteria_",
+      ),
+    );
+
+    expect(criteriaUpdates).toHaveLength(2);
+
+    const encodedValueHash = createHash("sha256")
+      .update(encodeURIComponent(longValue))
+      .digest("hex");
+    const expectedSk = `bucket#2026-05-10#value#hash#${encodedValueHash}`;
+
+    for (const update of criteriaUpdates) {
+      const sk = update.Update.Key.sk as string;
+      expect(sk).toBe(expectedSk);
+      expect(Buffer.byteLength(sk, "utf8")).toBeLessThanOrEqual(1024);
+    }
+
+    const itemTypes = updates
+      .map((item) => item.Update.ExpressionAttributeValues?.[":item_type"])
+      .filter((value): value is string => typeof value === "string");
+
+    expect(itemTypes).toEqual(
+      expect.arrayContaining([
+        "counter#day#global",
+        "counter#day#campaign",
+        "counter#hour#global",
+        "counter#hour#campaign",
+        "counter#day#criteria_campaign",
+        "counter#day#criteria_campaign_affiliate",
+      ]),
+    );
   });
 });
 

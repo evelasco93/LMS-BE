@@ -19,7 +19,10 @@ import {
 } from "../../leads/interfaces/ILead.interface";
 import { MetricsService } from "../../leads/services/metrics.service";
 import { MetricsDlqClient } from "../../leads/services/metrics-dlq.client";
-import { buildCherryPickEvent } from "../../leads/services/lead-outcome-event.builder";
+import {
+  buildCherryPickEvent,
+  buildLeadOutcomeEvent,
+} from "../../leads/services/lead-outcome-event.builder";
 import {
   ICampaign,
   ICampaignContract,
@@ -249,6 +252,17 @@ export class CherryPickService {
         },
       });
 
+      lead.cherry_picked = true;
+      lead.cherry_pickable = false;
+      lead.cherry_pick_meta = cherryPickMeta;
+      lead.sold = accepted;
+      lead.sold_to_client_id = accepted ? resolvedTargetClientId : undefined;
+      lead.delivery_result = deliveryResult;
+      lead.rejected = !accepted;
+      lead.rejection_reason = rejectionReason ?? undefined;
+      lead.rejection_errors = rejectionReason ? [rejectionReason] : undefined;
+      lead.updated_at = executedAt;
+
       await this.auditWriterService.writeAuditEvent({
         entity_id: leadId,
         entity_type: "lead",
@@ -297,24 +311,39 @@ export class CherryPickService {
         changed_at: executedAt,
       });
 
-      // ── Cherry-pick metric fanout ────────────────────────────────────────
-      // Bumps `cherry_picked` across the same global / campaign / source /
-      // affiliate dimensions as `recordLeadOutcome`, bucketed by the
-      // cherry-pick action time. Best-effort: a metrics failure must not roll
-      // back the cherry-pick itself (the lead is already persisted above);
-      // failures are forwarded to the shared metrics DLQ for retry via the
-      // same consumer that handles outcome-emit failures.
-      try {
-        await this.metricsService.recordLeadCherryPick(lead, executedAt);
-      } catch (metricsError: any) {
-        this.logger.error("Failed to record cherry-pick metric", {
-          leadId,
-          error: metricsError?.message,
-        });
-        await this.metricsDlqClient.enqueue(
-          buildCherryPickEvent(lead, executedAt),
-          metricsError,
-        );
+      // ── Metrics fanout (best effort) ─────────────────────────────────────
+      // Ensure non-test cherry-picks always emit the outcome axis and the
+      // cherry-pick axis. Outcome emission is idempotent on
+      // `lead_outcome:<lead_id>`, so already-counted leads remain safe.
+      if (this.shouldEmitMetricsForLead(lead)) {
+        try {
+          await this.metricsService.recordLeadOutcome(lead);
+        } catch (metricsError: any) {
+          this.logger.error(
+            "Failed to record cherry-pick lead outcome metric",
+            {
+              leadId,
+              error: metricsError?.message,
+            },
+          );
+          await this.metricsDlqClient.enqueue(
+            buildLeadOutcomeEvent(lead),
+            metricsError,
+          );
+        }
+
+        try {
+          await this.metricsService.recordLeadCherryPick(lead, executedAt);
+        } catch (metricsError: any) {
+          this.logger.error("Failed to record cherry-pick metric", {
+            leadId,
+            error: metricsError?.message,
+          });
+          await this.metricsDlqClient.enqueue(
+            buildCherryPickEvent(lead, executedAt),
+            metricsError,
+          );
+        }
       }
 
       if (accepted && request.fire_affiliate_pixel === true) {
@@ -1228,5 +1257,9 @@ export class CherryPickService {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private shouldEmitMetricsForLead(lead: ILead): boolean {
+    return lead.test !== true;
   }
 }

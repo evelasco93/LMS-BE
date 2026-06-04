@@ -160,6 +160,8 @@ export const PLATFORM_PRESETS_SEED: IPlatformPresetSeed[] = [
     data_type: "FieldSet",
     locked: true,
     fields: [
+      { field_label: "Campaign Key", field_name: "campaign_key", data_type: "Text", required: true },
+      { field_label: "Campaign ID", field_name: "campaign_id", data_type: "Text", required: true },
       { field_label: "First Name", field_name: "first_name", data_type: "Text", required: true },
       { field_label: "Last Name", field_name: "last_name", data_type: "Text", required: true },
       { field_label: "Email", field_name: "email", data_type: "Text", required: true },

@@ -39,6 +39,8 @@ export interface IDataStackConfig {
     clients: ITableConfig;
     affiliates: ITableConfig;
     campaigns: ITableConfig;
+    /** Campaign dashboard widget definitions keyed by campaign and widget */
+    campaignDashboardWidgets: ITableConfig;
     leads: ITableConfig;
     /** Metrics domain single-table (item-type model) */
     metrics: ITableConfig;

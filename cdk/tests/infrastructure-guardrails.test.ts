@@ -163,6 +163,61 @@ describe("CDK infrastructure guardrails", () => {
     );
   });
 
+  it("leads lambda env exposes global created_at index metadata", async () => {
+    process.env.ENVIRONMENT = "staging";
+    process.env.TENANT = "acme";
+    process.env.CREDENTIALS_ENCRYPTION_KEY = "test-key";
+
+    const { servicesConfig } =
+      await import("../stacks/services/config/services.config");
+    const env = servicesConfig.leads.lambda.environment ?? {};
+
+    expect(env.LEADS_GLOBAL_CREATED_AT_INDEX_NAME).toMatch(
+      /-leads-.*-entity-type-created-at-index$/,
+    );
+    expect(env.LEADS_ENTITY_TYPE).toBe("lead");
+  });
+
+  it("leads table includes entity_type-created_at global index", async () => {
+    process.env.ENVIRONMENT = "staging";
+    process.env.TENANT = "acme";
+    process.env.CREDENTIALS_ENCRYPTION_KEY = "test-key";
+
+    const { DataStack } = await import("../stacks/data/data.stack");
+    const { dataConfig } = await import("../stacks/data/config/data.config");
+    const { baseConfig } = await import("../config/base.config");
+
+    const app = new App();
+    const stack = new DataStack(app, "TestDataStack", {
+      config: baseConfig,
+      dataConfig,
+    });
+
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: Match.stringLikeRegexp(
+            "-leads-staging-entity-type-created-at-index$",
+          ),
+          KeySchema: [
+            {
+              AttributeName: "entity_type",
+              KeyType: "HASH",
+            },
+            {
+              AttributeName: "created_at",
+              KeyType: "RANGE",
+            },
+          ],
+          Projection: {
+            ProjectionType: "ALL",
+          },
+        }),
+      ]),
+    });
+  });
+
   describe("CR-001: services stack metrics DLQ wiring", () => {
     const synthServicesTemplates = async (): Promise<Template[]> => {
       process.env.ENVIRONMENT = "staging";

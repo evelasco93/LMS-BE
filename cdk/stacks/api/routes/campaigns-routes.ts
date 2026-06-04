@@ -37,6 +37,59 @@ export class CampaignsRoutes extends Construct {
     protect(campaignResource, "PUT", integration, [writeScope]);
     protect(campaignResource, "DELETE", integration, [writeScope]);
 
+    // ── Campaign dashboard widgets (CR-003 canonical) ───────────────────────
+    const campaignDashboardResource = campaignResource.addResource("dashboard");
+    const campaignDashboardWidgetsResource =
+      campaignDashboardResource.addResource("widgets");
+    protect(campaignDashboardWidgetsResource, "GET", integration, [readScope]);
+    protect(campaignDashboardWidgetsResource, "POST", integration, [
+      writeScope,
+    ]);
+
+    const campaignDashboardWidgetResource =
+      campaignDashboardWidgetsResource.addResource("{widgetId}");
+    protect(campaignDashboardWidgetResource, "GET", integration, [readScope]);
+    protect(campaignDashboardWidgetResource, "PUT", integration, [writeScope]);
+    protect(campaignDashboardWidgetResource, "DELETE", integration, [
+      writeScope,
+    ]);
+    protect(
+      campaignDashboardWidgetResource.addResource("data"),
+      "GET",
+      integration,
+      [readScope],
+    );
+
+    // ── Campaign dashboard widgets (legacy FE compatibility) ────────────────
+    const campaignDashboardWidgetsLegacyResource =
+      campaignResource.addResource("dashboard-widgets");
+    protect(campaignDashboardWidgetsLegacyResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignDashboardWidgetsLegacyResource, "POST", integration, [
+      writeScope,
+    ]);
+
+    const campaignDashboardWidgetLegacyResource =
+      campaignDashboardWidgetsLegacyResource.addResource("{widgetId}");
+    protect(campaignDashboardWidgetLegacyResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignDashboardWidgetLegacyResource, "PUT", integration, [
+      writeScope,
+    ]);
+    protect(campaignDashboardWidgetLegacyResource, "DELETE", integration, [
+      writeScope,
+    ]);
+    const campaignDashboardWidgetLegacyQueryResource =
+      campaignDashboardWidgetLegacyResource.addResource("query");
+    protect(campaignDashboardWidgetLegacyQueryResource, "GET", integration, [
+      readScope,
+    ]);
+    protect(campaignDashboardWidgetLegacyQueryResource, "POST", integration, [
+      readScope,
+    ]);
+
     // ── Campaign status / plugins / distribution ──────────────────────────────
     protect(campaignResource.addResource("status"), "PUT", integration, [
       writeScope,

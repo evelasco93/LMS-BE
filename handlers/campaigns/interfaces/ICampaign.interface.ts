@@ -348,6 +348,31 @@ export interface ILogicRule {
   updated_by?: RequestActor;
 }
 
+export type DashboardWidgetChartType =
+  | "pie"
+  | "donut"
+  | "bar"
+  | "line"
+  | "table";
+
+export interface ICampaignDashboardWidget {
+  id: string;
+  title: string;
+  criteria_field_name: string;
+  chart_type: DashboardWidgetChartType;
+  color: string;
+  layout: {
+    size: "small" | "medium" | "large" | "full";
+    order: number;
+  };
+  affiliate_id?: string;
+  campaign_key?: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: RequestActor;
+  updated_by?: RequestActor;
+}
+
 export interface ICampaign {
   id: string;
   name: string;
@@ -387,6 +412,8 @@ export interface ICampaign {
   default_field_casing?: CasingMode;
   /** Lead distribution configuration (round_robin or weighted across LIVE contracts) */
   distribution?: ILeadDistributionConfig;
+  /** Campaign-scoped shared dashboard widget definitions consumed by the FE. */
+  dashboard_widgets?: ICampaignDashboardWidget[];
   /** Tracks the last contract that received a lead for round-robin cycling */
   rr_last_contract_id?: string;
   created_at: string;

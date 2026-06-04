@@ -24,6 +24,20 @@ export interface IBaseCriteriaFieldDef {
  */
 export const BASE_CRITERIA_FIELDS: ReadonlyArray<IBaseCriteriaFieldDef> = [
   {
+    field_label: "Campaign Key",
+    field_name: "campaign_key",
+    data_type: "Text",
+    required: true,
+    system_field: true,
+  },
+  {
+    field_label: "Campaign ID",
+    field_name: "campaign_id",
+    data_type: "Text",
+    required: true,
+    system_field: true,
+  },
+  {
     field_label: "First Name",
     field_name: "first_name",
     data_type: "Text",
@@ -38,13 +52,6 @@ export const BASE_CRITERIA_FIELDS: ReadonlyArray<IBaseCriteriaFieldDef> = [
     system_field: true,
   },
   {
-    field_label: "Phone",
-    field_name: "phone",
-    data_type: "Text",
-    required: true,
-    system_field: true,
-  },
-  {
     field_label: "Email",
     field_name: "email",
     data_type: "Text",
@@ -52,7 +59,14 @@ export const BASE_CRITERIA_FIELDS: ReadonlyArray<IBaseCriteriaFieldDef> = [
     system_field: true,
   },
   {
-    field_label: "TrustedForm Cert ID",
+    field_label: "Phone",
+    field_name: "phone",
+    data_type: "Text",
+    required: true,
+    system_field: true,
+  },
+  {
+    field_label: "Trusted Form Cert ID",
     field_name: "trusted_form_cert_id",
     data_type: "Text",
     required: true,
@@ -66,6 +80,9 @@ export class CampaignConstants {
   public readonly CLIENTS_TABLE_NAME: string;
   public readonly AFFILIATES_TABLE_NAME: string;
   public readonly LEADS_TABLE_NAME: string;
+  public readonly METRICS_TABLE_NAME: string;
+  public readonly METRICS_TABLE_PARTITION_KEY: string;
+  public readonly METRICS_TABLE_SORT_KEY: string;
   /** Optional: guards campaign plugin enable against the global tenant-config setting */
   public readonly TENANT_SETTINGS_TABLE_NAME: string;
   /** Base URL for the external leads submission endpoint, returned in affiliate link responses */
@@ -84,6 +101,10 @@ export class CampaignConstants {
     this.CLIENTS_TABLE_NAME = process.env.CLIENTS_TABLE_NAME ?? "";
     this.AFFILIATES_TABLE_NAME = process.env.AFFILIATES_TABLE_NAME ?? "";
     this.LEADS_TABLE_NAME = process.env.LEADS_TABLE_NAME ?? "";
+    this.METRICS_TABLE_NAME = process.env.METRICS_TABLE_NAME ?? "";
+    this.METRICS_TABLE_PARTITION_KEY =
+      process.env.METRICS_TABLE_PARTITION_KEY ?? "pk";
+    this.METRICS_TABLE_SORT_KEY = process.env.METRICS_TABLE_SORT_KEY ?? "sk";
     this.TENANT_SETTINGS_TABLE_NAME =
       process.env.TENANT_SETTINGS_TABLE_NAME ?? "";
     this.LEADS_BASE_URL = process.env.LEADS_BASE_URL ?? "";

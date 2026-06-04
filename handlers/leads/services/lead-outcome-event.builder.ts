@@ -28,6 +28,33 @@ function extractIpqsCheck(
   return outcome;
 }
 
+function extractCriteriaAnswers(
+  payload: Record<string, unknown> | undefined,
+): Record<string, string> | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  const answers: Record<string, string> = {};
+  for (const [fieldName, raw] of Object.entries(payload)) {
+    if (raw === null || raw === undefined) {
+      continue;
+    }
+    if (
+      typeof raw === "string" ||
+      typeof raw === "number" ||
+      typeof raw === "boolean"
+    ) {
+      const value = String(raw).trim();
+      if (value) {
+        answers[fieldName] = value;
+      }
+    }
+  }
+
+  return Object.keys(answers).length > 0 ? answers : undefined;
+}
+
 /**
  * Build the transport-safe `LeadOutcomeEvent` for a cherry-pick action. Only
  * `cherry_picked=1` is set; the received/accepted/sold/rejected axis is zero
@@ -62,6 +89,7 @@ export function buildCherryPickEvent(
       email: { ran: false },
       ip: { ran: false },
     },
+    criteria_answers: extractCriteriaAnswers(lead.payload),
   };
 }
 
@@ -101,5 +129,6 @@ export function buildLeadOutcomeEvent(lead: ILead): LeadOutcomeEvent {
       ? classifyRejection(lead.rejection_reason, lead.ipqs_result)
       : [],
     ipqs,
+    criteria_answers: extractCriteriaAnswers(lead.payload),
   };
 }

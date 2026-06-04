@@ -9,6 +9,7 @@ import {
   ITrustedFormPluginConfig,
   IValueMapping,
   LogicRuleOperator,
+  DashboardWidgetChartType,
 } from "../interfaces/ICampaign.interface";
 
 export type CreateCampaignRequest = {
@@ -57,6 +58,58 @@ export type ListCampaignsQuery = {
   limit?: number;
   lastEvaluatedKey?: string;
   includeDeleted?: boolean;
+};
+
+export type DashboardWidgetLayoutRequest = {
+  size: "small" | "medium" | "large" | "full";
+  order: number;
+};
+
+export type CreateDashboardWidgetRequest = {
+  title: string;
+  criteria_field_name: string;
+  chart_type: DashboardWidgetChartType;
+  color: string;
+  layout: DashboardWidgetLayoutRequest;
+  affiliate_id?: string;
+  campaign_key?: string;
+};
+
+export type UpdateDashboardWidgetRequest =
+  Partial<CreateDashboardWidgetRequest>;
+
+export type DashboardWidgetDataQuery = {
+  from_date: string;
+  to_date: string;
+};
+
+export type DashboardWidgetDataBucket = {
+  value: string;
+  label: string;
+  counters: {
+    received: number;
+    accepted: number;
+    sold: number;
+    accepted_not_sold: number;
+    rejected: number;
+    cherry_picked: number;
+  };
+};
+
+export type DashboardWidgetDataResponse = {
+  widget_id: string;
+  campaign_id: string;
+  criteria_field_name: string;
+  range: {
+    from_date: string;
+    to_date: string;
+  };
+  filters: {
+    affiliate_id?: string;
+    campaign_key?: string;
+  };
+  buckets: DashboardWidgetDataBucket[];
+  totals: DashboardWidgetDataBucket["counters"];
 };
 
 export type AddCriteriaFieldRequest = {

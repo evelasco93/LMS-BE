@@ -13,6 +13,9 @@ const affiliatesTableArn = arnBuilder.dynamoTable(
 const campaignsTableArn = arnBuilder.dynamoTable(
   nameBuilder.table("campaigns"),
 );
+const campaignDashboardWidgetsTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("campaign-dashboard-widgets"),
+);
 const leadsTableArn = arnBuilder.dynamoTable(nameBuilder.table("leads"));
 const metricsTableArn = arnBuilder.dynamoTable(nameBuilder.table("metrics"));
 const tenantSettingsTableArn = arnBuilder.dynamoTable(
@@ -157,6 +160,8 @@ export const iamConfig: IIamStackConfig = {
           resources: [
             campaignsTableArn,
             `${campaignsTableArn}/index/*`,
+            campaignDashboardWidgetsTableArn,
+            `${campaignDashboardWidgetsTableArn}/index/*`,
             clientsTableArn,
             `${clientsTableArn}/index/*`,
             affiliatesTableArn,

@@ -5,6 +5,7 @@ import { ITableConfig } from "./types/data.types";
 
 export interface ICampaignsDataStackProps extends NestedStackProps {
   tableConfig: ITableConfig;
+  dashboardWidgetsTableConfig: ITableConfig;
   removalPolicy?: RemovalPolicy;
   logicalIdPrefix: string;
 }
@@ -14,11 +15,17 @@ export interface ICampaignsDataStackProps extends NestedStackProps {
  */
 export class CampaignsDataStack extends NestedStack {
   public readonly table: Table;
+  public readonly dashboardWidgetsTable: Table;
 
   constructor(scope: Construct, id: string, props: ICampaignsDataStackProps) {
     super(scope, id, props);
 
-    const { tableConfig, removalPolicy, logicalIdPrefix } = props;
+    const {
+      tableConfig,
+      dashboardWidgetsTableConfig,
+      removalPolicy,
+      logicalIdPrefix,
+    } = props;
 
     this.table = new Table(this, `${logicalIdPrefix}-CampaignsTable`, {
       tableName: tableConfig.tableName,
@@ -42,6 +49,36 @@ export class CampaignsDataStack extends NestedStack {
 
     // TODO: add GSIs when ready
     // if (tableConfig.gsi) { ... }
+
+    this.dashboardWidgetsTable = new Table(
+      this,
+      `${logicalIdPrefix}-CampaignDashboardWidgetsTable`,
+      {
+        tableName: dashboardWidgetsTableConfig.tableName,
+        partitionKey: {
+          name: dashboardWidgetsTableConfig.partitionKey.name,
+          type: this.getAttributeType(
+            dashboardWidgetsTableConfig.partitionKey.type,
+          ),
+        },
+        sortKey: dashboardWidgetsTableConfig.sortKey
+          ? {
+              name: dashboardWidgetsTableConfig.sortKey.name,
+              type: this.getAttributeType(
+                dashboardWidgetsTableConfig.sortKey.type,
+              ),
+            }
+          : undefined,
+        billingMode: BillingMode.PAY_PER_REQUEST,
+        pointInTimeRecoverySpecification:
+          dashboardWidgetsTableConfig.pointInTimeRecovery
+            ? { pointInTimeRecoveryEnabled: true }
+            : undefined,
+        deletionProtection:
+          dashboardWidgetsTableConfig.deletionProtection || false,
+        removalPolicy: removalPolicy ?? RemovalPolicy.DESTROY,
+      },
+    );
   }
 
   private getAttributeType(type: "S" | "N" | "B") {

@@ -22,6 +22,8 @@ export class DataStack extends Stack {
   public readonly clientsTable: Table;
   public readonly affiliatesTable: Table;
   public readonly campaignsTable: Table;
+  /** Campaign dashboard widget definitions */
+  public readonly campaignDashboardWidgetsTable: Table;
   public readonly leadsTable: Table;
   /** Metrics domain single table */
   public readonly metricsTable: Table;
@@ -75,6 +77,8 @@ export class DataStack extends Stack {
       `${config.appPrefix}-CampaignsData`,
       {
         tableConfig: dataConfig.tables.campaigns,
+        dashboardWidgetsTableConfig:
+          dataConfig.tables.campaignDashboardWidgets,
         removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
@@ -103,6 +107,8 @@ export class DataStack extends Stack {
     this.clientsTable = clientsDataStack.table;
     this.affiliatesTable = affiliatesDataStack.table;
     this.campaignsTable = campaignsDataStack.table;
+    this.campaignDashboardWidgetsTable =
+      campaignsDataStack.dashboardWidgetsTable;
     this.leadsTable = leadsDataStack.table;
 
     const metricsDataStack = new MetricsDataStack(

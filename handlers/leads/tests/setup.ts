@@ -13,7 +13,9 @@ export function createMockDynamoDBUtil() {
     get: vi.fn(),
     put: vi.fn(),
     query: vi.fn(),
+    queryAll: vi.fn(),
     scan: vi.fn(),
+    scanAll: vi.fn(),
     update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn(),
     buildUpdateExpression: vi.fn(),
@@ -38,6 +40,11 @@ export function createMockLambdaInvokeUtil() {
 export function createMockConstants() {
   return {
     LEADS_TABLE_NAME: "test-leads-table",
+    LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME:
+      "test-leads-table-campaign-created-at-index",
+    LEADS_GLOBAL_CREATED_AT_INDEX_NAME:
+      "test-leads-table-entity-type-created-at-index",
+    LEADS_ENTITY_TYPE: "lead",
     CAMPAIGNS_TABLE_NAME: "test-campaigns-table",
     // Empty string disables intake log writes so put call counts stay predictable
     LEAD_INTAKE_LOGS_TABLE_NAME: "",

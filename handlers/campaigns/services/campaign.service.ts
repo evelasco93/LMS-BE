@@ -16,6 +16,7 @@ import {
   ICampaign,
   ICampaignAffiliate,
   ICampaignAffiliateOverride,
+  ICampaignDashboardWidget,
   ICampaignContract,
   ICampaignPlugins,
   IEditHistoryEntry,
@@ -71,6 +72,11 @@ import {
   CreateDestinationRequest,
   UpdateDestinationRequest,
   SetResponseValidationRequest,
+  CreateDashboardWidgetRequest,
+  DashboardWidgetDataBucket,
+  DashboardWidgetDataResponse,
+  DashboardWidgetDataQuery,
+  UpdateDashboardWidgetRequest,
 } from "../types/campaign-request.types";
 import {
   ICriteriaCatalogSet,
@@ -3098,6 +3104,333 @@ export class CampaignService {
     });
 
     return campaign ?? null;
+  }
+
+  async listDashboardWidgets(
+    campaignId: string,
+  ): Promise<ServiceResult<ICampaignDashboardWidget[]>> {
+    try {
+      const campaign = await this.getExistingCampaign(campaignId);
+      if (!campaign.result) {
+        return { result: false, error: campaign.error };
+      }
+      const campaignRecord = campaign.data as ICampaign;
+
+      return {
+        result: true,
+        data: this.sortDashboardWidgets(campaignRecord.dashboard_widgets ?? []),
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to list dashboard widgets", error);
+      return {
+        result: false,
+        error: error.message || "Failed to list dashboard widgets",
+      };
+    }
+  }
+
+  async getDashboardWidget(
+    campaignId: string,
+    widgetId: string,
+  ): Promise<ServiceResult<ICampaignDashboardWidget>> {
+    try {
+      const campaign = await this.getExistingCampaign(campaignId);
+      if (!campaign.result) {
+        return { result: false, error: campaign.error };
+      }
+      const campaignRecord = campaign.data as ICampaign;
+
+      const widget = (campaignRecord.dashboard_widgets ?? []).find(
+        (item) => item.id === widgetId,
+      );
+      if (!widget) {
+        return {
+          result: false,
+          error: `Dashboard widget ${widgetId} not found`,
+        };
+      }
+
+      return { result: true, data: widget };
+    } catch (error: any) {
+      this.logger.error("Failed to get dashboard widget", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get dashboard widget",
+      };
+    }
+  }
+
+  async createDashboardWidget(
+    campaignId: string,
+    request: CreateDashboardWidgetRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaignDashboardWidget>> {
+    try {
+      const campaign = await this.getExistingCampaign(campaignId);
+      if (!campaign.result) {
+        return { result: false, error: campaign.error };
+      }
+      const campaignRecord = campaign.data as ICampaign;
+
+      const validationError = this.validateDashboardWidgetRequest(
+        campaignRecord,
+        request,
+        true,
+      );
+      if (validationError) {
+        return { result: false, error: validationError };
+      }
+
+      const now = new Date().toISOString();
+      const widget: ICampaignDashboardWidget = {
+        id: IdGenerator.generate("DW"),
+        title: request.title.trim(),
+        criteria_field_name: request.criteria_field_name.trim(),
+        chart_type: request.chart_type,
+        color: request.color.trim(),
+        layout: {
+          size: request.layout.size,
+          order: request.layout.order,
+        },
+        ...(request.affiliate_id
+          ? { affiliate_id: request.affiliate_id.trim() }
+          : {}),
+        ...(request.campaign_key
+          ? { campaign_key: request.campaign_key.trim() }
+          : {}),
+        created_at: now,
+        updated_at: now,
+        created_by: actor,
+        updated_by: actor,
+      };
+
+      const widgets = this.sortDashboardWidgets([
+        ...(campaignRecord.dashboard_widgets ?? []),
+        widget,
+      ]);
+
+      await this.saveDashboardWidgets(campaignId, widgets, now, actor);
+
+      return { result: true, data: widget };
+    } catch (error: any) {
+      this.logger.error("Failed to create dashboard widget", error);
+      return {
+        result: false,
+        error: error.message || "Failed to create dashboard widget",
+      };
+    }
+  }
+
+  async updateDashboardWidget(
+    campaignId: string,
+    widgetId: string,
+    request: UpdateDashboardWidgetRequest,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<ICampaignDashboardWidget>> {
+    try {
+      const campaign = await this.getExistingCampaign(campaignId);
+      if (!campaign.result) {
+        return { result: false, error: campaign.error };
+      }
+      const campaignRecord = campaign.data as ICampaign;
+
+      const widgets = campaignRecord.dashboard_widgets ?? [];
+      const index = widgets.findIndex((widget) => widget.id === widgetId);
+      if (index < 0) {
+        return {
+          result: false,
+          error: `Dashboard widget ${widgetId} not found`,
+        };
+      }
+
+      const merged: CreateDashboardWidgetRequest = {
+        title: request.title ?? widgets[index].title,
+        criteria_field_name:
+          request.criteria_field_name ?? widgets[index].criteria_field_name,
+        chart_type: request.chart_type ?? widgets[index].chart_type,
+        color: request.color ?? widgets[index].color,
+        layout: request.layout ?? widgets[index].layout,
+        affiliate_id:
+          request.affiliate_id !== undefined
+            ? request.affiliate_id
+            : widgets[index].affiliate_id,
+        campaign_key:
+          request.campaign_key !== undefined
+            ? request.campaign_key
+            : widgets[index].campaign_key,
+      };
+
+      const validationError = this.validateDashboardWidgetRequest(
+        campaignRecord,
+        merged,
+        true,
+      );
+      if (validationError) {
+        return { result: false, error: validationError };
+      }
+
+      const now = new Date().toISOString();
+      const updated: ICampaignDashboardWidget = {
+        ...widgets[index],
+        title: merged.title.trim(),
+        criteria_field_name: merged.criteria_field_name.trim(),
+        chart_type: merged.chart_type,
+        color: merged.color.trim(),
+        layout: {
+          size: merged.layout.size,
+          order: merged.layout.order,
+        },
+        affiliate_id: merged.affiliate_id?.trim(),
+        campaign_key: merged.campaign_key?.trim(),
+        updated_at: now,
+        updated_by: actor,
+      };
+
+      const nextWidgets = this.sortDashboardWidgets(
+        widgets.map((widget) => (widget.id === widgetId ? updated : widget)),
+      );
+
+      await this.saveDashboardWidgets(campaignId, nextWidgets, now, actor);
+
+      return { result: true, data: updated };
+    } catch (error: any) {
+      this.logger.error("Failed to update dashboard widget", error);
+      return {
+        result: false,
+        error: error.message || "Failed to update dashboard widget",
+      };
+    }
+  }
+
+  async deleteDashboardWidget(
+    campaignId: string,
+    widgetId: string,
+    actor?: RequestActor,
+  ): Promise<ServiceResult<{ id: string }>> {
+    try {
+      const campaign = await this.getExistingCampaign(campaignId);
+      if (!campaign.result) {
+        return { result: false, error: campaign.error };
+      }
+      const campaignRecord = campaign.data as ICampaign;
+
+      const widgets = campaignRecord.dashboard_widgets ?? [];
+      if (!widgets.some((widget) => widget.id === widgetId)) {
+        return {
+          result: false,
+          error: `Dashboard widget ${widgetId} not found`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      await this.saveDashboardWidgets(
+        campaignId,
+        widgets.filter((widget) => widget.id !== widgetId),
+        now,
+        actor,
+      );
+
+      return { result: true, data: { id: widgetId } };
+    } catch (error: any) {
+      this.logger.error("Failed to delete dashboard widget", error);
+      return {
+        result: false,
+        error: error.message || "Failed to delete dashboard widget",
+      };
+    }
+  }
+
+  async getDashboardWidgetData(
+    campaignId: string,
+    widgetId: string,
+    query: DashboardWidgetDataQuery,
+  ): Promise<ServiceResult<DashboardWidgetDataResponse>> {
+    try {
+      const campaign = await this.getExistingCampaign(campaignId);
+      if (!campaign.result) {
+        return { result: false, error: campaign.error };
+      }
+      const campaignRecord = campaign.data as ICampaign;
+
+      const widget = (campaignRecord.dashboard_widgets ?? []).find(
+        (item) => item.id === widgetId,
+      );
+      if (!widget) {
+        return {
+          result: false,
+          error: `Dashboard widget ${widgetId} not found`,
+        };
+      }
+
+      const dateError = this.validateWidgetDataRange(query);
+      if (dateError) {
+        return { result: false, error: dateError };
+      }
+
+      const pk = widget.affiliate_id
+        ? this.pkCriteriaCampaignAffiliate(
+            campaignId,
+            widget.affiliate_id,
+            widget.criteria_field_name,
+          )
+        : this.pkCriteriaCampaign(campaignId, widget.criteria_field_name);
+
+      const items = await this.dynamoDBUtil.queryAll<
+        Record<string, string | number | undefined>
+      >({
+        TableName: this.constants.METRICS_TABLE_NAME,
+        KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :from_sk AND :to_sk",
+        ExpressionAttributeNames: {
+          "#pk": this.constants.METRICS_TABLE_PARTITION_KEY,
+          "#sk": this.constants.METRICS_TABLE_SORT_KEY,
+        },
+        ExpressionAttributeValues: {
+          ":pk": pk,
+          ":from_sk": `bucket#${query.from_date}`,
+          ":to_sk": `bucket#${query.to_date}~`,
+        },
+        ScanIndexForward: true,
+      });
+
+      const buckets = this.aggregateWidgetBuckets(
+        items.filter(
+          (item) =>
+            !widget.campaign_key || item.campaign_key === widget.campaign_key,
+        ),
+      );
+
+      return {
+        result: true,
+        data: {
+          widget_id: widgetId,
+          campaign_id: campaignId,
+          criteria_field_name: widget.criteria_field_name,
+          range: {
+            from_date: query.from_date,
+            to_date: query.to_date,
+          },
+          filters: {
+            ...(widget.affiliate_id
+              ? { affiliate_id: widget.affiliate_id }
+              : {}),
+            ...(widget.campaign_key
+              ? { campaign_key: widget.campaign_key }
+              : {}),
+          },
+          buckets,
+          totals: buckets.reduce(
+            (acc, bucket) => this.addWidgetCounters(acc, bucket.counters),
+            this.emptyWidgetCounters(),
+          ),
+        },
+      };
+    } catch (error: any) {
+      this.logger.error("Failed to get dashboard widget data", error);
+      return {
+        result: false,
+        error: error.message || "Failed to get dashboard widget data",
+      };
+    }
   }
 
   async getCampaign(id: string): Promise<
@@ -7252,5 +7585,222 @@ export class CampaignService {
       created_by: actor,
       updated_by: actor,
     }));
+  }
+
+  private async getExistingCampaign(
+    campaignId: string,
+  ): Promise<ServiceResult<ICampaign>> {
+    const campaign = await this.getCampaignById(campaignId);
+    if (!campaign || campaign.is_deleted) {
+      return {
+        result: false,
+        error: `Campaign with id ${campaignId} not found`,
+      };
+    }
+    return { result: true, data: campaign };
+  }
+
+  private validateDashboardWidgetRequest(
+    campaign: ICampaign,
+    request: CreateDashboardWidgetRequest,
+    requireAllFields: boolean,
+  ): string | null {
+    if (requireAllFields && !request.title?.trim()) {
+      return "title is required";
+    }
+    if (requireAllFields && !request.criteria_field_name?.trim()) {
+      return "criteria_field_name is required";
+    }
+    if (requireAllFields && !request.chart_type) {
+      return "chart_type is required";
+    }
+    if (
+      request.chart_type &&
+      !["pie", "donut", "bar", "line", "table"].includes(request.chart_type)
+    ) {
+      return "chart_type must be one of pie, donut, bar, line, table";
+    }
+    if (requireAllFields && !request.color?.trim()) {
+      return "color is required";
+    }
+    if (requireAllFields && !request.layout) {
+      return "layout is required";
+    }
+    if (
+      request.layout &&
+      !["small", "medium", "large", "full"].includes(request.layout.size)
+    ) {
+      return "layout.size must be one of small, medium, large, full";
+    }
+    if (
+      request.layout &&
+      (!Number.isInteger(request.layout.order) || request.layout.order < 0)
+    ) {
+      return "layout.order must be a non-negative integer";
+    }
+
+    const fieldName = request.criteria_field_name?.trim();
+    if (
+      fieldName &&
+      !(campaign.base_criteria ?? []).some(
+        (field) => field.field_name === fieldName,
+      )
+    ) {
+      return `criteria_field_name ${fieldName} is not configured on campaign`;
+    }
+
+    const affiliateId = request.affiliate_id?.trim();
+    if (
+      affiliateId &&
+      !(campaign.affiliates ?? []).some(
+        (affiliate) => affiliate.affiliate_id === affiliateId,
+      )
+    ) {
+      return `affiliate_id ${affiliateId} is not linked to campaign`;
+    }
+
+    const campaignKey = request.campaign_key?.trim();
+    if (
+      campaignKey &&
+      !(campaign.affiliates ?? []).some(
+        (affiliate) => affiliate.campaign_key === campaignKey,
+      )
+    ) {
+      return `campaign_key ${campaignKey} is not linked to campaign`;
+    }
+
+    if (
+      affiliateId &&
+      campaignKey &&
+      !(campaign.affiliates ?? []).some(
+        (affiliate) =>
+          affiliate.affiliate_id === affiliateId &&
+          affiliate.campaign_key === campaignKey,
+      )
+    ) {
+      return "affiliate_id and campaign_key must refer to the same campaign affiliate";
+    }
+
+    return null;
+  }
+
+  private async saveDashboardWidgets(
+    campaignId: string,
+    widgets: ICampaignDashboardWidget[],
+    updatedAt: string,
+    actor?: RequestActor,
+  ): Promise<void> {
+    await this.dynamoDBUtil.update({
+      TableName: this.constants.CAMPAIGNS_TABLE_NAME,
+      Key: { id: campaignId },
+      UpdateExpression:
+        "SET dashboard_widgets = :widgets, updated_at = :updated_at, updated_by = :updated_by",
+      ExpressionAttributeValues: {
+        ":widgets": widgets,
+        ":updated_at": updatedAt,
+        ":updated_by": actor,
+      },
+    });
+  }
+
+  private sortDashboardWidgets(
+    widgets: ICampaignDashboardWidget[],
+  ): ICampaignDashboardWidget[] {
+    return [...widgets].sort((left, right) => {
+      const byOrder = left.layout.order - right.layout.order;
+      return byOrder !== 0
+        ? byOrder
+        : left.created_at.localeCompare(right.created_at);
+    });
+  }
+
+  private validateWidgetDataRange(
+    query: DashboardWidgetDataQuery,
+  ): string | null {
+    const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (!query.from_date || !query.to_date) {
+      return "from_date and to_date are required";
+    }
+    if (!isDate(query.from_date) || !isDate(query.to_date)) {
+      return "from_date and to_date must use YYYY-MM-DD";
+    }
+    if (query.from_date > query.to_date) {
+      return "from_date must be before or equal to to_date";
+    }
+    return null;
+  }
+
+  private pkCriteriaCampaign(campaignId: string, fieldName: string): string {
+    return `criteria#campaign#${campaignId}#field#${fieldName}`;
+  }
+
+  private pkCriteriaCampaignAffiliate(
+    campaignId: string,
+    affiliateId: string,
+    fieldName: string,
+  ): string {
+    return `criteria#campaign_affiliate#${campaignId}#affiliate#${affiliateId}#field#${fieldName}`;
+  }
+
+  private aggregateWidgetBuckets(
+    items: Array<Record<string, string | number | undefined>>,
+  ): DashboardWidgetDataBucket[] {
+    const buckets = new Map<string, DashboardWidgetDataBucket>();
+
+    for (const item of items) {
+      const value =
+        typeof item.criteria_value === "string" ? item.criteria_value : "";
+      const key = value || "(blank)";
+      const existing =
+        buckets.get(key) ??
+        ({
+          value: key,
+          label: key,
+          counters: this.emptyWidgetCounters(),
+        } satisfies DashboardWidgetDataBucket);
+
+      existing.counters = this.addWidgetCounters(existing.counters, {
+        received: this.toNumber(item.received),
+        accepted: this.toNumber(item.accepted),
+        sold: this.toNumber(item.sold),
+        accepted_not_sold: this.toNumber(item.accepted_not_sold),
+        rejected: this.toNumber(item.rejected),
+        cherry_picked: this.toNumber(item.cherry_picked),
+      });
+      buckets.set(key, existing);
+    }
+
+    return Array.from(buckets.values()).sort(
+      (left, right) => right.counters.received - left.counters.received,
+    );
+  }
+
+  private emptyWidgetCounters(): DashboardWidgetDataBucket["counters"] {
+    return {
+      received: 0,
+      accepted: 0,
+      sold: 0,
+      accepted_not_sold: 0,
+      rejected: 0,
+      cherry_picked: 0,
+    };
+  }
+
+  private addWidgetCounters(
+    left: DashboardWidgetDataBucket["counters"],
+    right: DashboardWidgetDataBucket["counters"],
+  ): DashboardWidgetDataBucket["counters"] {
+    return {
+      received: left.received + right.received,
+      accepted: left.accepted + right.accepted,
+      sold: left.sold + right.sold,
+      accepted_not_sold: left.accepted_not_sold + right.accepted_not_sold,
+      rejected: left.rejected + right.rejected,
+      cherry_picked: left.cherry_picked + right.cherry_picked,
+    };
+  }
+
+  private toNumber(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
   }
 }

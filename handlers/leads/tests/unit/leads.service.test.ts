@@ -9,6 +9,7 @@ import {
   getMockLambdaInvokeUtil,
   getMockLeadDeliveryService,
   getMockMetricsService,
+  getMockMetricsDlqClient,
   getMockConstants,
 } from "../setup";
 
@@ -63,6 +64,7 @@ describe("LeadsService", () => {
   let mockLambdaInvokeUtil: any;
   let mockLeadDeliveryService: any;
   let mockMetricsService: any;
+  let mockMetricsDlqClient: any;
   let mockConstants: any;
 
   beforeEach(() => {
@@ -73,6 +75,7 @@ describe("LeadsService", () => {
     mockLambdaInvokeUtil = getMockLambdaInvokeUtil();
     mockLeadDeliveryService = getMockLeadDeliveryService();
     mockMetricsService = getMockMetricsService();
+    mockMetricsDlqClient = getMockMetricsDlqClient();
     mockConstants = getMockConstants();
   });
 
@@ -274,6 +277,57 @@ describe("LeadsService", () => {
       expect(result.result).toBe("passed");
       expect(result.message?.toLowerCase()).toContain("test lead accepted");
       expect(mockLeadDeliveryService.deliverLead).not.toHaveBeenCalled();
+      expect(mockMetricsService.recordLeadOutcome).not.toHaveBeenCalled();
+    });
+
+    it("does not emit metrics for criteria-rejected test leads", async () => {
+      mockConstants.CRITERIA_VALIDATION_LAMBDA_NAME = "criteria-validation";
+      const campaign = buildCampaign(
+        CampaignStatus.ACTIVE,
+        CampaignParticipantStatus.LIVE,
+      );
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+        valid: false,
+        missing_fields: ["email"],
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { first_name: "Test" },
+      });
+
+      expect(result.result).toBe("failed");
+      expect(mockMetricsService.recordLeadOutcome).not.toHaveBeenCalled();
+      expect(mockMetricsDlqClient.enqueue).not.toHaveBeenCalled();
+    });
+
+    it("emits metrics for criteria-rejected live leads", async () => {
+      mockConstants.CRITERIA_VALIDATION_LAMBDA_NAME = "criteria-validation";
+      const campaign = buildCampaign(
+        CampaignStatus.ACTIVE,
+        CampaignParticipantStatus.LIVE,
+      );
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockLambdaInvokeUtil.invokeJson.mockResolvedValueOnce({
+        valid: false,
+        missing_fields: ["email"],
+      });
+      mockDynamoDBUtil.put.mockResolvedValueOnce(undefined);
+
+      const result = await leadsService.createLead({
+        campaign_id: campaign.id,
+        campaign_key: "KEY123",
+        payload: { first_name: "Real" },
+      });
+
+      expect(result.result).toBe("failed");
+      expect(mockMetricsService.recordLeadOutcome).toHaveBeenCalledTimes(1);
+      expect(mockMetricsDlqClient.enqueue).not.toHaveBeenCalled();
     });
 
     it("stores lead but marks rejected when affiliate is DISABLED", async () => {
@@ -719,6 +773,492 @@ describe("LeadsService", () => {
     });
   });
 
+  describe("listLeads", () => {
+    it("uses global created_at index path for unscoped list and returns exact total", async () => {
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-3",
+              created_at: "2026-05-03T00:00:00.000Z",
+              campaign_id: "CM-3",
+              payload: {},
+            },
+            {
+              id: "LD-2",
+              created_at: "2026-05-02T00:00:00.000Z",
+              campaign_id: "CM-2",
+              payload: {},
+            },
+          ],
+          count: 2,
+          lastEvaluatedKey: { id: "LD-2" },
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 3,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listLeads({ limit: 2 });
+
+      expect(result.result).toBe(true);
+      expect(mockDynamoDBUtil.query).toHaveBeenCalledWith(
+        expect.objectContaining({
+          IndexName: mockConstants.LEADS_GLOBAL_CREATED_AT_INDEX_NAME,
+          KeyConditionExpression: "#entity_type = :entity_type",
+          ScanIndexForward: false,
+        }),
+      );
+
+      const firstCall = mockDynamoDBUtil.query.mock.calls[0][0];
+      expect(firstCall.FilterExpression ?? "").not.toContain("#test = :test");
+      expect(result.data?.items.map((item) => item.id)).toEqual([
+        "LD-3",
+        "LD-2",
+      ]);
+      expect(result.data?.count).toBe(2);
+      expect(result.data?.nextToken).toBe(result.data?.lastEvaluatedKey);
+      expect(result.data?.lastEvaluatedKey).toBeDefined();
+      expect(result.data?.pagination).toEqual(
+        expect.objectContaining({
+          total: 3,
+          totalCount: 3,
+          totalKnown: true,
+          sortField: "created_at",
+          sortDirection: "desc",
+          orderScope: "global",
+        }),
+      );
+    });
+
+    it("includes test leads by default and hides them when include_test=false", async () => {
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-LIVE",
+              test: false,
+              created_at: "2026-05-10T00:00:00.000Z",
+              campaign_id: "CM-1",
+              payload: {},
+            },
+            {
+              id: "LD-TEST",
+              test: true,
+              created_at: "2026-05-09T00:00:00.000Z",
+              campaign_id: "CM-1",
+              payload: {},
+            },
+          ],
+          count: 2,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 2,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-LIVE",
+              test: false,
+              created_at: "2026-05-10T00:00:00.000Z",
+              campaign_id: "CM-1",
+              payload: {},
+            },
+          ],
+          count: 1,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 1,
+          lastEvaluatedKey: undefined,
+        });
+
+      const defaultList = await leadsService.listLeads({ limit: 10 });
+      const noTestList = await leadsService.listLeads({
+        limit: 10,
+        include_test: false,
+      });
+
+      expect(defaultList.result).toBe(true);
+      expect(defaultList.data?.items.map((item) => item.id)).toEqual([
+        "LD-LIVE",
+        "LD-TEST",
+      ]);
+
+      expect(noTestList.result).toBe(true);
+      expect(noTestList.data?.items.map((item) => item.id)).toEqual([
+        "LD-LIVE",
+      ]);
+
+      const firstCall = mockDynamoDBUtil.query.mock.calls[0][0];
+      const thirdCall = mockDynamoDBUtil.query.mock.calls[2][0];
+      expect(firstCall.FilterExpression ?? "").not.toContain("#test = :test");
+      expect(thirdCall.FilterExpression ?? "").toContain("#test = :test");
+    });
+
+    it("allows test-inclusive listing when include_test=true", async () => {
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-9",
+              created_at: "2026-05-09T00:00:00.000Z",
+              campaign_id: "CM-9",
+              payload: {},
+            },
+          ],
+          count: 1,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 1,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listLeads({
+        limit: 10,
+        include_test: true,
+      });
+
+      expect(result.result).toBe(true);
+      const firstCall = mockDynamoDBUtil.query.mock.calls[0][0];
+      expect(firstCall.FilterExpression ?? "").not.toContain("#test = :test");
+    });
+
+    it("applies explicit non-test filter when include_test=false", async () => {
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [],
+          count: 0,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 0,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listLeads({
+        limit: 10,
+        include_test: false,
+      });
+
+      expect(result.result).toBe(true);
+      const firstCall = mockDynamoDBUtil.query.mock.calls[0][0];
+      expect(firstCall.FilterExpression ?? "").toContain("#test = :test");
+      expect(firstCall.ExpressionAttributeValues[":test"]).toBe(false);
+    });
+
+    it("uses legacy offset continuation token for backward compatibility", async () => {
+      mockDynamoDBUtil.scanAll.mockResolvedValueOnce([
+        {
+          id: "LD-1",
+          created_at: "2026-05-01T00:00:00.000Z",
+          campaign_id: "CM-1",
+          payload: {},
+        },
+        {
+          id: "LD-3",
+          created_at: "2026-05-03T00:00:00.000Z",
+          campaign_id: "CM-3",
+          payload: {},
+        },
+        {
+          id: "LD-2",
+          created_at: "2026-05-02T00:00:00.000Z",
+          campaign_id: "CM-2",
+          payload: {},
+        },
+      ]);
+
+      const legacyToken = Buffer.from(
+        JSON.stringify({ __kind: "offset", offset: 2 }),
+      ).toString("base64");
+
+      const pageTwo = await leadsService.listLeads({
+        limit: 2,
+        lastEvaluatedKey: legacyToken,
+      });
+
+      expect(pageTwo.result).toBe(true);
+      expect(pageTwo.data?.items.map((item) => item.id)).toEqual(["LD-1"]);
+      expect(pageTwo.data?.lastEvaluatedKey).toBeUndefined();
+      expect(pageTwo.data?.pagination).toEqual(
+        expect.objectContaining({
+          orderScope: "global",
+        }),
+      );
+    });
+
+    it("keeps cursor traversal stable across different page sizes", async () => {
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-4",
+              created_at: "2026-05-04T00:00:00.000Z",
+              campaign_id: "CM-4",
+              payload: {},
+            },
+            {
+              id: "LD-3",
+              created_at: "2026-05-03T00:00:00.000Z",
+              campaign_id: "CM-3",
+              payload: {},
+            },
+          ],
+          count: 2,
+          lastEvaluatedKey: { id: "LD-3" },
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 4,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-2",
+              created_at: "2026-05-02T00:00:00.000Z",
+              campaign_id: "CM-2",
+              payload: {},
+            },
+          ],
+          count: 1,
+          lastEvaluatedKey: { id: "LD-2" },
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 4,
+          lastEvaluatedKey: undefined,
+        });
+
+      const firstPage = await leadsService.listLeads({ limit: 2 });
+      const secondPage = await leadsService.listLeads({
+        limit: 1,
+        lastEvaluatedKey: firstPage.data?.lastEvaluatedKey,
+      });
+
+      expect(firstPage.result).toBe(true);
+      expect(firstPage.data?.items.map((item) => item.id)).toEqual([
+        "LD-4",
+        "LD-3",
+      ]);
+      expect(secondPage.result).toBe(true);
+      expect(secondPage.data?.items.map((item) => item.id)).toEqual(["LD-2"]);
+      const pageTwoReadCall = mockDynamoDBUtil.query.mock.calls[2][0];
+      expect(pageTwoReadCall.ExclusiveStartKey).toEqual({ id: "LD-3" });
+    });
+
+    it("fails listLeads when global created_at index query is unavailable", async () => {
+      mockDynamoDBUtil.query.mockRejectedValueOnce(
+        new Error("missing global index"),
+      );
+
+      const result = await leadsService.listLeads({ limit: 1 });
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("missing global index");
+      expect(mockDynamoDBUtil.scan).not.toHaveBeenCalled();
+    });
+
+    it("uses campaign created_at index path and marks ordering scope as global", async () => {
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LD-2",
+              created_at: "2026-05-02T00:00:00.000Z",
+              campaign_id: "CM-1",
+              payload: {},
+            },
+            {
+              id: "LD-1",
+              created_at: "2026-05-01T00:00:00.000Z",
+              campaign_id: "CM-1",
+              payload: {},
+            },
+          ],
+          count: 2,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 2,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listLeads({
+        campaign_id: "CM-1",
+        limit: 20,
+      });
+
+      expect(result.result).toBe(true);
+      expect(mockDynamoDBUtil.query).toHaveBeenCalledWith(
+        expect.objectContaining({
+          IndexName: mockConstants.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME,
+          ScanIndexForward: false,
+        }),
+      );
+      expect(result.data?.pagination).toEqual(
+        expect.objectContaining({
+          total: 2,
+          totalKnown: true,
+          sortField: "created_at",
+          sortDirection: "desc",
+          orderScope: "global",
+        }),
+      );
+    });
+  });
+
+  describe("listIntakeLogs", () => {
+    it("defaults status=all to live-only (non-test) filter and exact total", async () => {
+      mockConstants.LEAD_INTAKE_LOGS_TABLE_NAME = "test-intake-logs";
+
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LG-2",
+              campaign_id: "CM-1",
+              received_at: "2026-05-02T00:00:00.000Z",
+              status: "accepted",
+            },
+            {
+              id: "LG-1",
+              campaign_id: "CM-1",
+              received_at: "2026-05-01T00:00:00.000Z",
+              status: "rejected",
+            },
+          ],
+          count: 2,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 4,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listIntakeLogs({
+        campaign_id: "CM-1",
+        status: "all",
+        limit: 2,
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.count).toBe(2);
+      expect(result.data?.total).toBe(4);
+      expect(result.data?.items.some((item) => item.status === "test")).toBe(
+        false,
+      );
+      expect(result.data?.pagination).toEqual(
+        expect.objectContaining({
+          total: 4,
+          totalKnown: true,
+          orderScope: "global",
+        }),
+      );
+
+      const countCall = mockDynamoDBUtil.query.mock.calls[1][0];
+      expect(countCall.Select).toBe("COUNT");
+      expect(countCall.FilterExpression).toContain("#is_test = :is_test");
+    });
+
+    it("includes test traffic when include_test=true", async () => {
+      mockConstants.LEAD_INTAKE_LOGS_TABLE_NAME = "test-intake-logs";
+
+      mockDynamoDBUtil.query
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LG-3",
+              campaign_id: "CM-1",
+              received_at: "2026-05-03T00:00:00.000Z",
+              status: "test",
+            },
+          ],
+          count: 1,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 3,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listIntakeLogs({
+        campaign_id: "CM-1",
+        status: "all",
+        include_test: true,
+        limit: 1,
+      });
+
+      expect(result.result).toBe(true);
+      const countCall = mockDynamoDBUtil.query.mock.calls[1][0];
+      expect(countCall.FilterExpression ?? "").not.toContain(
+        "#is_test = :is_test",
+      );
+    });
+
+    it("returns exact total for unscoped scan with filters", async () => {
+      mockConstants.LEAD_INTAKE_LOGS_TABLE_NAME = "test-intake-logs";
+
+      mockDynamoDBUtil.scan
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: "LG-2",
+              received_at: "2026-05-02T00:00:00.000Z",
+              status: "accepted",
+            },
+            {
+              id: "LG-1",
+              received_at: "2026-05-01T00:00:00.000Z",
+              status: "accepted",
+            },
+          ],
+          count: 2,
+          lastEvaluatedKey: undefined,
+        })
+        .mockResolvedValueOnce({
+          items: [],
+          count: 5,
+          lastEvaluatedKey: undefined,
+        });
+
+      const result = await leadsService.listIntakeLogs({
+        status: "accepted",
+        from_date: "2026-05-01T00:00:00.000Z",
+        to_date: "2026-05-31T23:59:59.999Z",
+        limit: 2,
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.count).toBe(2);
+      expect(result.data?.total).toBe(5);
+      expect(result.data?.pagination).toEqual(
+        expect.objectContaining({
+          total: 5,
+          totalKnown: true,
+        }),
+      );
+      expect(mockDynamoDBUtil.scan).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          Select: "COUNT",
+        }),
+      );
+    });
+  });
+
   describe("metrics query methods", () => {
     it("returns validation error when date range is missing", async () => {
       const summary = await leadsService.getMetricsSummary({} as any);
@@ -761,6 +1301,22 @@ describe("LeadsService", () => {
       mockMetricsService.getDashboard.mockResolvedValueOnce({
         range: { from_date: "2026-01-01", to_date: "2026-06-01" },
         filters: {},
+        summary: {
+          range: { from_date: "2026-01-01", to_date: "2026-06-01" },
+          filters: {},
+          totals: {
+            received: 0,
+            accepted: 0,
+            sold: 0,
+            accepted_not_sold: 0,
+            rejected: 0,
+            cherry_picked: 0,
+            rejected_dnq: 0,
+            rejected_spam: 0,
+            rejected_duplicates: 0,
+          },
+          peak_lead_window: null,
+        },
       });
 
       const result = await leadsService.getMetricsDashboard({
@@ -781,6 +1337,22 @@ describe("LeadsService", () => {
       mockMetricsService.getDashboard.mockResolvedValueOnce({
         range: { from_date: "2026-05-01", to_date: "2026-05-02" },
         filters: {},
+        summary: {
+          range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+          filters: {},
+          totals: {
+            received: 0,
+            accepted: 0,
+            sold: 0,
+            accepted_not_sold: 0,
+            rejected: 0,
+            cherry_picked: 0,
+            rejected_dnq: 0,
+            rejected_spam: 0,
+            rejected_duplicates: 0,
+          },
+          peak_lead_window: null,
+        },
       });
 
       const result = await leadsService.getMetricsDashboard({
@@ -796,6 +1368,102 @@ describe("LeadsService", () => {
           to_date: "2026-05-02",
         }),
       );
+    });
+
+    it("returns dashboard totals from metrics service unchanged", async () => {
+      mockMetricsService.getDashboard.mockResolvedValueOnce({
+        range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+        filters: {},
+        summary: {
+          range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+          filters: {},
+          totals: {
+            received: 10,
+            accepted: 7,
+            sold: 4,
+            accepted_not_sold: 3,
+            rejected: 3,
+            cherry_picked: 1,
+            rejected_dnq: 0,
+            rejected_spam: 0,
+            rejected_duplicates: 0,
+          },
+          peak_lead_window: null,
+        },
+      });
+
+      const result = await leadsService.getMetricsDashboard({
+        from_date: "2026-05-01",
+        to_date: "2026-05-02",
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.summary.totals).toEqual(
+        expect.objectContaining({
+          received: 10,
+          accepted: 7,
+          sold: 4,
+          accepted_not_sold: 3,
+          rejected: 3,
+          cherry_picked: 1,
+        }),
+      );
+      expect(mockDynamoDBUtil.scan).not.toHaveBeenCalled();
+      expect(mockDynamoDBUtil.scanAll).not.toHaveBeenCalled();
+    });
+
+    it("keeps metrics service totals when scan-based totals would differ", async () => {
+      mockMetricsService.getDashboard.mockResolvedValueOnce({
+        range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+        filters: {},
+        summary: {
+          range: { from_date: "2026-05-01", to_date: "2026-05-02" },
+          filters: {},
+          totals: {
+            received: 10,
+            accepted: 7,
+            sold: 4,
+            accepted_not_sold: 3,
+            rejected: 3,
+            cherry_picked: 1,
+            rejected_dnq: 0,
+            rejected_spam: 0,
+            rejected_duplicates: 0,
+          },
+          peak_lead_window: null,
+        },
+      });
+
+      mockDynamoDBUtil.scanAll.mockResolvedValueOnce([
+        {
+          id: "LD-1",
+          created_at: "2026-05-01T08:00:00.000Z",
+          campaign_id: "CM-1",
+          campaign_key: "KEY1",
+          rejected: false,
+          sold: false,
+          test: false,
+          payload: {},
+        },
+      ]);
+
+      const result = await leadsService.getMetricsDashboard({
+        from_date: "2026-05-01",
+        to_date: "2026-05-02",
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.summary.totals).toEqual(
+        expect.objectContaining({
+          received: 10,
+          accepted: 7,
+          sold: 4,
+          accepted_not_sold: 3,
+          rejected: 3,
+          cherry_picked: 1,
+        }),
+      );
+      expect(mockDynamoDBUtil.scanAll).not.toHaveBeenCalled();
     });
 
     it("returns clear validation error when dashboard omits both date range and preset", async () => {

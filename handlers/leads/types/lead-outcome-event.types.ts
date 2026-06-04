@@ -65,4 +65,10 @@ export type LeadOutcomeEvent = {
     email: IpqsCheckOutcome;
     ip: IpqsCheckOutcome;
   };
+  /**
+   * Deploy-forward criteria answer snapshot from the normalized lead payload.
+   * The metrics writer pre-aggregates these into campaign criteria buckets so
+   * dashboard widget reads never scan historical leads.
+   */
+  criteria_answers?: Record<string, string>;
 };

@@ -13,6 +13,7 @@ export function createMockDynamoDBUtil() {
     get: vi.fn(),
     put: vi.fn(),
     query: vi.fn(),
+    queryAll: vi.fn(),
     scan: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -34,6 +35,9 @@ export function createMockConstants() {
     CAMPAIGNS_TABLE_NAME: "test-campaigns-table",
     CLIENTS_TABLE_NAME: "test-clients-table",
     AFFILIATES_TABLE_NAME: "test-affiliates-table",
+    METRICS_TABLE_NAME: "test-metrics-table",
+    METRICS_TABLE_PARTITION_KEY: "pk",
+    METRICS_TABLE_SORT_KEY: "sk",
     TENANT_SETTINGS_TABLE_NAME: "test-tenant-settings-table",
   };
 }

@@ -27,14 +27,43 @@ export type RestApiResponse<T = any> = {
   data?: T;
   error?: string;
   count?: number;
+  page_count?: number;
+  total_count?: number;
+  total?: number;
+  nextToken?: string;
   lastEvaluatedKey?: string;
+  pagination?: {
+    total?: number;
+    totalCount?: number;
+    returnedCount?: number;
+    hasMore?: boolean;
+    totalKnown: boolean;
+    sortField?: "created_at" | "received_at";
+    sortDirection?: "asc" | "desc";
+    orderScope?: "global" | "page";
+    note?: string;
+  };
   correlation_id?: string;
 };
 
 export type PaginatedData<T> = {
   items: T[];
   count: number;
+  page_count?: number;
+  total_count?: number;
+  nextToken?: string;
   lastEvaluatedKey?: string;
+  pagination?: {
+    total?: number;
+    totalCount?: number;
+    returnedCount?: number;
+    hasMore?: boolean;
+    totalKnown: boolean;
+    sortField?: "created_at";
+    sortDirection?: "asc" | "desc";
+    orderScope?: "global" | "page";
+    note?: string;
+  };
 };
 
 export type PaginatedRestApiResponse<T> = {

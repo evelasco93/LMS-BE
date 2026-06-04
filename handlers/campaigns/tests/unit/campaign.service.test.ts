@@ -61,6 +61,169 @@ describe("CampaignService", () => {
     });
   });
 
+  describe("dashboard widgets", () => {
+    const campaign = {
+      ...emptyCampaign,
+      id: "CM1",
+      base_criteria: [
+        {
+          id: "CF1",
+          order: 1,
+          field_label: "State",
+          field_name: "state",
+          data_type: "Text" as const,
+          required: true,
+          client_override: false,
+          affiliate_override: false,
+          created_at: "2026-05-01T00:00:00.000Z",
+          updated_at: "2026-05-01T00:00:00.000Z",
+        },
+      ],
+      affiliates: [
+        {
+          affiliate_id: "AF1",
+          campaign_key: "KEY1",
+          status: CampaignParticipantStatus.LIVE,
+        },
+      ],
+    };
+
+    it("creates a dashboard widget when criteria and affiliate scope are valid", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockDynamoDBUtil.update.mockResolvedValueOnce(undefined);
+
+      const result = await campaignService.createDashboardWidget("CM1", {
+        title: "Leads by State",
+        criteria_field_name: "state",
+        chart_type: "bar",
+        color: "#2563eb",
+        layout: { size: "medium", order: 1 },
+        affiliate_id: "AF1",
+        campaign_key: "KEY1",
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data).toMatchObject({
+        title: "Leads by State",
+        criteria_field_name: "state",
+        chart_type: "bar",
+        affiliate_id: "AF1",
+        campaign_key: "KEY1",
+      });
+      expect(mockDynamoDBUtil.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          TableName: "test-campaigns-table",
+          Key: { id: "CM1" },
+        }),
+      );
+    });
+
+    it("rejects a dashboard widget for unknown criteria fields", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+
+      const result = await campaignService.createDashboardWidget("CM1", {
+        title: "Bad Field",
+        criteria_field_name: "unknown",
+        chart_type: "pie",
+        color: "#111827",
+        layout: { size: "small", order: 0 },
+      });
+
+      expect(result.result).toBe(false);
+      expect(result.error).toContain("criteria_field_name unknown");
+      expect(mockDynamoDBUtil.update).not.toHaveBeenCalled();
+    });
+
+    it("returns widget data from criteria aggregate metric rows", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...campaign,
+        dashboard_widgets: [
+          {
+            id: "DW1",
+            title: "Leads by State",
+            criteria_field_name: "state",
+            chart_type: "bar",
+            color: "#2563eb",
+            layout: { size: "medium", order: 1 },
+            affiliate_id: "AF1",
+            created_at: "2026-05-01T00:00:00.000Z",
+            updated_at: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+      });
+      mockDynamoDBUtil.queryAll.mockResolvedValueOnce([
+        {
+          criteria_value: "CA",
+          received: 3,
+          accepted: 2,
+          sold: 1,
+          accepted_not_sold: 1,
+          rejected: 1,
+        },
+        {
+          criteria_value: "CA",
+          received: 4,
+          accepted: 4,
+          sold: 2,
+          accepted_not_sold: 2,
+          rejected: 0,
+        },
+        {
+          criteria_value: "TX",
+          received: 2,
+          accepted: 1,
+          sold: 1,
+          accepted_not_sold: 0,
+          rejected: 1,
+        },
+      ]);
+
+      const result = await campaignService.getDashboardWidgetData("CM1", "DW1", {
+        from_date: "2026-05-01",
+        to_date: "2026-05-31",
+      });
+
+      expect(result.result).toBe(true);
+      expect(result.data?.buckets).toEqual([
+        {
+          value: "CA",
+          label: "CA",
+          counters: {
+            received: 7,
+            accepted: 6,
+            sold: 3,
+            accepted_not_sold: 3,
+            rejected: 1,
+            cherry_picked: 0,
+          },
+        },
+        {
+          value: "TX",
+          label: "TX",
+          counters: {
+            received: 2,
+            accepted: 1,
+            sold: 1,
+            accepted_not_sold: 0,
+            rejected: 1,
+            cherry_picked: 0,
+          },
+        },
+      ]);
+      expect(result.data?.totals.received).toBe(9);
+      expect(mockDynamoDBUtil.queryAll).toHaveBeenCalledWith(
+        expect.objectContaining({
+          TableName: "test-metrics-table",
+          ExpressionAttributeValues: expect.objectContaining({
+            ":pk": "criteria#campaign_affiliate#CM1#affiliate#AF1#field#state",
+            ":from_sk": "bucket#2026-05-01",
+            ":to_sk": "bucket#2026-05-31~",
+          }),
+        }),
+      );
+    });
+  });
+
   describe("linkContract", () => {
     it("adds a client when not already linked and defaults status to TEST", async () => {
       const campaign = { ...emptyCampaign, contracts: [], affiliates: [] };

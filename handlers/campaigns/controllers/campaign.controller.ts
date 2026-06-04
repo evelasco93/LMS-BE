@@ -44,6 +44,8 @@ import {
   CreateLogicCatalogRequest,
   UpdateLogicCatalogRequest,
   ApplyLogicCatalogRequest,
+  CreateDashboardWidgetRequest,
+  UpdateDashboardWidgetRequest,
 } from "../types/campaign-request.types";
 import { RestApiResponse } from "../types/common.types";
 import { CampaignStatus } from "../enums/campaign-status.enum";
@@ -160,6 +162,209 @@ export class CampaignController extends Controller {
       message: "Campaign updated successfully",
       data: result.data,
     });
+  }
+
+  @GET("/:id/dashboard/widgets")
+  @produces("application/json")
+  async listDashboardWidgets(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.listDashboardWidgets(id);
+
+    if (!result.result) {
+      return this.fail("Failed to list dashboard widgets", result.error);
+    }
+
+    return this.withCorrelation({
+      success: true,
+      message: "Dashboard widgets retrieved",
+      data: result.data,
+    });
+  }
+
+  @GET("/:id/dashboard-widgets")
+  @produces("application/json")
+  async listDashboardWidgetsLegacy(
+    @pathParam("id") id: string,
+  ): Promise<RestApiResponse> {
+    return this.listDashboardWidgets(id);
+  }
+
+  @POST("/:id/dashboard/widgets")
+  @produces("application/json")
+  async createDashboardWidget(
+    @pathParam("id") id: string,
+    @body payload: CreateDashboardWidgetRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.createDashboardWidget(
+      id,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return this.fail("Failed to create dashboard widget", result.error);
+    }
+
+    return this.withCorrelation({
+      success: true,
+      message: "Dashboard widget created",
+      data: result.data,
+    });
+  }
+
+  @POST("/:id/dashboard-widgets")
+  @produces("application/json")
+  async createDashboardWidgetLegacy(
+    @pathParam("id") id: string,
+    @body payload: CreateDashboardWidgetRequest,
+  ): Promise<RestApiResponse> {
+    return this.createDashboardWidget(id, payload);
+  }
+
+  @GET("/:id/dashboard/widgets/:widgetId")
+  @produces("application/json")
+  async getDashboardWidget(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getDashboardWidget(id, widgetId);
+
+    if (!result.result) {
+      return this.fail("Failed to get dashboard widget", result.error, 404);
+    }
+
+    return this.withCorrelation({
+      success: true,
+      message: "Dashboard widget retrieved",
+      data: result.data,
+    });
+  }
+
+  @GET("/:id/dashboard-widgets/:widgetId")
+  @produces("application/json")
+  async getDashboardWidgetLegacy(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+  ): Promise<RestApiResponse> {
+    return this.getDashboardWidget(id, widgetId);
+  }
+
+  @PUT("/:id/dashboard/widgets/:widgetId")
+  @produces("application/json")
+  async updateDashboardWidget(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+    @body payload: UpdateDashboardWidgetRequest,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.updateDashboardWidget(
+      id,
+      widgetId,
+      payload,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return this.fail("Failed to update dashboard widget", result.error);
+    }
+
+    return this.withCorrelation({
+      success: true,
+      message: "Dashboard widget updated",
+      data: result.data,
+    });
+  }
+
+  @PUT("/:id/dashboard-widgets/:widgetId")
+  @produces("application/json")
+  async updateDashboardWidgetLegacy(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+    @body payload: UpdateDashboardWidgetRequest,
+  ): Promise<RestApiResponse> {
+    return this.updateDashboardWidget(id, widgetId, payload);
+  }
+
+  @DELETE("/:id/dashboard/widgets/:widgetId")
+  @produces("application/json")
+  async deleteDashboardWidget(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.deleteDashboardWidget(
+      id,
+      widgetId,
+      this.getActor(),
+    );
+
+    if (!result.result) {
+      return this.fail("Failed to delete dashboard widget", result.error);
+    }
+
+    return this.withCorrelation({
+      success: true,
+      message: "Dashboard widget deleted",
+      data: result.data,
+    });
+  }
+
+  @DELETE("/:id/dashboard-widgets/:widgetId")
+  @produces("application/json")
+  async deleteDashboardWidgetLegacy(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+  ): Promise<RestApiResponse> {
+    return this.deleteDashboardWidget(id, widgetId);
+  }
+
+  @GET("/:id/dashboard/widgets/:widgetId/data")
+  @produces("application/json")
+  async getDashboardWidgetData(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+    @queryParam("from_date") from_date?: string,
+    @queryParam("to_date") to_date?: string,
+  ): Promise<RestApiResponse> {
+    const result = await this.campaignService.getDashboardWidgetData(
+      id,
+      widgetId,
+      {
+        from_date: from_date ?? "",
+        to_date: to_date ?? "",
+      },
+    );
+
+    if (!result.result) {
+      return this.fail("Failed to get dashboard widget data", result.error);
+    }
+
+    return this.withCorrelation({
+      success: true,
+      message: "Dashboard widget data retrieved",
+      data: result.data,
+    });
+  }
+
+  @GET("/:id/dashboard-widgets/:widgetId/query")
+  @produces("application/json")
+  async getDashboardWidgetLegacyQuery(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+    @queryParam("from_date") from_date?: string,
+    @queryParam("to_date") to_date?: string,
+  ): Promise<RestApiResponse> {
+    return this.getDashboardWidgetData(id, widgetId, from_date, to_date);
+  }
+
+  @POST("/:id/dashboard-widgets/:widgetId/query")
+  @produces("application/json")
+  async postDashboardWidgetLegacyQuery(
+    @pathParam("id") id: string,
+    @pathParam("widgetId") widgetId: string,
+    @queryParam("from_date") from_date?: string,
+    @queryParam("to_date") to_date?: string,
+  ): Promise<RestApiResponse> {
+    return this.getDashboardWidgetData(id, widgetId, from_date, to_date);
   }
 
   @POST("/:id/contracts")
@@ -1412,7 +1617,7 @@ export class CampaignController extends Controller {
     return this.withCorrelation({
       success: true,
       message: "Cherry pick override updated",
-      data: this.enrichCampaignForResponse(result.data!),
+      data: result.data,
     });
   }
 

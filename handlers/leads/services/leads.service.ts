@@ -406,6 +406,7 @@ export class LeadsService {
         ).map((field) => `${this.toTitleCasePhrase(field)} Is Required`);
         const lead: ILead = {
           id: IdGenerator.generateLeadId(),
+          entity_type: this.constants.LEADS_ENTITY_TYPE,
           campaign_id: campaignId,
           campaign_key: campaignKey,
           affiliate_id: affiliate.affiliate_id,
@@ -519,14 +520,19 @@ export class LeadsService {
           criteriaResponse,
         ).catch((err) => this.logger.error("Failed to write intake log", err));
 
-        try {
-          await this.metricsService.recordLeadOutcome(lead);
-        } catch (err: any) {
-          this.logger.error("Failed to write lead metrics", {
-            leadId: lead.id,
-            error: err?.message,
-          });
-          await this.metricsDlqClient.enqueue(buildLeadOutcomeEvent(lead), err);
+        if (this.shouldEmitMetricsForLead(lead)) {
+          try {
+            await this.metricsService.recordLeadOutcome(lead);
+          } catch (err: any) {
+            this.logger.error("Failed to write lead metrics", {
+              leadId: lead.id,
+              error: err?.message,
+            });
+            await this.metricsDlqClient.enqueue(
+              buildLeadOutcomeEvent(lead),
+              err,
+            );
+          }
         }
 
         return criteriaResponse;
@@ -642,6 +648,7 @@ export class LeadsService {
 
       const lead: ILead = {
         id: IdGenerator.generateLeadId(),
+        entity_type: this.constants.LEADS_ENTITY_TYPE,
         campaign_id: campaignId,
         campaign_key: campaignKey,
         affiliate_id: affiliate.affiliate_id,
@@ -916,14 +923,16 @@ export class LeadsService {
         leadResponse,
       ).catch((err) => this.logger.error("Failed to write intake log", err));
 
-      try {
-        await this.metricsService.recordLeadOutcome(lead);
-      } catch (err: any) {
-        this.logger.error("Failed to write lead metrics", {
-          leadId: lead.id,
-          error: err?.message,
-        });
-        await this.metricsDlqClient.enqueue(buildLeadOutcomeEvent(lead), err);
+      if (this.shouldEmitMetricsForLead(lead)) {
+        try {
+          await this.metricsService.recordLeadOutcome(lead);
+        } catch (err: any) {
+          this.logger.error("Failed to write lead metrics", {
+            leadId: lead.id,
+            error: err?.message,
+          });
+          await this.metricsDlqClient.enqueue(buildLeadOutcomeEvent(lead), err);
+        }
       }
 
       return leadResponse;
@@ -941,22 +950,32 @@ export class LeadsService {
     ServiceResult<{
       items: ILead[];
       count: number;
+      nextToken?: string;
       lastEvaluatedKey?: string;
+      pagination?: {
+        total?: number;
+        totalCount?: number;
+        returnedCount?: number;
+        hasMore?: boolean;
+        totalKnown: boolean;
+        sortField?: "created_at";
+        sortDirection?: "asc" | "desc";
+        orderScope?: "global" | "page";
+        note?: string;
+      };
     }>
   > {
     try {
       const {
         campaign_id,
         test,
+        include_test,
         limit = 20,
+        nextToken,
         lastEvaluatedKey,
         includeDeleted = false,
         include_trace = false,
       } = query;
-
-      const exclusiveStartKey = lastEvaluatedKey
-        ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
-        : undefined;
 
       const filters: string[] = [];
       const names: Record<string, string> = {};
@@ -969,10 +988,17 @@ export class LeadsService {
         values[":is_deleted_false"] = false;
       }
 
-      if (typeof test === "boolean") {
+      const effectiveTest =
+        typeof test === "boolean"
+          ? test
+          : include_test === false
+            ? false
+            : undefined;
+
+      if (typeof effectiveTest === "boolean") {
         filters.push("#test = :test");
         names["#test"] = "test";
-        values[":test"] = test;
+        values[":test"] = effectiveTest;
       }
 
       const filterExpression = filters.length
@@ -981,6 +1007,16 @@ export class LeadsService {
 
       let items: ILead[] = [];
       let nextKey: Record<string, unknown> | undefined;
+      let orderedViaCampaignIndex = false;
+      let orderedViaGlobalIndex = false;
+      let usedLegacyOffsetPath = false;
+      let total = 0;
+
+      const parsedToken = this.parsePaginationToken(
+        nextToken ?? lastEvaluatedKey,
+      );
+      const exclusiveStartKey = parsedToken.exclusiveStartKey;
+      const offsetToken = parsedToken.offset;
 
       if (campaign_id) {
         try {
@@ -1007,59 +1043,98 @@ export class LeadsService {
 
           items = queryResult.items;
           nextKey = queryResult.lastEvaluatedKey;
-        } catch (error: any) {
-          // Safe rollout: if index is not available yet, keep behavior by
-          // falling back to scan for this request.
-          this.logger.warn(
-            "Leads campaign index query failed; falling back to scan",
-            {
-              campaignId: campaign_id,
-              error: error?.message,
-              indexName: this.constants.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME,
-            },
-          );
-
-          const scanFilters = ["#campaign_id = :campaign_id", ...filters];
-          const scanNames: Record<string, string> = {
-            ...names,
-            "#campaign_id": "campaign_id",
-          };
-          const scanValues: Record<string, unknown> = {
-            ...values,
-            ":campaign_id": campaign_id,
-          };
-
-          const scanResult = await this.dynamoDBUtil.scan<ILead>({
-            TableName: this.constants.LEADS_TABLE_NAME,
-            Limit: limit,
-            ExclusiveStartKey: exclusiveStartKey,
-            FilterExpression: scanFilters.join(" AND "),
-            ExpressionAttributeNames: scanNames,
-            ExpressionAttributeValues: scanValues,
+          orderedViaCampaignIndex = true;
+          total = await this.countLeadsByCampaignExact({
+            campaignId: campaign_id,
+            names,
+            values,
+            filterExpression,
           });
-
-          items = scanResult.items;
-          nextKey = scanResult.lastEvaluatedKey;
+        } catch (error: any) {
+          this.logger.error("Leads campaign index query failed", {
+            campaignId: campaign_id,
+            error: error?.message,
+            indexName: this.constants.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME,
+          });
+          throw error;
         }
       } else {
-        const scanResult = await this.dynamoDBUtil.scan<ILead>({
-          TableName: this.constants.LEADS_TABLE_NAME,
-          Limit: limit,
-          ExclusiveStartKey: exclusiveStartKey,
-          ...(filterExpression
-            ? {
-                FilterExpression: filterExpression,
-                ...(Object.keys(names).length > 0
-                  ? { ExpressionAttributeNames: names }
-                  : {}),
-                ExpressionAttributeValues: values,
-              }
-            : {}),
-        });
+        // Compatibility path: old tokens encoded as offset require the legacy
+        // scanAll pagination path so in-flight clients keep working.
+        if (typeof offsetToken === "number" && offsetToken >= 0) {
+          const allItems = await this.dynamoDBUtil.scanAll<ILead>({
+            TableName: this.constants.LEADS_TABLE_NAME,
+            ...(filterExpression
+              ? {
+                  FilterExpression: filterExpression,
+                  ...(Object.keys(names).length > 0
+                    ? { ExpressionAttributeNames: names }
+                    : {}),
+                  ExpressionAttributeValues: values,
+                }
+              : {}),
+          });
 
-        items = scanResult.items;
-        nextKey = scanResult.lastEvaluatedKey;
+          const sorted = this.sortLeadsByCreatedAtDesc(allItems);
+          total = sorted.length;
+          items = sorted.slice(offsetToken, offsetToken + limit);
+          const nextOffset = offsetToken + items.length;
+
+          nextKey =
+            nextOffset < total
+              ? ({
+                  __kind: "offset",
+                  offset: nextOffset,
+                } as Record<string, unknown>)
+              : undefined;
+          usedLegacyOffsetPath = true;
+        } else {
+          try {
+            const queryNames: Record<string, string> = {
+              ...names,
+              "#entity_type": "entity_type",
+            };
+            const queryValues: Record<string, unknown> = {
+              ...values,
+              ":entity_type": this.constants.LEADS_ENTITY_TYPE,
+            };
+
+            const queryResult = await this.dynamoDBUtil.query<ILead>({
+              TableName: this.constants.LEADS_TABLE_NAME,
+              IndexName: this.constants.LEADS_GLOBAL_CREATED_AT_INDEX_NAME,
+              KeyConditionExpression: "#entity_type = :entity_type",
+              ExpressionAttributeNames: queryNames,
+              ExpressionAttributeValues: queryValues,
+              ...(filterExpression
+                ? { FilterExpression: filterExpression }
+                : {}),
+              Limit: limit,
+              ExclusiveStartKey: exclusiveStartKey,
+              ScanIndexForward: false,
+            });
+
+            items = queryResult.items;
+            nextKey = queryResult.lastEvaluatedKey;
+            orderedViaGlobalIndex = true;
+            total = await this.countLeadsByEntityTypeExact({
+              entityType: this.constants.LEADS_ENTITY_TYPE,
+              names,
+              values,
+              filterExpression,
+            });
+          } catch (error: any) {
+            this.logger.error("Leads global index query failed", {
+              error: error?.message,
+              indexName: this.constants.LEADS_GLOBAL_CREATED_AT_INDEX_NAME,
+            });
+            throw error;
+          }
+        }
       }
+
+      const encodedNextToken = nextKey
+        ? Buffer.from(JSON.stringify(nextKey)).toString("base64")
+        : undefined;
 
       return {
         result: true,
@@ -1068,9 +1143,36 @@ export class LeadsService {
             this.enrichLeadForResponse(lead, include_trace),
           ),
           count: items.length,
-          lastEvaluatedKey: nextKey
-            ? Buffer.from(JSON.stringify(nextKey)).toString("base64")
-            : undefined,
+          nextToken: encodedNextToken,
+          lastEvaluatedKey: encodedNextToken,
+          pagination: {
+            total,
+            totalCount: total,
+            returnedCount: items.length,
+            hasMore: Boolean(nextKey),
+            totalKnown: true,
+            sortField: "created_at",
+            sortDirection: "desc",
+            orderScope:
+              orderedViaCampaignIndex ||
+              orderedViaGlobalIndex ||
+              usedLegacyOffsetPath
+                ? "global"
+                : "page",
+            ...(orderedViaCampaignIndex
+              ? {
+                  note: "Ordered newest-first globally by campaign created_at index with exact total.",
+                }
+              : orderedViaGlobalIndex
+                ? {
+                    note: "Ordered newest-first globally by leads entity_type-created_at index with exact total.",
+                  }
+                : usedLegacyOffsetPath
+                  ? {
+                      note: "Ordered newest-first globally with exact total via legacy offset pagination.",
+                    }
+                  : {}),
+          },
         },
       };
     } catch (error: any) {
@@ -1080,6 +1182,197 @@ export class LeadsService {
         error: error.message || "Failed to list leads",
       };
     }
+  }
+
+  private sortLeadsByCreatedAtDesc(items: ILead[]): ILead[] {
+    return [...items].sort((left, right) => {
+      const leftMillis = Date.parse(left.created_at ?? "");
+      const rightMillis = Date.parse(right.created_at ?? "");
+      const safeLeft = Number.isFinite(leftMillis)
+        ? leftMillis
+        : Number.NEGATIVE_INFINITY;
+      const safeRight = Number.isFinite(rightMillis)
+        ? rightMillis
+        : Number.NEGATIVE_INFINITY;
+
+      if (safeRight !== safeLeft) {
+        return safeRight - safeLeft;
+      }
+
+      return String(right.id ?? "").localeCompare(String(left.id ?? ""));
+    });
+  }
+
+  private parsePaginationToken(lastEvaluatedKey?: string): {
+    exclusiveStartKey?: Record<string, unknown>;
+    offset?: number;
+  } {
+    if (!lastEvaluatedKey) {
+      return {};
+    }
+
+    const decoded = JSON.parse(
+      Buffer.from(lastEvaluatedKey, "base64").toString(),
+    ) as unknown;
+
+    if (
+      decoded &&
+      typeof decoded === "object" &&
+      (decoded as Record<string, unknown>).__kind === "offset"
+    ) {
+      const offset = Number((decoded as Record<string, unknown>).offset);
+      return Number.isFinite(offset) && offset >= 0 ? { offset } : {};
+    }
+
+    return {
+      exclusiveStartKey: decoded as Record<string, unknown>,
+    };
+  }
+
+  private shouldEmitMetricsForLead(lead: ILead): boolean {
+    return lead.test !== true;
+  }
+
+  private normalizeCampaignKeyForComparison(value: unknown): string {
+    return typeof value === "string" ? value.trim().toLowerCase() : "";
+  }
+
+  private async countLeadsByCampaignExact(params: {
+    campaignId: string;
+    names: Record<string, string>;
+    values: Record<string, unknown>;
+    filterExpression?: string;
+  }): Promise<number> {
+    const { campaignId, names, values, filterExpression } = params;
+    const queryNames: Record<string, string> = {
+      ...names,
+      "#campaign_id": "campaign_id",
+    };
+    const queryValues: Record<string, unknown> = {
+      ...values,
+      ":campaign_id": campaignId,
+    };
+
+    let total = 0;
+    let cursor: Record<string, unknown> | undefined;
+
+    do {
+      const result = await this.dynamoDBUtil.query<ILead>({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        IndexName: this.constants.LEADS_CAMPAIGN_CREATED_AT_INDEX_NAME,
+        KeyConditionExpression: "#campaign_id = :campaign_id",
+        ExpressionAttributeNames: queryNames,
+        ExpressionAttributeValues: queryValues,
+        ...(filterExpression ? { FilterExpression: filterExpression } : {}),
+        Select: "COUNT",
+        ExclusiveStartKey: cursor,
+      });
+
+      total += result.count;
+      cursor = result.lastEvaluatedKey;
+    } while (cursor);
+
+    return total;
+  }
+
+  private async countLeadsByEntityTypeExact(params: {
+    entityType: string;
+    names: Record<string, string>;
+    values: Record<string, unknown>;
+    filterExpression?: string;
+  }): Promise<number> {
+    const { entityType, names, values, filterExpression } = params;
+    const queryNames: Record<string, string> = {
+      ...names,
+      "#entity_type": "entity_type",
+    };
+    const queryValues: Record<string, unknown> = {
+      ...values,
+      ":entity_type": entityType,
+    };
+
+    let total = 0;
+    let cursor: Record<string, unknown> | undefined;
+
+    do {
+      const result = await this.dynamoDBUtil.query<ILead>({
+        TableName: this.constants.LEADS_TABLE_NAME,
+        IndexName: this.constants.LEADS_GLOBAL_CREATED_AT_INDEX_NAME,
+        KeyConditionExpression: "#entity_type = :entity_type",
+        ExpressionAttributeNames: queryNames,
+        ExpressionAttributeValues: queryValues,
+        ...(filterExpression ? { FilterExpression: filterExpression } : {}),
+        Select: "COUNT",
+        ExclusiveStartKey: cursor,
+      });
+
+      total += result.count;
+      cursor = result.lastEvaluatedKey;
+    } while (cursor);
+
+    return total;
+  }
+
+  private async countIntakeLogsExact(params: {
+    tableName: string;
+    campaignId?: string;
+    keyConditions?: string[];
+    filterExpression?: string;
+    names: Record<string, string>;
+    values: Record<string, unknown>;
+  }): Promise<number> {
+    const {
+      tableName,
+      campaignId,
+      keyConditions,
+      filterExpression,
+      names,
+      values,
+    } = params;
+
+    let total = 0;
+    let cursor: Record<string, unknown> | undefined;
+
+    if (campaignId) {
+      const indexName = `${tableName}-campaign-received-at-index`;
+      do {
+        const result = await this.dynamoDBUtil.query<ILeadIntakeLog>({
+          TableName: tableName,
+          IndexName: indexName,
+          KeyConditionExpression: (
+            keyConditions ?? ["#campaign_id = :campaign_id"]
+          ).join(" AND "),
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ...(filterExpression ? { FilterExpression: filterExpression } : {}),
+          Select: "COUNT",
+          ExclusiveStartKey: cursor,
+        });
+
+        total += result.count;
+        cursor = result.lastEvaluatedKey;
+      } while (cursor);
+
+      return total;
+    }
+
+    do {
+      const result = await this.dynamoDBUtil.scan<ILeadIntakeLog>({
+        TableName: tableName,
+        ...(filterExpression ? { FilterExpression: filterExpression } : {}),
+        ...(Object.keys(names).length > 0
+          ? { ExpressionAttributeNames: names }
+          : {}),
+        ExpressionAttributeValues: values,
+        Select: "COUNT",
+        ExclusiveStartKey: cursor,
+      });
+
+      total += result.count;
+      cursor = result.lastEvaluatedKey;
+    } while (cursor);
+
+    return total;
   }
 
   async getLead(
@@ -1182,6 +1475,7 @@ export class LeadsService {
 
       const updated: ILead = {
         ...existing,
+        entity_type: existing.entity_type ?? this.constants.LEADS_ENTITY_TYPE,
         ...(hasIncomingPayload ? { payload: newPayload } : {}),
         updated_at: now,
         updated_by: actor,
@@ -1402,7 +1696,15 @@ export class LeadsService {
     ServiceResult<{
       items: ILeadIntakeLog[];
       count: number;
+      total: number;
       lastEvaluatedKey?: string;
+      pagination: {
+        total: number;
+        totalKnown: true;
+        sortField: "received_at";
+        sortDirection: "desc";
+        orderScope: "global" | "page";
+      };
     }>
   > {
     try {
@@ -1413,11 +1715,15 @@ export class LeadsService {
       const {
         campaign_id,
         status,
+        include_test = false,
         from_date,
         to_date,
         limit = 50,
         lastEvaluatedKey,
       } = query;
+
+      const normalizedStatus = status === "all" ? undefined : status;
+      const includeTestTraffic = include_test || normalizedStatus === "test";
 
       const exclusiveStartKey = lastEvaluatedKey
         ? JSON.parse(Buffer.from(lastEvaluatedKey, "base64").toString())
@@ -1452,10 +1758,15 @@ export class LeadsService {
         }
 
         const filterParts: string[] = [];
-        if (status) {
+        if (!includeTestTraffic) {
+          filterParts.push("#is_test = :is_test");
+          names["#is_test"] = "is_test";
+          values[":is_test"] = false;
+        }
+        if (normalizedStatus) {
           filterParts.push("#status = :status");
           names["#status"] = "status";
-          values[":status"] = status;
+          values[":status"] = normalizedStatus;
         }
 
         const queryResult = await this.dynamoDBUtil.query<ILeadIntakeLog>({
@@ -1478,12 +1789,31 @@ export class LeadsService {
             )
           : undefined;
 
+        const total = await this.countIntakeLogsExact({
+          tableName,
+          campaignId: campaign_id,
+          keyConditions,
+          filterExpression: filterParts.length
+            ? filterParts.join(" AND ")
+            : undefined,
+          names,
+          values,
+        });
+
         return {
           result: true,
           data: {
             items: queryResult.items,
             count: queryResult.items.length,
+            total,
             lastEvaluatedKey: encodedKey,
+            pagination: {
+              total,
+              totalKnown: true,
+              sortField: "received_at",
+              sortDirection: "desc",
+              orderScope: "global",
+            },
           },
         };
       }
@@ -1493,10 +1823,16 @@ export class LeadsService {
       const names: Record<string, string> = {};
       const values: Record<string, unknown> = {};
 
-      if (status) {
+      if (!includeTestTraffic) {
+        filters.push("#is_test = :is_test");
+        names["#is_test"] = "is_test";
+        values[":is_test"] = false;
+      }
+
+      if (normalizedStatus) {
         filters.push("#status = :status");
         names["#status"] = "status";
-        values[":status"] = status;
+        values[":status"] = normalizedStatus;
       }
       if (from_date) {
         filters.push("#received_at >= :from_date");
@@ -1530,12 +1866,42 @@ export class LeadsService {
           )
         : undefined;
 
+      const total = await this.countIntakeLogsExact({
+        tableName,
+        filterExpression: filters.length ? filters.join(" AND ") : undefined,
+        names,
+        values,
+      });
+
       return {
         result: true,
         data: {
-          items: scanResult.items,
+          items: [...scanResult.items].sort((left, right) => {
+            const leftMillis = Date.parse(left.received_at ?? "");
+            const rightMillis = Date.parse(right.received_at ?? "");
+            const safeLeft = Number.isFinite(leftMillis)
+              ? leftMillis
+              : Number.NEGATIVE_INFINITY;
+            const safeRight = Number.isFinite(rightMillis)
+              ? rightMillis
+              : Number.NEGATIVE_INFINITY;
+
+            if (safeRight !== safeLeft) {
+              return safeRight - safeLeft;
+            }
+
+            return String(right.id ?? "").localeCompare(String(left.id ?? ""));
+          }),
           count: scanResult.items.length,
+          total,
           lastEvaluatedKey: encodedKey,
+          pagination: {
+            total,
+            totalKnown: true,
+            sortField: "received_at",
+            sortDirection: "desc",
+            orderScope: "page",
+          },
         },
       };
     } catch (error: any) {
