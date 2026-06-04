@@ -3118,7 +3118,9 @@ export class CampaignService {
 
       return {
         result: true,
-        data: this.sortDashboardWidgets(campaignRecord.dashboard_widgets ?? []),
+        data: this.sortDashboardWidgets(
+          campaignRecord.dashboard_widgets ?? [],
+        ).map((widget) => this.normalizeDashboardWidget(widget)),
       };
     } catch (error: any) {
       this.logger.error("Failed to list dashboard widgets", error);
@@ -3150,7 +3152,7 @@ export class CampaignService {
         };
       }
 
-      return { result: true, data: widget };
+      return { result: true, data: this.normalizeDashboardWidget(widget) };
     } catch (error: any) {
       this.logger.error("Failed to get dashboard widget", error);
       return {
@@ -3182,12 +3184,16 @@ export class CampaignService {
       }
 
       const now = new Date().toISOString();
+      const labelColors = this.resolveDashboardWidgetLabelColors(request);
       const widget: ICampaignDashboardWidget = {
         id: IdGenerator.generate("DW"),
         title: request.title.trim(),
         criteria_field_name: request.criteria_field_name.trim(),
         chart_type: request.chart_type,
         color: request.color.trim(),
+        ...(labelColors
+          ? { label_colors: labelColors, value_colors: labelColors }
+          : {}),
         layout: {
           size: request.layout.size,
           order: request.layout.order,
@@ -3211,7 +3217,7 @@ export class CampaignService {
 
       await this.saveDashboardWidgets(campaignId, widgets, now, actor);
 
-      return { result: true, data: widget };
+      return { result: true, data: this.normalizeDashboardWidget(widget) };
     } catch (error: any) {
       this.logger.error("Failed to create dashboard widget", error);
       return {
@@ -3259,6 +3265,13 @@ export class CampaignService {
             ? request.campaign_key
             : widgets[index].campaign_key,
       };
+      const existingLabelColors = this.resolveDashboardWidgetLabelColors(
+        widgets[index],
+      );
+      const nextLabelColors =
+        request.label_colors !== undefined || request.value_colors !== undefined
+          ? this.resolveDashboardWidgetLabelColors(request)
+          : existingLabelColors;
 
       const validationError = this.validateDashboardWidgetRequest(
         campaignRecord,
@@ -3276,6 +3289,9 @@ export class CampaignService {
         criteria_field_name: merged.criteria_field_name.trim(),
         chart_type: merged.chart_type,
         color: merged.color.trim(),
+        ...(nextLabelColors
+          ? { label_colors: nextLabelColors, value_colors: nextLabelColors }
+          : { label_colors: undefined, value_colors: undefined }),
         layout: {
           size: merged.layout.size,
           order: merged.layout.order,
@@ -3292,7 +3308,7 @@ export class CampaignService {
 
       await this.saveDashboardWidgets(campaignId, nextWidgets, now, actor);
 
-      return { result: true, data: updated };
+      return { result: true, data: this.normalizeDashboardWidget(updated) };
     } catch (error: any) {
       this.logger.error("Failed to update dashboard widget", error);
       return {
@@ -7712,6 +7728,45 @@ export class CampaignService {
         ? byOrder
         : left.created_at.localeCompare(right.created_at);
     });
+  }
+
+  private normalizeDashboardWidget(
+    widget: ICampaignDashboardWidget,
+  ): ICampaignDashboardWidget {
+    const labelColors = this.resolveDashboardWidgetLabelColors(widget);
+    return {
+      ...widget,
+      ...(labelColors
+        ? { label_colors: labelColors, value_colors: labelColors }
+        : { label_colors: undefined, value_colors: undefined }),
+    };
+  }
+
+  private resolveDashboardWidgetLabelColors(value: {
+    label_colors?: Record<string, string>;
+    value_colors?: Record<string, string>;
+  }): Record<string, string> | undefined {
+    if (value.label_colors !== undefined) {
+      return this.sanitizeDashboardWidgetLabelColors(value.label_colors);
+    }
+    if (value.value_colors !== undefined) {
+      return this.sanitizeDashboardWidgetLabelColors(value.value_colors);
+    }
+    return undefined;
+  }
+
+  private sanitizeDashboardWidgetLabelColors(
+    input: Record<string, string>,
+  ): Record<string, string> {
+    const output: Record<string, string> = {};
+    for (const [key, color] of Object.entries(input ?? {})) {
+      const normalizedKey = key.trim();
+      const normalizedColor = String(color ?? "").trim();
+      if (normalizedKey && normalizedColor) {
+        output[normalizedKey] = normalizedColor;
+      }
+    }
+    return output;
   }
 
   private validateWidgetDataRange(

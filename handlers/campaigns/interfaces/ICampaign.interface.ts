@@ -361,6 +361,8 @@ export interface ICampaignDashboardWidget {
   criteria_field_name: string;
   chart_type: DashboardWidgetChartType;
   color: string;
+  label_colors?: Record<string, string>;
+  value_colors?: Record<string, string>;
   layout: {
     size: "small" | "medium" | "large" | "full";
     order: number;

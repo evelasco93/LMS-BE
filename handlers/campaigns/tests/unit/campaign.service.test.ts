@@ -178,10 +178,14 @@ describe("CampaignService", () => {
         },
       ]);
 
-      const result = await campaignService.getDashboardWidgetData("CM1", "DW1", {
-        from_date: "2026-05-01",
-        to_date: "2026-05-31",
-      });
+      const result = await campaignService.getDashboardWidgetData(
+        "CM1",
+        "DW1",
+        {
+          from_date: "2026-05-01",
+          to_date: "2026-05-31",
+        },
+      );
 
       expect(result.result).toBe(true);
       expect(result.data?.buckets).toEqual([
@@ -221,6 +225,103 @@ describe("CampaignService", () => {
           }),
         }),
       );
+    });
+
+    it("persists and returns label color mappings across create/update/list/get", async () => {
+      mockDynamoDBUtil.get.mockResolvedValueOnce(campaign);
+      mockDynamoDBUtil.update.mockResolvedValueOnce(undefined);
+
+      const created = await campaignService.createDashboardWidget("CM1", {
+        title: "Leads by State",
+        criteria_field_name: "state",
+        chart_type: "bar",
+        color: "#2563eb",
+        label_colors: {
+          CA: "#1d4ed8",
+          TX: "#0f766e",
+        },
+        layout: { size: "medium", order: 1 },
+      });
+
+      expect(created.result).toBe(true);
+      expect(created.data?.label_colors).toEqual({
+        CA: "#1d4ed8",
+        TX: "#0f766e",
+      });
+      expect(created.data?.value_colors).toEqual({
+        CA: "#1d4ed8",
+        TX: "#0f766e",
+      });
+
+      const createUpdateInput = mockDynamoDBUtil.update.mock.calls[0][0];
+      const createdWidgets = createUpdateInput.ExpressionAttributeValues[
+        ":widgets"
+      ] as any[];
+      const createdWidgetId = createdWidgets[0].id;
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...campaign,
+        dashboard_widgets: createdWidgets,
+      });
+      mockDynamoDBUtil.update.mockResolvedValueOnce(undefined);
+
+      const updated = await campaignService.updateDashboardWidget(
+        "CM1",
+        createdWidgetId,
+        {
+          value_colors: {
+            CA: "#dc2626",
+          },
+        },
+      );
+
+      expect(updated.result).toBe(true);
+      expect(updated.data?.label_colors).toEqual({
+        CA: "#dc2626",
+      });
+      expect(updated.data?.value_colors).toEqual({
+        CA: "#dc2626",
+      });
+
+      const secondUpdateInput = mockDynamoDBUtil.update.mock.calls[1][0];
+      const updatedWidgets = secondUpdateInput.ExpressionAttributeValues[
+        ":widgets"
+      ] as any[];
+      expect(updatedWidgets[0].label_colors).toEqual({
+        CA: "#dc2626",
+      });
+      expect(updatedWidgets[0].value_colors).toEqual({
+        CA: "#dc2626",
+      });
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...campaign,
+        dashboard_widgets: updatedWidgets,
+      });
+      const listed = await campaignService.listDashboardWidgets("CM1");
+      expect(listed.result).toBe(true);
+      expect(listed.data?.[0].label_colors).toEqual({
+        CA: "#dc2626",
+      });
+      expect(listed.data?.[0].value_colors).toEqual({
+        CA: "#dc2626",
+      });
+
+      mockDynamoDBUtil.get.mockResolvedValueOnce({
+        ...campaign,
+        dashboard_widgets: updatedWidgets,
+      });
+      const fetched = await campaignService.getDashboardWidget(
+        "CM1",
+        createdWidgetId,
+      );
+      expect(fetched.result).toBe(true);
+      expect(fetched.data?.label_colors).toEqual({
+        CA: "#dc2626",
+      });
+      expect(fetched.data?.value_colors).toEqual({
+        CA: "#dc2626",
+      });
     });
   });
 

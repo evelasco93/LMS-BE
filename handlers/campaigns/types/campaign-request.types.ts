@@ -70,6 +70,8 @@ export type CreateDashboardWidgetRequest = {
   criteria_field_name: string;
   chart_type: DashboardWidgetChartType;
   color: string;
+  label_colors?: Record<string, string>;
+  value_colors?: Record<string, string>;
   layout: DashboardWidgetLayoutRequest;
   affiliate_id?: string;
   campaign_key?: string;
