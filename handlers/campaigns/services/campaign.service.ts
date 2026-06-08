@@ -3383,10 +3383,13 @@ export class CampaignService {
         return { result: false, error: dateError };
       }
 
-      const pk = widget.affiliate_id
+      const affiliateId = query.affiliate_id;
+      const campaignKey = query.campaign_key;
+
+      const pk = affiliateId
         ? this.pkCriteriaCampaignAffiliate(
             campaignId,
-            widget.affiliate_id,
+            affiliateId,
             widget.criteria_field_name,
           )
         : this.pkCriteriaCampaign(campaignId, widget.criteria_field_name);
@@ -3410,8 +3413,7 @@ export class CampaignService {
 
       const buckets = this.aggregateWidgetBuckets(
         items.filter(
-          (item) =>
-            !widget.campaign_key || item.campaign_key === widget.campaign_key,
+          (item) => !campaignKey || item.campaign_key === campaignKey,
         ),
       );
 
@@ -3426,12 +3428,8 @@ export class CampaignService {
             to_date: query.to_date,
           },
           filters: {
-            ...(widget.affiliate_id
-              ? { affiliate_id: widget.affiliate_id }
-              : {}),
-            ...(widget.campaign_key
-              ? { campaign_key: widget.campaign_key }
-              : {}),
+            ...(affiliateId ? { affiliate_id: affiliateId } : {}),
+            ...(campaignKey ? { campaign_key: campaignKey } : {}),
           },
           buckets,
           totals: buckets.reduce(

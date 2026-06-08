@@ -324,6 +324,8 @@ export class CampaignController extends Controller {
     @pathParam("widgetId") widgetId: string,
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
+    @queryParam("affiliate_id") affiliate_id?: string,
+    @queryParam("campaign_key") campaign_key?: string,
   ): Promise<RestApiResponse> {
     const result = await this.campaignService.getDashboardWidgetData(
       id,
@@ -331,6 +333,8 @@ export class CampaignController extends Controller {
       {
         from_date: from_date ?? "",
         to_date: to_date ?? "",
+        affiliate_id: affiliate_id || undefined,
+        campaign_key: campaign_key || undefined,
       },
     );
 
@@ -352,8 +356,17 @@ export class CampaignController extends Controller {
     @pathParam("widgetId") widgetId: string,
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
+    @queryParam("affiliate_id") affiliate_id?: string,
+    @queryParam("campaign_key") campaign_key?: string,
   ): Promise<RestApiResponse> {
-    return this.getDashboardWidgetData(id, widgetId, from_date, to_date);
+    return this.getDashboardWidgetData(
+      id,
+      widgetId,
+      from_date,
+      to_date,
+      affiliate_id,
+      campaign_key,
+    );
   }
 
   @POST("/:id/dashboard-widgets/:widgetId/query")
@@ -363,8 +376,17 @@ export class CampaignController extends Controller {
     @pathParam("widgetId") widgetId: string,
     @queryParam("from_date") from_date?: string,
     @queryParam("to_date") to_date?: string,
+    @queryParam("affiliate_id") affiliate_id?: string,
+    @queryParam("campaign_key") campaign_key?: string,
   ): Promise<RestApiResponse> {
-    return this.getDashboardWidgetData(id, widgetId, from_date, to_date);
+    return this.getDashboardWidgetData(
+      id,
+      widgetId,
+      from_date,
+      to_date,
+      affiliate_id,
+      campaign_key,
+    );
   }
 
   @POST("/:id/contracts")

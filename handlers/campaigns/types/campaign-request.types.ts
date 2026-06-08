@@ -83,6 +83,8 @@ export type UpdateDashboardWidgetRequest =
 export type DashboardWidgetDataQuery = {
   from_date: string;
   to_date: string;
+  affiliate_id?: string;
+  campaign_key?: string;
 };
 
 export type DashboardWidgetDataBucket = {
