@@ -237,6 +237,32 @@ export const dataConfig: IDataStackConfig = {
       pointInTimeRecovery: true,
       deletionProtection: isProductionLike,
     },
+    dispositions: {
+      tableName: nameBuilder.table("dispositions"),
+      partitionKey: { name: "id", type: "S" },
+      pointInTimeRecovery: true,
+      deletionProtection: isProductionLike,
+    },
+    dispositionRows: {
+      tableName: nameBuilder.table("disposition-rows"),
+      partitionKey: { name: "disposition_id", type: "S" },
+      sortKey: { name: "lead_id", type: "S" },
+      pointInTimeRecovery: true,
+      deletionProtection: isProductionLike,
+    },
+    publicDashboards: {
+      tableName: nameBuilder.table("public-dashboards"),
+      partitionKey: { name: "disposition_id", type: "S" },
+      gsi: [
+        {
+          indexName: `${nameBuilder.table("public-dashboards")}-uuid-index`,
+          partitionKey: { name: "uuid", type: "S" },
+          projectionType: "ALL",
+        },
+      ],
+      pointInTimeRecovery: true,
+      deletionProtection: isProductionLike,
+    },
   },
   auditLogsBucketName:
     `${nameBuilder.table("audit-logs-bucket")}`.toLowerCase(),

@@ -11,6 +11,7 @@ import { IExternalLeadsApiConfig } from "./types/api.types";
 
 export interface IExternalLeadsApiStackProps extends NestedStackProps {
   leadsLambda: IFunction;
+  dispositionsLambda: IFunction;
   apiConfig: IExternalLeadsApiConfig;
   logicalIdPrefix: string;
 }
@@ -30,7 +31,8 @@ export class ExternalLeadsApiStack extends NestedStack {
   ) {
     super(scope, id, props);
 
-    const { leadsLambda, apiConfig, logicalIdPrefix } = props;
+    const { leadsLambda, dispositionsLambda, apiConfig, logicalIdPrefix } =
+      props;
 
     this.api = new RestApi(this, `${logicalIdPrefix}-ExternalLeadsApi`, {
       restApiName: apiConfig.name,
@@ -43,7 +45,7 @@ export class ExternalLeadsApiStack extends NestedStack {
       },
       defaultCorsPreflightOptions: {
         allowOrigins: Cors.ALL_ORIGINS,
-        allowMethods: ["POST", "OPTIONS"],
+        allowMethods: ["GET", "POST", "OPTIONS"],
         allowHeaders: ["Content-Type", "X-Amz-Date"],
       },
     });
@@ -52,6 +54,13 @@ export class ExternalLeadsApiStack extends NestedStack {
       proxy: true,
       allowTestInvoke: false,
     });
+    const dispositionsLambdaIntegration = new LambdaIntegration(
+      dispositionsLambda,
+      {
+        proxy: true,
+        allowTestInvoke: false,
+      },
+    );
 
     const v2Resource = this.api.root.addResource("v2");
     const leadsResource = v2Resource.addResource("leads");
@@ -64,6 +73,14 @@ export class ExternalLeadsApiStack extends NestedStack {
     leadsResource
       .addResource("test")
       .addMethod("POST", leadsLambdaIntegration, {
+        authorizationType: AuthorizationType.NONE,
+      });
+
+    const publicResource = this.api.root.addResource("public");
+    const dispoResource = publicResource.addResource("dispo");
+    dispoResource
+      .addResource("{uuid}")
+      .addMethod("GET", dispositionsLambdaIntegration, {
         authorizationType: AuthorizationType.NONE,
       });
   }

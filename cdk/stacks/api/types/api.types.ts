@@ -50,6 +50,10 @@ export interface IExternalLeadsApiConfig {
 export interface IApiStackConfig {
   internalApi: IInternalApiConfig;
   externalLeadsApi: IExternalLeadsApiConfig;
+  publicDispositionsEdge: {
+    assetsBucketName: string;
+    rateLimitPerFiveMinutes: number;
+  };
 }
 
 /**
@@ -61,6 +65,7 @@ export interface IApiStackProps extends IBaseStackProps {
   affiliatesLambda: IFunction;
   campaignsLambda: IFunction;
   leadsLambda: IFunction;
+  dispositionsLambda: IFunction;
   metricsLambda: IFunction;
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;

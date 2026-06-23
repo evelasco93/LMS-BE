@@ -3,6 +3,7 @@ import { Construct } from "constructs";
 import { InternalApiStack } from "./internal-api.stack";
 import { ExternalLeadsApiStack } from "./external-leads-api.stack";
 import { IApiStackProps } from "./types/api.types";
+import { PublicDispositionsEdgeStack } from "./public-dispositions-edge.stack";
 
 /**
  * API Stack
@@ -11,6 +12,7 @@ import { IApiStackProps } from "./types/api.types";
 export class ApiStack extends Stack {
   public readonly internalApi: InternalApiStack;
   public readonly externalLeadsApi: ExternalLeadsApiStack;
+  public readonly publicDispositionsEdge: PublicDispositionsEdgeStack;
 
   constructor(scope: Construct, id: string, props: IApiStackProps) {
     super(scope, id, props);
@@ -22,6 +24,7 @@ export class ApiStack extends Stack {
       affiliatesLambda,
       campaignsLambda,
       leadsLambda,
+      dispositionsLambda,
       metricsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
@@ -40,6 +43,7 @@ export class ApiStack extends Stack {
         affiliatesLambda,
         campaignsLambda,
         leadsLambda,
+        dispositionsLambda,
         metricsLambda,
         tenantConfigLambda,
         qaOrchestratorLambda,
@@ -57,7 +61,20 @@ export class ApiStack extends Stack {
       `${config.appPrefix}-ExternalLeadsApiNested`,
       {
         leadsLambda,
+        dispositionsLambda,
         apiConfig: apiConfig.externalLeadsApi,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+
+    this.publicDispositionsEdge = new PublicDispositionsEdgeStack(
+      this,
+      `${config.appPrefix}-PublicDispositionsEdgeNested`,
+      {
+        publicApi: this.externalLeadsApi.api,
+        assetsBucketName: apiConfig.publicDispositionsEdge.assetsBucketName,
+        wafRateLimitPerFiveMinutes:
+          apiConfig.publicDispositionsEdge.rateLimitPerFiveMinutes,
         logicalIdPrefix: config.appPrefix,
       },
     );
@@ -85,6 +102,36 @@ export class ApiStack extends Stack {
       value: this.externalLeadsApi.api.restApiId,
       description: "External Leads API ID",
       exportName: `${config.appPrefix}-ExternalLeadsApiId`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-PublicDispoAssetsBucketName`, {
+      value: this.publicDispositionsEdge.assetsBucket.bucketName,
+      description: "Public dispositions static assets bucket",
+      exportName: `${config.appPrefix}-PublicDispoAssetsBucketName`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-PublicDispoDistributionId`, {
+      value: this.publicDispositionsEdge.distribution.distributionId,
+      description: "Public dispositions CloudFront distribution ID",
+      exportName: `${config.appPrefix}-PublicDispoDistributionId`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-PublicDispoDistributionDomain`, {
+      value: this.publicDispositionsEdge.distribution.distributionDomainName,
+      description: "Public dispositions CloudFront distribution domain name",
+      exportName: `${config.appPrefix}-PublicDispoDistributionDomain`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-PublicDispoApiPathBase`, {
+      value: `${this.externalLeadsApi.api.url}public/dispo/`,
+      description: "Public disposition API path base",
+      exportName: `${config.appPrefix}-PublicDispoApiPathBase`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-PublicDispoApiWebAclArn`, {
+      value: this.publicDispositionsEdge.publicApiWebAcl.attrArn,
+      description: "Public dispositions API WebACL ARN",
+      exportName: `${config.appPrefix}-PublicDispoApiWebAclArn`,
     });
 
     new CfnOutput(this, `${config.appPrefix}-InternalApiCognitoUserPoolId`, {

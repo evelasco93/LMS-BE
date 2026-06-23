@@ -135,6 +135,30 @@ export const servicesConfig: IServicesStackConfig = {
     tableName: nameBuilder.table("leads"),
     tableArn: arnBuilder.dynamoTable(nameBuilder.table("leads")),
   },
+  dispositions: {
+    lambda: {
+      functionName: nameBuilder.lambda("dispositions"),
+      entry: path.join(__dirname, "../../../../handlers/dispositions/main.ts"),
+      handler: "handler",
+      memorySize: 512,
+      timeout: 30,
+      environment: {
+        DISPOSITIONS_TABLE_NAME: nameBuilder.table("dispositions"),
+        DISPOSITION_ROWS_TABLE_NAME: nameBuilder.table("disposition-rows"),
+        PUBLIC_DASHBOARDS_TABLE_NAME: nameBuilder.table("public-dashboards"),
+        LEADS_TABLE_NAME: nameBuilder.table("leads"),
+        CAMPAIGNS_TABLE_NAME: nameBuilder.table("campaigns"),
+        AFFILIATES_TABLE_NAME: nameBuilder.table("affiliates"),
+        PUBLIC_DISPO_INVALIDATION_PATH_PREFIX: "/public/dispo/",
+        PUBLIC_DISPO_DISTRIBUTION_ID:
+          process.env.PUBLIC_DISPO_DISTRIBUTION_ID ?? "",
+        NODE_ENV: "production",
+      },
+      roleName: nameBuilder.role("dispositions-lambda"),
+    },
+    tableName: nameBuilder.table("dispositions"),
+    tableArn: arnBuilder.dynamoTable(nameBuilder.table("dispositions")),
+  },
   metrics: {
     lambda: {
       functionName: nameBuilder.lambda("metrics"),

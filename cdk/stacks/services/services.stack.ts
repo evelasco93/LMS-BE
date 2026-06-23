@@ -17,12 +17,14 @@ import { AuditServiceStack } from "./audit-service.stack";
 import { CherryPickServiceStack } from "./cherry-pick-service.stack";
 import { MetricsDlqStack } from "./metrics-dlq.stack";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
+import { DispositionsServiceStack } from "./dispositions-service.stack";
 
 export class ServicesStack extends Stack {
   public readonly clientsLambda: IFunction;
   public readonly affiliatesLambda: IFunction;
   public readonly campaignsLambda: IFunction;
   public readonly leadsLambda: IFunction;
+  public readonly dispositionsLambda: IFunction;
   public readonly metricsLambda: IFunction;
   public readonly tenantConfigLambda: IFunction;
   public readonly qaOrchestratorLambda: IFunction;
@@ -61,6 +63,17 @@ export class ServicesStack extends Stack {
       },
     );
     this.leadsLambda = leadsServiceStack.lambda;
+
+    const dispositionsServiceStack = new DispositionsServiceStack(
+      this,
+      `${config.appPrefix}-DispositionsService`,
+      {
+        lambdaConfig: servicesConfig.dispositions.lambda,
+        roleName: servicesConfig.dispositions.lambda.roleName,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.dispositionsLambda = dispositionsServiceStack.lambda;
 
     const metricsServiceStack = new MetricsServiceStack(
       this,
@@ -251,6 +264,12 @@ export class ServicesStack extends Stack {
       value: this.leadsLambda.functionArn,
       description: "Leads Lambda Function ARN",
       exportName: `${config.appPrefix}-leads-lambda-arn`,
+    });
+
+    new CfnOutput(this, `${config.appPrefix}-DispositionsLambdaArn`, {
+      value: this.dispositionsLambda.functionArn,
+      description: "Dispositions Lambda Function ARN",
+      exportName: `${config.appPrefix}-dispositions-lambda-arn`,
     });
 
     new CfnOutput(this, `${config.appPrefix}-MetricsLambdaArn`, {

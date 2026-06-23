@@ -35,6 +35,7 @@ import { LeadsRoutes } from "./routes/leads-routes";
 import { MetricsRoutes } from "./routes/metrics-routes";
 import { TenantConfigRoutes } from "./routes/tenant-config-routes";
 import { QaAuditCherryPickRoutes } from "./routes/qa-audit-routes";
+import { DispositionsRoutes } from "./routes/dispositions-routes";
 import * as path from "path";
 
 export interface IInternalApiStackProps extends NestedStackProps {
@@ -42,6 +43,7 @@ export interface IInternalApiStackProps extends NestedStackProps {
   affiliatesLambda: IFunction;
   campaignsLambda: IFunction;
   leadsLambda: IFunction;
+  dispositionsLambda: IFunction;
   metricsLambda: IFunction;
   tenantConfigLambda: IFunction;
   qaOrchestratorLambda: IFunction;
@@ -80,6 +82,7 @@ export class InternalApiStack extends NestedStack {
       affiliatesLambda,
       campaignsLambda,
       leadsLambda,
+      dispositionsLambda,
       metricsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
@@ -330,6 +333,7 @@ export class InternalApiStack extends NestedStack {
       affiliatesLambda,
       campaignsLambda,
       leadsLambda,
+      dispositionsLambda,
       metricsLambda,
       tenantConfigLambda,
       qaOrchestratorLambda,
@@ -462,6 +466,11 @@ export class InternalApiStack extends NestedStack {
     new LeadsRoutes(this, `${logicalIdPrefix}-Leads`, {
       ...sharedProps,
       leadsLambda,
+    });
+
+    new DispositionsRoutes(this, `${logicalIdPrefix}-Dispositions`, {
+      ...sharedProps,
+      dispositionsLambda,
     });
 
     new MetricsRoutes(this, `${logicalIdPrefix}-Metrics`, {

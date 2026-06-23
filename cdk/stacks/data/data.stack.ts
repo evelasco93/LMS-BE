@@ -14,6 +14,7 @@ import { MetricsDataStack } from "./metrics-data.stack";
 import { PresetsDataStack } from "./presets-data.stack";
 import { UserTablePreferencesDataStack } from "./user-table-preferences-data.stack";
 import { PlatformPresetsDataStack } from "./platform-presets-data.stack";
+import { DispositionsDataStack } from "./dispositions-data.stack";
 
 /**
  * Main Data Stack
@@ -41,6 +42,12 @@ export class DataStack extends Stack {
   public readonly userTablePreferencesTable: Table;
   /** Platform-level preset definitions (US States, Yes/No, etc.) */
   public readonly platformPresetsTable: Table;
+  /** Disposition definitions */
+  public readonly dispositionsTable: Table;
+  /** Materialized lead rows for each disposition */
+  public readonly dispositionRowsTable: Table;
+  /** Public dashboard publish records */
+  public readonly publicDashboardsTable: Table;
 
   constructor(scope: Construct, id: string, props: IDataStackProps) {
     super(scope, id, props);
@@ -77,8 +84,7 @@ export class DataStack extends Stack {
       `${config.appPrefix}-CampaignsData`,
       {
         tableConfig: dataConfig.tables.campaigns,
-        dashboardWidgetsTableConfig:
-          dataConfig.tables.campaignDashboardWidgets,
+        dashboardWidgetsTableConfig: dataConfig.tables.campaignDashboardWidgets,
         removalPolicy: statefulRemovalPolicy,
         logicalIdPrefix: config.appPrefix,
       },
@@ -180,6 +186,21 @@ export class DataStack extends Stack {
       },
     );
     this.platformPresetsTable = platformPresetsDataStack.table;
+
+    const dispositionsDataStack = new DispositionsDataStack(
+      this,
+      `${config.appPrefix}-DispositionsData`,
+      {
+        dispositionsTableConfig: dataConfig.tables.dispositions,
+        dispositionRowsTableConfig: dataConfig.tables.dispositionRows,
+        publicDashboardsTableConfig: dataConfig.tables.publicDashboards,
+        removalPolicy: statefulRemovalPolicy,
+        logicalIdPrefix: config.appPrefix,
+      },
+    );
+    this.dispositionsTable = dispositionsDataStack.dispositionsTable;
+    this.dispositionRowsTable = dispositionsDataStack.dispositionRowsTable;
+    this.publicDashboardsTable = dispositionsDataStack.publicDashboardsTable;
 
     new CfnOutput(this, `${config.appPrefix}-TenantSettingsTableName`, {
       value: this.tenantSettingsTable.tableName,

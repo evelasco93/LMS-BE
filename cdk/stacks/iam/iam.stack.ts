@@ -30,6 +30,7 @@ export class IamStack extends Stack {
   public readonly usersLambdaRole: Role;
   public readonly auditLambdaRole: Role;
   public readonly cherryPickLambdaRole: Role;
+  public readonly dispositionsLambdaRole: Role;
   public readonly metricsDlqRetryLambdaRole: Role;
 
   constructor(scope: Construct, id: string, props: IIamStackProps) {
@@ -129,6 +130,11 @@ export class IamStack extends Stack {
     this.cherryPickLambdaRole = this.createRole(
       `${config.appPrefix}-CherryPickLambdaRole`,
       iamConfig.lambdaRoles.cherryPick,
+    );
+
+    this.dispositionsLambdaRole = this.createRole(
+      `${config.appPrefix}-DispositionsLambdaRole`,
+      iamConfig.lambdaRoles.dispositions,
     );
 
     // CR-001: Create Metrics DLQ Retry Consumer Lambda Role

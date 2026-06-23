@@ -56,6 +56,7 @@ const apiStack = new ApiStack(app, `${baseConfig.appPrefix}-ApiStack`, {
   affiliatesLambda: servicesStack.affiliatesLambda,
   campaignsLambda: servicesStack.campaignsLambda,
   leadsLambda: servicesStack.leadsLambda,
+  dispositionsLambda: servicesStack.dispositionsLambda,
   metricsLambda: servicesStack.metricsLambda,
   tenantConfigLambda: servicesStack.tenantConfigLambda,
   qaOrchestratorLambda: servicesStack.qaOrchestratorLambda,

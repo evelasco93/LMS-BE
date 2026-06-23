@@ -23,4 +23,12 @@ export const apiConfig: IApiStackConfig = {
     rateLimitPerSecond: Number(process.env.EXTERNAL_LEADS_RATE_LIMIT || 100),
     burstLimit: Number(process.env.EXTERNAL_LEADS_BURST_LIMIT || 200),
   },
+  publicDispositionsEdge: {
+    assetsBucketName:
+      process.env.PUBLIC_DISPO_ASSETS_BUCKET_NAME ??
+      `${nameBuilder.table("public-dispo-assets")}`.toLowerCase(),
+    rateLimitPerFiveMinutes: Number(
+      process.env.PUBLIC_DISPO_WAF_RATE_LIMIT || 2000,
+    ),
+  },
 };

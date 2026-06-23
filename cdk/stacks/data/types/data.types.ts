@@ -56,6 +56,12 @@ export interface IDataStackConfig {
     userTablePreferences: ITableConfig;
     /** Platform-wide presets (field sets, rule sets, etc.) by scope */
     platformPresets: ITableConfig;
+    /** Disposition definitions keyed by id */
+    dispositions: ITableConfig;
+    /** Disposition row materialization keyed by disposition_id + lead_id */
+    dispositionRows: ITableConfig;
+    /** Public dashboard configs keyed by disposition id */
+    publicDashboards: ITableConfig;
   };
   /** S3 bucket name for daily audit log NDJSON exports (Athena-queryable) */
   auditLogsBucketName: string;

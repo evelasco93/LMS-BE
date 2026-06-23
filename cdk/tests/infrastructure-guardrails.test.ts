@@ -1,6 +1,7 @@
 import { App, NestedStack, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { Function, Runtime, Code } from "aws-cdk-lib/aws-lambda";
+import { RestApi } from "aws-cdk-lib/aws-apigateway";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ORIGINAL_ENV = process.env;
@@ -81,9 +82,17 @@ describe("CDK infrastructure guardrails", () => {
         "exports.handler = async () => ({ statusCode: 200 });",
       ),
     });
+    const dispositionsLambda = new Function(stack, "DispositionsLambda", {
+      runtime: Runtime.NODEJS_22_X,
+      handler: "index.handler",
+      code: Code.fromInline(
+        "exports.handler = async () => ({ statusCode: 200 });",
+      ),
+    });
 
     new ExternalLeadsApiStack(stack, "ExternalLeadsApi", {
       leadsLambda,
+      dispositionsLambda,
       logicalIdPrefix: "acme-lms-prod",
       apiConfig: {
         name: "acme-external-leads-api",
@@ -103,6 +112,98 @@ describe("CDK infrastructure guardrails", () => {
         }),
       ]),
     });
+  });
+
+  it("wires unauthenticated public dispo route to dispositions handler", async () => {
+    const { ExternalLeadsApiStack } =
+      await import("../stacks/api/external-leads-api.stack");
+
+    const app = new App();
+    const stack = new Stack(app, "TestApiStackPublicDispo");
+
+    const leadsLambda = new Function(stack, "LeadsLambda", {
+      runtime: Runtime.NODEJS_22_X,
+      handler: "index.handler",
+      code: Code.fromInline(
+        "exports.handler = async () => ({ statusCode: 200 });",
+      ),
+    });
+    const dispositionsLambda = new Function(stack, "DispositionsLambda", {
+      runtime: Runtime.NODEJS_22_X,
+      handler: "index.handler",
+      code: Code.fromInline(
+        "exports.handler = async () => ({ statusCode: 200 });",
+      ),
+    });
+
+    new ExternalLeadsApiStack(stack, "ExternalLeadsApi", {
+      leadsLambda,
+      dispositionsLambda,
+      logicalIdPrefix: "acme-lms-prod",
+      apiConfig: {
+        name: "acme-external-leads-api",
+        description: "External leads intake API",
+        stageName: "prod",
+        rateLimitPerSecond: 42,
+        burstLimit: 84,
+      },
+    });
+
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::ApiGateway::Method", {
+      HttpMethod: "GET",
+      AuthorizationType: "NONE",
+    });
+    expect(template.toJSON()).toMatchSnapshot();
+  });
+
+  it("creates public dispositions edge resources with OAC-compatible private S3 and API WAF", async () => {
+    const { PublicDispositionsEdgeStack } =
+      await import("../stacks/api/public-dispositions-edge.stack");
+
+    const app = new App();
+    const stack = new Stack(app, "TestPublicDispoEdge");
+    const publicApi = new RestApi(stack, "PublicApi", {
+      deployOptions: { stageName: "staging" },
+    });
+
+    new PublicDispositionsEdgeStack(stack, "PublicDispoEdge", {
+      publicApi,
+      assetsBucketName: "acme-lms-public-dispo-assets-staging",
+      wafRateLimitPerFiveMinutes: 1234,
+      logicalIdPrefix: "acme-lms-staging",
+    });
+
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        DefaultRootObject: "index.html",
+        CustomErrorResponses: Match.arrayWith([
+          Match.objectLike({ ErrorCode: 403, ResponseCode: 200 }),
+          Match.objectLike({ ErrorCode: 404, ResponseCode: 200 }),
+        ]),
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({ PathPattern: "public/dispo/*" }),
+        ]),
+      }),
+    });
+    template.hasResourceProperties("AWS::WAFv2::WebACL", {
+      Scope: "REGIONAL",
+      Rules: Match.arrayWith([
+        Match.objectLike({ Name: "AWSManagedCommonRuleSet" }),
+        Match.objectLike({ Name: "RateLimitByIp" }),
+      ]),
+    });
+    template.resourceCountIs("AWS::WAFv2::WebACLAssociation", 1);
+    expect(template.toJSON()).toMatchSnapshot();
   });
 
   // ── CR-001 guardrails ───────────────────────────────────────────────────────
@@ -173,6 +274,39 @@ describe("CDK infrastructure guardrails", () => {
     const env = servicesConfig.campaigns.lambda.environment ?? {};
 
     expect(env.METRICS_TABLE_NAME).toMatch(/-metrics-staging$/);
+  });
+
+  it("dispositions config exposes new table contracts", async () => {
+    process.env.ENVIRONMENT = "staging";
+    process.env.TENANT = "acme";
+    process.env.CREDENTIALS_ENCRYPTION_KEY = "test-key";
+
+    const { dataConfig } = await import("../stacks/data/config/data.config");
+    expect(dataConfig.tables.dispositions.tableName).toMatch(
+      /-dispositions-staging$/,
+    );
+    expect(dataConfig.tables.dispositionRows.sortKey?.name).toBe("lead_id");
+    expect(dataConfig.tables.publicDashboards.gsi?.[0].partitionKey.name).toBe(
+      "uuid",
+    );
+  });
+
+  it("dispositions lambda env includes public dashboard contracts", async () => {
+    process.env.ENVIRONMENT = "staging";
+    process.env.TENANT = "acme";
+    process.env.CREDENTIALS_ENCRYPTION_KEY = "test-key";
+
+    const { servicesConfig } =
+      await import("../stacks/services/config/services.config");
+    const env = servicesConfig.dispositions.lambda.environment ?? {};
+    expect(env.DISPOSITIONS_TABLE_NAME).toMatch(/-dispositions-staging$/);
+    expect(env.DISPOSITION_ROWS_TABLE_NAME).toMatch(
+      /-disposition-rows-staging$/,
+    );
+    expect(env.PUBLIC_DASHBOARDS_TABLE_NAME).toMatch(
+      /-public-dashboards-staging$/,
+    );
+    expect(env.PUBLIC_DISPO_INVALIDATION_PATH_PREFIX).toBe("/public/dispo/");
   });
 
   it("leads lambda env exposes global created_at index metadata", async () => {

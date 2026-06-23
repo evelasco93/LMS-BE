@@ -34,6 +34,15 @@ const userTablePreferencesTableArn = arnBuilder.dynamoTable(
 const platformPresetsTableArn = arnBuilder.dynamoTable(
   platformNameBuilder.table("platform-presets"),
 );
+const dispositionsTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("dispositions"),
+);
+const dispositionRowsTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("disposition-rows"),
+);
+const publicDashboardsTableArn = arnBuilder.dynamoTable(
+  nameBuilder.table("public-dashboards"),
+);
 
 // ── Lambda ARNs ───────────────────────────────────────────────────────────────
 const qaOrchestratorArn = arnBuilder.lambda(
@@ -236,6 +245,8 @@ export const iamConfig: IIamStackConfig = {
             `${leadsTableArn}/index/*`,
             campaignsTableArn,
             `${campaignsTableArn}/index/*`,
+            affiliatesTableArn,
+            `${affiliatesTableArn}/index/*`,
           ],
         },
         {
@@ -572,6 +583,73 @@ export const iamConfig: IIamStackConfig = {
           name: "MetricsDlqSend",
           actions: ["sqs:SendMessage", "sqs:GetQueueUrl"],
           resources: [metricsDlqArn],
+        },
+      ],
+    },
+    dispositions: {
+      name: nameBuilder.role("dispositions-lambda"),
+      description: "Execution role for Dispositions Lambda",
+      servicePrincipal: "lambda.amazonaws.com",
+      managedPolicies: ["service-role/AWSLambdaBasicExecutionRole"],
+      inlinePolicies: [
+        {
+          name: "DispositionsCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:Scan",
+            "dynamodb:Query",
+          ],
+          resources: [dispositionsTableArn, `${dispositionsTableArn}/index/*`],
+        },
+        {
+          name: "DispositionRowsCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:Scan",
+            "dynamodb:Query",
+          ],
+          resources: [
+            dispositionRowsTableArn,
+            `${dispositionRowsTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "PublicDashboardsCrud",
+          actions: [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:DeleteItem",
+            "dynamodb:Scan",
+            "dynamodb:Query",
+          ],
+          resources: [
+            publicDashboardsTableArn,
+            `${publicDashboardsTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "LeadsRead",
+          actions: ["dynamodb:GetItem", "dynamodb:Scan", "dynamodb:Query"],
+          resources: [
+            leadsTableArn,
+            `${leadsTableArn}/index/*`,
+            campaignsTableArn,
+            `${campaignsTableArn}/index/*`,
+            affiliatesTableArn,
+            `${affiliatesTableArn}/index/*`,
+          ],
+        },
+        {
+          name: "PublicDashboardInvalidationContract",
+          actions: ["cloudfront:CreateInvalidation"],
+          resources: ["*"],
         },
       ],
     },
